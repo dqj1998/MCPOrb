@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCPOrb Dashboard</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+    header{background:#1e293b;border-bottom:1px solid #334155;padding:1rem 2rem;display:flex;align-items:center;gap:1rem}
+    header h1{font-size:1.25rem;font-weight:700;color:#38bdf8}
+    .badge{background:#0ea5e9;color:#fff;font-size:.7rem;padding:.2rem .5rem;border-radius:9999px;font-weight:600}
+    main{padding:2rem;max-width:1100px;margin:0 auto}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem}
+    .card h2{font-size:1rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem}
+    .stat{background:#0f172a;border-radius:.5rem;padding:1rem;text-align:center}
+    .stat .val{font-size:2rem;font-weight:700;color:#38bdf8}
+    .stat .lbl{font-size:.75rem;color:#64748b;margin-top:.25rem}
+    .search-row{display:flex;gap:.75rem;margin-bottom:1rem}
+    .search-row input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.6rem 1rem;color:#e2e8f0;font-size:.9rem;outline:none}
+    .search-row input:focus{border-color:#38bdf8}
+    .search-row button{background:#0ea5e9;color:#fff;border:none;border-radius:.5rem;padding:.6rem 1.25rem;cursor:pointer;font-weight:600}
+    .search-row button:hover{background:#0284c7}
+    .hit{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:1rem;margin-bottom:.75rem}
+    .hit .meta{font-size:.75rem;color:#64748b;margin-bottom:.5rem}
+    .hit .text{font-size:.85rem;line-height:1.6;color:#cbd5e1;white-space:pre-wrap}
+    .doc-list{list-style:none}
+    .doc-list li{padding:.5rem 0;border-bottom:1px solid #1e293b;font-size:.9rem;color:#94a3b8}
+    #status{font-size:.8rem;color:#64748b;margin-top:.5rem}
+  </style>
+</head>
+<body>
+<header>
+  <h1 id="orb-name">MCPOrb</h1>
+  <span class="badge" id="mode-badge">loading...</span>
+</header>
+<main>
+  <div class="card">
+    <h2>Overview</h2>
+    <div class="stat-grid">
+      <div class="stat"><div class="val" id="stat-chunks">—</div><div class="lbl">Chunks</div></div>
+      <div class="stat"><div class="val" id="stat-docs">—</div><div class="lbl">Documents</div></div>
+      <div class="stat"><div class="val" id="stat-mcp">—</div><div class="lbl">MCP Requests</div></div>
+      <div class="stat"><div class="val" id="stat-searches">—</div><div class="lbl">Searches</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Search</h2>
+    <div class="search-row">
+      <input id="query" type="text" placeholder="Enter search query..." onkeydown="if(event.key==='Enter')doSearch()" />
+      <button onclick="doSearch()">Search</button>
+    </div>
+    <div id="status"></div>
+    <div id="results"></div>
+  </div>
+  <div class="card">
+    <h2>Documents</h2>
+    <ul class="doc-list" id="doc-list"><li>Loading...</li></ul>
+  </div>
+</main>
+<script type="module">
+  // Detect base URL from current path (token is the first path segment)
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const token = pathParts[0] || '';
+  const base = `/${token}/api`;
+
+  async function loadManifest() {
+    const r = await fetch(`${base}/manifest`);
+    const d = await r.json();
+    document.getElementById('orb-name').textContent = d.name;
+    document.getElementById('mode-badge').textContent = d.startup_mode;
+    document.getElementById('stat-chunks').textContent = d.chunk_count;
+    document.title = `MCPOrb — ${d.name}`;
+  }
+
+  async function loadDocuments() {
+    const r = await fetch(`${base}/documents`);
+    const d = await r.json();
+    const list = document.getElementById('doc-list');
+    list.innerHTML = '';
+    document.getElementById('stat-docs').textContent = d.documents.length;
+    if (d.documents.length === 0) {
+      list.innerHTML = '<li>No documents loaded.</li>';
+      return;
+    }
+    d.documents.forEach(doc => {
+      const li = document.createElement('li');
+      li.textContent = `${doc.title} — ${doc.section_count} sections${doc.page_count ? `, ${doc.page_count} pages` : ''}`;
+      list.appendChild(li);
+    });
+  }
+
+  async function loadMetrics() {
+    const r = await fetch(`${base}/metrics`);
+    const d = await r.json();
+    document.getElementById('stat-mcp').textContent = d.mcp_request_count;
+    document.getElementById('stat-searches').textContent = d.search_count;
+  }
+
+  window.doSearch = async function() {
+    const query = document.getElementById('query').value.trim();
+    if (!query) return;
+    const status = document.getElementById('status');
+    const results = document.getElementById('results');
+    status.textContent = 'Searching…';
+    results.innerHTML = '';
+    try {
+      const r = await fetch(`${base}/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, top_k: 10 }),
+      });
+      const d = await r.json();
+      status.textContent = `${d.total} result(s) for "${d.query}"`;
+      if (d.hits.length === 0) {
+        results.innerHTML = '<p style="color:#64748b;font-size:.9rem">No results found.</p>';
+        return;
+      }
+      d.hits.forEach(hit => {
+        const div = document.createElement('div');
+        div.className = 'hit';
+        div.innerHTML = `
+          <div class="meta">Score: ${hit.score} · Page: ${hit.page ?? '—'} · Tokens: ${hit.token_count} · Chunk #${hit.chunk_id}</div>
+          <div class="text">${escapeHtml(hit.text)}</div>
+        `;
+        results.appendChild(div);
+      });
+      await loadMetrics();
+    } catch (e) {
+      status.textContent = `Error: ${e.message}`;
+    }
+  };
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Initial load
+  Promise.all([loadManifest(), loadDocuments(), loadMetrics()]).catch(console.error);
+
+  // Refresh metrics every 5 seconds
+  setInterval(loadMetrics, 5000);
+</script>
+</body>
+</html>

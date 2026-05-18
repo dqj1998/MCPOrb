@@ -1,0 +1,15 @@
+[[queries]]
+query = "model driven architecture"
+min_hits = 1
+
+[[queries]]
+query = "platform independent model"
+min_hits = 1
+
+[[queries]]
+query = "computation independent model"
+min_hits = 1
+
+[[queries]]
+query = "MDA guide overview"
+min_hits = 1

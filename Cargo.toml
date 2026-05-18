@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/mcporb-core",
+    "crates/mcporb-cli",
+    "crates/mcporb-runtime",
+    "crates/mcporb-wizard-gui",
+    "crates/mcporb-size-spike",
+]
+resolver = "2"
+
+[workspace.dependencies]
+rmcp = { version = "0.1", features = ["server"] }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["alloc"] }
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webbrowser = "1"
+rand = "0.8"
+tower-http = { version = "0.6", features = ["trace"] }
+clap = { version = "4", features = ["derive"] }
+unicode-segmentation = "1"
+pdf-extract = "0.7"
+lopdf = "0.34"
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+opt-level = "z"
