@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
+use mcporb_runtime_core::bm25_search;
 use serde_json::{json, Value};
 use crate::state::SharedState;
-use mcporb_core::bm25_search;
 
 pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
     tracing::info!("MCP stdio loop started");

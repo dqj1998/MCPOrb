@@ -2,9 +2,9 @@ use axum::{
     extract::State,
     response::Json,
 };
+use mcporb_runtime_core::bm25_search;
 use serde_json::{json, Value};
 use crate::state::SharedState;
-use mcporb_core::bm25_search;
 
 pub async fn get_manifest(State(state): State<SharedState>) -> Json<Value> {
     Json(json!({

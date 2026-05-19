@@ -9,7 +9,7 @@ name = "mcporb-runtime"
 path = "src/main.rs"
 
 [dependencies]
-mcporb-core = { path = "../mcporb-core" }
+mcporb-runtime-core = { path = "../mcporb-runtime-core" }
 axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

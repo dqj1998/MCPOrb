@@ -1,60 +1,30 @@
 # MCPOrb
 
-A single-binary, self-contained MCP capability package ecosystem.
+A runtime-only repository for packaged MCP Orbs.
 
-Turn a PDF or Markdown knowledge base into a standalone executable Orb that:
+This repository owns the runtime that powers a standalone Orb executable:
 - Exposes a **MCP Server** (stdio JSON-RPC) for AI clients like Claude Desktop, Cursor, VS Code
 - Serves a **local Web UI** at `http://127.0.0.1:<port>/<token>/` for human inspection
-- Provides **BM25 full-text search** over the embedded knowledge base
+- Loads Orb assets produced elsewhere and serves BM25-based retrieval at runtime
+
+Builder-side code now lives in the sibling `../MCPOrbBuilder` repository.
+Shared plans, fixtures, and reports live in `../MCPOrbEtc`.
 
 ## Quick Start
 
 ```bash
-# Build an Orb from a PDF
-cargo run -p mcporb-cli -- build mda-orb/00-2_MDA_Guide_v1.0.1.pdf --name mda-guide
-
-# Inspect the built Orb
-cargo run -p mcporb-cli -- inspect target/orbs/mda-guide
-
-# Test BM25 search directly
-cargo run -p mcporb-cli -- test-query target/orbs/mda-guide "model driven architecture"
-
-# Launch the Orb with Web UI (opens browser)
+# Build the runtime
 cargo build -p mcporb-runtime
-cargo run -p mcporb-cli -- run target/orbs/mda-guide --open
 
-# Or run the runtime directly
+# Run the runtime directly against an Orb assets directory
 cargo run -p mcporb-runtime -- --assets target/orbs/mda-guide --gui-only --open
 ```
 
-## Single-File Orb Release
+To build, inspect, or package Orbs, use the sibling `MCPOrbBuilder` repository.
 
-If you want a single distributable file that contains both the runtime and the Orb data, use the `package` command.
+## Packaged Orb Release
 
-### Build the single-file Orb
-
-```bash
-# 1) Build the Orb assets directory
-cargo run -p mcporb-cli -- build mda-orb/00-2_MDA_Guide_v1.0.1.pdf --name mda-guide
-
-# 2) Package runtime + assets into one executable
-cargo run -p mcporb-cli -- package target/orbs/mda-guide
-```
-
-This produces:
-
-```text
-target/orbs/mda-guide.orb
-```
-
-That file is the distributable artifact. It already contains:
-
-- MCP runtime
-- Web UI assets
-- Orb manifest
-- document metadata
-- chunk data
-- BM25 index
+The packaged `.orb` file is still the preferred distributable artifact. It is produced by `MCPOrbBuilder`, but executed by the runtime in this repository.
 
 ### Run the packaged Orb
 
@@ -112,11 +82,11 @@ When an Orb runs with `--stdio-gui`, MCP clients should call the `get_web_ui_url
 ```
 MCPOrb/
 ├── crates/
-│   ├── mcporb-core/        # Document import, chunking, BM25 index, serialization
-│   ├── mcporb-cli/         # CLI: build, inspect, list, run, test-query
-│   ├── mcporb-runtime/     # Orb runtime: MCP stdio + axum Web UI
-│   └── mcporb-wizard-gui/  # Tauri wizard GUI (v0.4+, scaffold only)
-└── mda-orb/                # Sample PDF: MDA Guide v1.0.1
+│   ├── mcporb-runtime/        # Orb runtime: MCP stdio + axum Web UI
+│   ├── mcporb-runtime-core/   # Runtime-only data contracts and BM25 query logic
+│   └── mcporb-size-spike/     # Runtime binary size spike
+├── public-orb/                # Published showcase Orb artifacts and collateral
+└── scripts/
 ```
 
 ## Startup Modes
@@ -143,5 +113,11 @@ Check: `bash scripts/check-binary-size.sh`
 ```bash
 cargo check --workspace
 cargo test --workspace
-cargo bench -p mcporb-core
+cargo build -p mcporb-runtime --release
 ```
+
+## Public Orb
+
+Selected showcase Orbs should be published under `public-orb/`.
+This directory is intentionally kept in the runtime repository so public Orb releases can ship alongside the runtime brand.
+

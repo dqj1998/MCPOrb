@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest};
 use tokio::sync::RwLock;
-use mcporb_core::{OrbManifest, Chunk, Document, format::Bm25Index};
 
 #[derive(Debug, Default)]
 pub struct Metrics {

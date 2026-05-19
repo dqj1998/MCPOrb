@@ -1,9 +1,7 @@
 [workspace]
 members = [
-    "crates/mcporb-core",
-    "crates/mcporb-cli",
     "crates/mcporb-runtime",
-    "crates/mcporb-wizard-gui",
+    "crates/mcporb-runtime-core",
     "crates/mcporb-size-spike",
 ]
 resolver = "2"

@@ -10,9 +10,9 @@ mod embedded_orb {
 }
 
 use clap::Parser;
+use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest};
 use startup::{detect_startup, StartupMode};
 use state::OrbState;
-use mcporb_core::{OrbManifest, Chunk, Document, format::Bm25Index};
 
 fn load_orb_data(assets_path: &std::path::Path) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, Bm25Index)> {
     let manifest_json = std::fs::read(assets_path.join("orb_manifest.json"))?;

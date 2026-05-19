@@ -46,7 +46,7 @@ pub struct Chunk {
 pub struct Bm25Index {
     pub doc_count: usize,
     pub avg_doc_len: f32,
-    pub vocab: std::collections::HashMap<String, u32>, // term -> term_id
-    pub postings: Vec<Vec<(u32, f32)>>,                // term_id -> [(chunk_id, tf)]
-    pub doc_lengths: Vec<usize>,                        // chunk_id -> length in tokens
+    pub vocab: std::collections::HashMap<String, u32>,
+    pub postings: Vec<Vec<(u32, f32)>>,
+    pub doc_lengths: Vec<usize>,
 }
