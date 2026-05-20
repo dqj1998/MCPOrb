@@ -10,19 +10,31 @@ mod embedded_orb {
 }
 
 use clap::Parser;
-use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest};
+use mcporb_runtime_core::format::Capability;
+use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest, SearchRuntime, TfIdfIndex, TrigramIndex};
 use startup::{detect_startup, StartupMode};
 use state::OrbState;
 
-fn load_orb_data(assets_path: &std::path::Path) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, Bm25Index)> {
+fn load_orb_data(
+    assets_path: &std::path::Path,
+) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
     let manifest_json = std::fs::read(assets_path.join("orb_manifest.json"))?;
     let docs_bytes = std::fs::read(assets_path.join("documents.postcard"))?;
     let chunks_bytes = std::fs::read(assets_path.join("chunks.postcard"))?;
     let index_bytes = std::fs::read(assets_path.join("bm25_index.postcard"))?;
-    load_orb_data_from_bytes(&manifest_json, &docs_bytes, &chunks_bytes, &index_bytes)
+    let tfidf_bytes = read_optional_asset(assets_path.join("tfidf_index.postcard"))?;
+    let trigram_bytes = read_optional_asset(assets_path.join("trigram_index.postcard"))?;
+    load_orb_data_from_bytes(
+        &manifest_json,
+        &docs_bytes,
+        &chunks_bytes,
+        &index_bytes,
+        tfidf_bytes.as_deref(),
+        trigram_bytes.as_deref(),
+    )
 }
 
-fn load_embedded_orb_data() -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, Bm25Index)> {
+fn load_embedded_orb_data() -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
     anyhow::ensure!(embedded_orb::HAS_EMBEDDED_ORB, "no embedded orb assets were compiled into this binary");
 
     load_orb_data_from_bytes(
@@ -30,6 +42,16 @@ fn load_embedded_orb_data() -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<C
         embedded_orb::EMBEDDED_DOCUMENTS,
         embedded_orb::EMBEDDED_CHUNKS,
         embedded_orb::EMBEDDED_INDEX,
+        if embedded_orb::EMBEDDED_TFIDF_INDEX.is_empty() {
+            None
+        } else {
+            Some(embedded_orb::EMBEDDED_TFIDF_INDEX)
+        },
+        if embedded_orb::EMBEDDED_TRIGRAM_INDEX.is_empty() {
+            None
+        } else {
+            Some(embedded_orb::EMBEDDED_TRIGRAM_INDEX)
+        },
     )
 }
 
@@ -38,28 +60,63 @@ fn load_orb_data_from_bytes(
     docs_bytes: &[u8],
     chunks_bytes: &[u8],
     index_bytes: &[u8],
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, Bm25Index)> {
+    tfidf_bytes: Option<&[u8]>,
+    trigram_bytes: Option<&[u8]>,
+) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
     let manifest: OrbManifest = serde_json::from_slice(manifest_json)?;
     let documents: Vec<Document> = postcard::from_bytes(docs_bytes)?;
     let chunks: Vec<Chunk> = postcard::from_bytes(chunks_bytes)?;
     let index: Bm25Index = postcard::from_bytes(index_bytes)?;
-    Ok((manifest, documents, chunks, index))
+    let tfidf = load_optional_index::<TfIdfIndex>(&manifest, Capability::TfIdf, tfidf_bytes)?;
+    let trigram = load_optional_index::<TrigramIndex>(&manifest, Capability::Trigram, trigram_bytes)?;
+    let search = SearchRuntime {
+        bm25: index,
+        tfidf,
+        trigram,
+        dense_tier: manifest.selected_retrieval_plan.clone(),
+    };
+    Ok((manifest, documents, chunks, search))
 }
 
-fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, Bm25Index) {
+fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
+    use mcporb_runtime_core::format::{Capability, RetrievalPlanKind};
     let manifest = OrbManifest {
         name: "demo-orb".to_string(),
         version: "0.1.0".to_string(),
         description: "Demo Orb — no assets loaded".to_string(),
-        orb_format_version: "0.1".to_string(),
+        orb_format_version: "0.2".to_string(),
         mcp_protocol_version: "2024-11-05".to_string(),
         build_time: "unknown".to_string(),
         source_documents: vec![],
         chunk_count: 0,
-        index_format_version: "0.1".to_string(),
+        index_format_version: "0.2".to_string(),
         binary_size_target_mb: 15,
+        selected_retrieval_plan: RetrievalPlanKind::Bm25Only,
+        enabled_capabilities: vec![Capability::Bm25],
+        planning_rationale: vec!["Demo mode — no assets loaded.".to_string()],
     };
-    (manifest, vec![], vec![], Bm25Index::default())
+    (
+        manifest,
+        vec![],
+        vec![],
+        SearchRuntime {
+            bm25: Bm25Index::default(),
+            tfidf: None,
+            trigram: None,
+            dense_tier: RetrievalPlanKind::Bm25Only,
+        },
+    )
+}
+
+fn detect_orb_binary_path(config: &startup::StartupConfig) -> Option<String> {
+    if config.assets_path.is_some() || !embedded_orb::HAS_EMBEDDED_ORB {
+        return None;
+    }
+
+    std::env::current_exe()
+        .ok()
+        .map(|path| path.canonicalize().unwrap_or(path))
+        .map(|path| path.display().to_string())
 }
 
 #[tokio::main]
@@ -71,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(mode = ?config.mode, "MCPOrb runtime starting");
 
-    let (manifest, documents, chunks, index) = if let Some(ref p) = config.assets_path {
+    let (manifest, documents, chunks, search) = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
     } else if embedded_orb::HAS_EMBEDDED_ORB {
         load_embedded_orb_data()?
@@ -80,15 +137,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mode_str = format!("{:?}", config.mode);
+    let orb_binary_path = detect_orb_binary_path(&config);
 
     match config.mode {
         StartupMode::StdioOnly => {
-            let state = OrbState::new(manifest, documents, chunks, index, mode_str, None);
+            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
             mcp_handler::run_stdio_loop(state).await?;
         }
         StartupMode::GuiOnly => {
             let token = web_server::generate_token();
-            let state = OrbState::new(manifest, documents, chunks, index, mode_str, None);
+            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
             let (addr, server_handle) = web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());
@@ -102,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
         }
         StartupMode::StdioGui => {
             let token = web_server::generate_token();
-            let state = OrbState::new(manifest, documents, chunks, index, mode_str, None);
+            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
             let (addr, server_handle) = web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());
@@ -127,4 +185,33 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = std::fs::remove_file(std::env::temp_dir().join("mcporb").join("orb.url"));
     Ok(())
+}
+
+fn read_optional_asset(path: std::path::PathBuf) -> anyhow::Result<Option<Vec<u8>>> {
+    if path.exists() {
+        Ok(Some(std::fs::read(path)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn load_optional_index<T>(
+    manifest: &OrbManifest,
+    capability: Capability,
+    bytes: Option<&[u8]>,
+) -> anyhow::Result<Option<T>>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
+    let capability_enabled = manifest
+        .enabled_capabilities
+        .iter()
+        .any(|value| *value == capability);
+
+    match (capability_enabled, bytes) {
+        (true, Some(bytes)) => Ok(Some(postcard::from_bytes(bytes)?)),
+        (true, None) => anyhow::bail!("missing asset for enabled capability {:?}", capability),
+        (false, Some(bytes)) => Ok(Some(postcard::from_bytes(bytes)?)),
+        (false, None) => Ok(None),
+    }
 }

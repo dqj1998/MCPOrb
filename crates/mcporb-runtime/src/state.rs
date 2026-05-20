@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest};
+use mcporb_runtime_core::{Chunk, Document, OrbManifest, SearchRuntime};
 use tokio::sync::RwLock;
 
 #[derive(Debug, Default)]
@@ -12,9 +12,10 @@ pub struct OrbState {
     pub manifest: OrbManifest,
     pub documents: Vec<Document>,
     pub chunks: Vec<Chunk>,
-    pub index: Bm25Index,
+    pub search: SearchRuntime,
     pub metrics: RwLock<Metrics>,
     pub startup_mode: String,
+    pub orb_binary_path: Option<String>,
     pub gui_url: RwLock<Option<String>>,
 }
 
@@ -25,17 +26,19 @@ impl OrbState {
         manifest: OrbManifest,
         documents: Vec<Document>,
         chunks: Vec<Chunk>,
-        index: Bm25Index,
+        search: SearchRuntime,
         startup_mode: String,
+        orb_binary_path: Option<String>,
         gui_url: Option<String>,
     ) -> SharedState {
         Arc::new(OrbState {
             manifest,
             documents,
             chunks,
-            index,
+            search,
             metrics: RwLock::new(Metrics::default()),
             startup_mode,
+            orb_binary_path,
             gui_url: RwLock::new(gui_url),
         })
     }

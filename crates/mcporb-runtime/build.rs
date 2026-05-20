@@ -18,6 +18,8 @@ fn main() {
     let documents = assets_dir.join("documents.postcard");
     let chunks = assets_dir.join("chunks.postcard");
     let index = assets_dir.join("bm25_index.postcard");
+    let tfidf = assets_dir.join("tfidf_index.postcard");
+    let trigram = assets_dir.join("trigram_index.postcard");
 
     for path in [&manifest, &documents, &chunks, &index] {
         if !path.exists() {
@@ -31,11 +33,15 @@ fn main() {
 pub const EMBEDDED_MANIFEST_JSON: &[u8] = include_bytes!({manifest});\n\
 pub const EMBEDDED_DOCUMENTS: &[u8] = include_bytes!({documents});\n\
 pub const EMBEDDED_CHUNKS: &[u8] = include_bytes!({chunks});\n\
-pub const EMBEDDED_INDEX: &[u8] = include_bytes!({index});\n",
+pub const EMBEDDED_INDEX: &[u8] = include_bytes!({index});\n\
+pub const EMBEDDED_TFIDF_INDEX: &[u8] = {tfidf};\n\
+pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = {trigram};\n",
         manifest = quoted_path(&manifest),
         documents = quoted_path(&documents),
         chunks = quoted_path(&chunks),
         index = quoted_path(&index),
+        tfidf = optional_include_bytes(&tfidf),
+        trigram = optional_include_bytes(&trigram),
     );
 
     fs::write(dest, source).expect("failed to write embedded_orb.rs");
@@ -46,10 +52,20 @@ fn write_stub(dest: &Path) {
 pub const EMBEDDED_MANIFEST_JSON: &[u8] = &[];\n\
 pub const EMBEDDED_DOCUMENTS: &[u8] = &[];\n\
 pub const EMBEDDED_CHUNKS: &[u8] = &[];\n\
-pub const EMBEDDED_INDEX: &[u8] = &[];\n";
+pub const EMBEDDED_INDEX: &[u8] = &[];\n\
+pub const EMBEDDED_TFIDF_INDEX: &[u8] = &[];\n\
+pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = &[];\n";
     fs::write(dest, source).expect("failed to write embedded_orb.rs");
 }
 
 fn quoted_path(path: &Path) -> String {
     format!("{:?}", path.to_string_lossy())
+}
+
+fn optional_include_bytes(path: &Path) -> String {
+    if path.exists() {
+        format!("include_bytes!({})", quoted_path(path))
+    } else {
+        "&[]".to_string()
+    }
 }

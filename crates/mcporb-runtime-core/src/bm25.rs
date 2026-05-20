@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::format::Bm25Index;
+use crate::format::{Bm25Index, Chunk};
 
 const K1: f32 = 1.5;
 const B: f32 = 0.75;
@@ -12,6 +12,51 @@ pub fn tokenize(text: &str) -> Vec<String> {
         .map(|word| word.to_lowercase())
         .filter(|word| word.chars().any(|ch| ch.is_alphanumeric()))
         .collect()
+}
+
+pub fn build_index(chunks: &[Chunk]) -> Bm25Index {
+    let mut vocab: HashMap<String, u32> = HashMap::new();
+    let mut next_term_id: u32 = 0;
+    let mut doc_tfs: Vec<HashMap<u32, u32>> = Vec::with_capacity(chunks.len());
+    let mut doc_lengths: Vec<usize> = Vec::with_capacity(chunks.len());
+
+    for chunk in chunks {
+        let tokens = tokenize(&chunk.text);
+        doc_lengths.push(tokens.len());
+
+        let mut tf_map: HashMap<u32, u32> = HashMap::new();
+        for token in tokens {
+            let term_id = *vocab.entry(token).or_insert_with(|| {
+                let id = next_term_id;
+                next_term_id += 1;
+                id
+            });
+            *tf_map.entry(term_id).or_insert(0) += 1;
+        }
+        doc_tfs.push(tf_map);
+    }
+
+    let doc_count = chunks.len();
+    let avg_doc_len = if doc_count == 0 {
+        0.0
+    } else {
+        doc_lengths.iter().sum::<usize>() as f32 / doc_count as f32
+    };
+
+    let mut postings: Vec<Vec<(u32, f32)>> = vec![Vec::new(); vocab.len()];
+    for (chunk_id, tf_map) in doc_tfs.iter().enumerate() {
+        for (&term_id, &tf) in tf_map {
+            postings[term_id as usize].push((chunk_id as u32, tf as f32));
+        }
+    }
+
+    Bm25Index {
+        doc_count,
+        avg_doc_len,
+        vocab,
+        postings,
+        doc_lengths,
+    }
 }
 
 pub fn search(index: &Bm25Index, query: &str, top_k: usize) -> Vec<(u32, f32)> {

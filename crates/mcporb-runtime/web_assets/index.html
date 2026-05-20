@@ -6,36 +6,72 @@
   <title>MCPOrb Dashboard</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
-    header{background:#1e293b;border-bottom:1px solid #334155;padding:1rem 2rem;display:flex;align-items:center;gap:1rem}
-    header h1{font-size:1.25rem;font-weight:700;color:#38bdf8}
-    .badge{background:#0ea5e9;color:#fff;font-size:.7rem;padding:.2rem .5rem;border-radius:9999px;font-weight:600}
-    main{padding:2rem;max-width:1100px;margin:0 auto}
-    .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem}
-    .card h2{font-size:1rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
-    .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem}
-    .stat{background:#0f172a;border-radius:.5rem;padding:1rem;text-align:center}
-    .stat .val{font-size:2rem;font-weight:700;color:#38bdf8}
-    .stat .lbl{font-size:.75rem;color:#64748b;margin-top:.25rem}
-    .search-row{display:flex;gap:.75rem;margin-bottom:1rem}
-    .search-row input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.6rem 1rem;color:#e2e8f0;font-size:.9rem;outline:none}
+    body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+    header{background:#1e293b;border-bottom:1px solid #334155;padding:.875rem 2rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+    header h1{font-size:1.2rem;font-weight:700;color:#38bdf8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .badge{background:#0ea5e9;color:#fff;font-size:.7rem;padding:.2rem .55rem;border-radius:9999px;font-weight:600;white-space:nowrap}
+    .badge.plan{background:#7c3aed}
+    .badge.cap{background:#059669;font-size:.65rem}
+    main{padding:1.5rem 2rem;max-width:1200px;margin:0 auto}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.25rem 1.5rem;margin-bottom:1.25rem}
+    .card h2{font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.875rem}
+    .stat{background:#0f172a;border-radius:.5rem;padding:.875rem;text-align:center}
+    .stat .val{font-size:1.75rem;font-weight:700;color:#38bdf8;line-height:1}
+    .stat .lbl{font-size:.7rem;color:#64748b;margin-top:.35rem;text-transform:uppercase;letter-spacing:.05em}
+    .search-row{display:flex;gap:.625rem;margin-bottom:.75rem}
+    .search-row input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.6rem 1rem;color:#e2e8f0;font-size:.9rem;outline:none;transition:border-color .15s}
     .search-row input:focus{border-color:#38bdf8}
-    .search-row button{background:#0ea5e9;color:#fff;border:none;border-radius:.5rem;padding:.6rem 1.25rem;cursor:pointer;font-weight:600}
+    .search-row button{background:#0ea5e9;color:#fff;border:none;border-radius:.5rem;padding:.6rem 1.25rem;cursor:pointer;font-weight:600;white-space:nowrap;transition:background .15s}
     .search-row button:hover{background:#0284c7}
-    .hit{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:1rem;margin-bottom:.75rem}
-    .hit .meta{font-size:.75rem;color:#64748b;margin-bottom:.5rem}
-    .hit .text{font-size:.85rem;line-height:1.6;color:#cbd5e1;white-space:pre-wrap}
+    .search-row button:disabled{background:#334155;cursor:not-allowed}
+    .hit{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:1rem;margin-bottom:.625rem}
+    .hit-meta{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem}
+    .hit-score{background:#7c3aed22;border:1px solid #7c3aed44;color:#a78bfa;font-size:.7rem;padding:.15rem .45rem;border-radius:.25rem;font-weight:600}
+    .hit-page{background:#0ea5e922;border:1px solid #0ea5e944;color:#38bdf8;font-size:.7rem;padding:.15rem .45rem;border-radius:.25rem}
+    .hit-tokens{color:#475569;font-size:.7rem}
+    .hit-text{font-size:.85rem;line-height:1.65;color:#cbd5e1;white-space:pre-wrap;max-height:200px;overflow-y:auto;border-top:1px solid #1e293b;padding-top:.5rem;margin-top:.25rem}
+    .hit-text.expanded{max-height:none}
+    .expand-btn{background:none;border:none;color:#38bdf8;font-size:.75rem;cursor:pointer;padding:.25rem 0;margin-top:.25rem}
+    .expand-btn:hover{text-decoration:underline}
     .doc-list{list-style:none}
-    .doc-list li{padding:.5rem 0;border-bottom:1px solid #1e293b;font-size:.9rem;color:#94a3b8}
-    #status{font-size:.8rem;color:#64748b;margin-top:.5rem}
+    .doc-list li{padding:.5rem 0;border-bottom:1px solid #1e293b;font-size:.875rem;color:#94a3b8}
+    .doc-list li:last-child{border-bottom:none}
+    .doc-title{color:#e2e8f0;font-weight:500}
+    .doc-meta{color:#64748b;font-size:.75rem;margin-top:.15rem}
+    #status{font-size:.8rem;color:#64748b;margin-bottom:.5rem;min-height:1.2em}
+    .rationale{background:#0f172a;border-radius:.375rem;padding:.75rem 1rem;margin-top:.75rem}
+    .rationale p{font-size:.8rem;color:#94a3b8;line-height:1.6;margin-bottom:.25rem}
+    .rationale p:last-child{margin-bottom:0}
+    .rationale p::before{content:"→ ";color:#38bdf8}
+    .code-block{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:1rem;font-family:'SF Mono',ui-monospace,monospace;font-size:.78rem;color:#a5f3fc;overflow-x:auto;white-space:pre;line-height:1.6;position:relative}
+    .copy-btn{position:absolute;top:.5rem;right:.5rem;background:#1e293b;border:1px solid #334155;color:#94a3b8;font-size:.7rem;padding:.2rem .5rem;border-radius:.25rem;cursor:pointer;transition:all .15s}
+    .copy-btn:hover{background:#334155;color:#e2e8f0}
+    .tabs{display:flex;gap:.25rem;margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:0}
+    .tab{background:none;border:none;color:#64748b;font-size:.8rem;padding:.5rem .875rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;font-weight:500}
+    .tab.active{color:#38bdf8;border-bottom-color:#38bdf8}
+    .tab:hover:not(.active){color:#94a3b8}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+    .info-row{display:flex;gap:.5rem;align-items:baseline;padding:.3rem 0;border-bottom:1px solid #1e293b;font-size:.85rem}
+    .info-row:last-child{border-bottom:none}
+    .info-key{color:#64748b;min-width:160px;flex-shrink:0;font-size:.78rem}
+    .info-val{color:#e2e8f0;word-break:break-all}
+    .empty{color:#475569;font-size:.875rem;padding:.5rem 0}
+    .caps-row{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.25rem}
+    a{color:#38bdf8;text-decoration:none}
+    a:hover{text-decoration:underline}
   </style>
 </head>
 <body>
 <header>
   <h1 id="orb-name">MCPOrb</h1>
-  <span class="badge" id="mode-badge">loading...</span>
+  <span class="badge" id="mode-badge">loading…</span>
+  <span class="badge plan" id="plan-badge" style="display:none"></span>
+  <span id="caps-badges"></span>
 </header>
 <main>
+  <!-- Overview stats -->
   <div class="card">
     <h2>Overview</h2>
     <div class="stat-grid">
@@ -45,33 +81,139 @@
       <div class="stat"><div class="val" id="stat-searches">—</div><div class="lbl">Searches</div></div>
     </div>
   </div>
+
+  <!-- Tabs: Search / Documents / MCP Config / About -->
   <div class="card">
-    <h2>Search</h2>
-    <div class="search-row">
-      <input id="query" type="text" placeholder="Enter search query..." onkeydown="if(event.key==='Enter')doSearch()" />
-      <button onclick="doSearch()">Search</button>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('search')">Search</button>
+      <button class="tab" onclick="switchTab('documents')">Documents</button>
+      <button class="tab" onclick="switchTab('mcp-config')">MCP Config</button>
+      <button class="tab" onclick="switchTab('about')">About</button>
     </div>
-    <div id="status"></div>
-    <div id="results"></div>
-  </div>
-  <div class="card">
-    <h2>Documents</h2>
-    <ul class="doc-list" id="doc-list"><li>Loading...</li></ul>
+
+    <!-- Search tab -->
+    <div class="tab-panel active" id="tab-search">
+      <div class="search-row">
+        <input id="query" type="text" placeholder="Enter search query…" onkeydown="if(event.key==='Enter')doSearch()" autocomplete="off" />
+        <button id="search-btn" onclick="doSearch()">Search</button>
+      </div>
+      <div id="status"></div>
+      <div id="results"></div>
+    </div>
+
+    <!-- Documents tab -->
+    <div class="tab-panel" id="tab-documents">
+      <ul class="doc-list" id="doc-list"><li class="empty">Loading…</li></ul>
+    </div>
+
+    <!-- MCP Config tab -->
+    <div class="tab-panel" id="tab-mcp-config">
+      <p style="font-size:.875rem;color:#94a3b8;margin-bottom:1rem;line-height:1.6">
+        Add this Orb to your MCP client configuration to use <code style="background:#0f172a;padding:.1rem .3rem;border-radius:.25rem;color:#a5f3fc">search_knowledge</code> directly from Claude Desktop, Cursor, VS Code, or any MCP-compatible AI tool.
+      </p>
+      <h3 style="font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem">Claude Desktop (claude_desktop_config.json)</h3>
+      <div style="position:relative">
+        <pre class="code-block" id="claude-config">loading…</pre>
+        <button class="copy-btn" onclick="copyCode('claude-config')">Copy</button>
+      </div>
+      <h3 style="font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin:.875rem 0 .5rem">Cursor / VS Code (settings.json → mcpServers)</h3>
+      <div style="position:relative">
+        <pre class="code-block" id="cursor-config">loading…</pre>
+        <button class="copy-btn" onclick="copyCode('cursor-config')">Copy</button>
+      </div>
+      <p id="mcp-config-note" style="font-size:.75rem;color:#475569;margin-top:.875rem;line-height:1.5">
+        Replace <code style="color:#a5f3fc">/path/to/orb-binary</code> with the actual path to the packaged Orb executable.<br>
+        The Orb runs locally — no cloud, no API key required.
+      </p>
+    </div>
+
+    <!-- About tab -->
+    <div class="tab-panel" id="tab-about">
+      <div id="about-content"><div class="empty">Loading…</div></div>
+    </div>
   </div>
 </main>
+
 <script type="module">
   // Detect base URL from current path (token is the first path segment)
   const pathParts = window.location.pathname.split('/').filter(Boolean);
   const token = pathParts[0] || '';
   const base = `/${token}/api`;
 
+  let orbName = 'orb';
+
   async function loadManifest() {
     const r = await fetch(`${base}/manifest`);
     const d = await r.json();
+    orbName = d.name;
     document.getElementById('orb-name').textContent = d.name;
-    document.getElementById('mode-badge').textContent = d.startup_mode;
+    document.getElementById('mode-badge').textContent = d.startup_mode || 'unknown';
     document.getElementById('stat-chunks').textContent = d.chunk_count;
     document.title = `MCPOrb — ${d.name}`;
+
+    // Retrieval plan badge
+    if (d.selected_retrieval_plan) {
+      const pb = document.getElementById('plan-badge');
+      pb.textContent = d.selected_retrieval_plan;
+      pb.style.display = '';
+    }
+
+    // Capability badges
+    if (d.enabled_capabilities && d.enabled_capabilities.length) {
+      const cb = document.getElementById('caps-badges');
+      cb.innerHTML = d.enabled_capabilities.map(c =>
+        `<span class="badge cap">${c}</span>`
+      ).join(' ');
+    }
+
+    // MCP config
+    const orbPath = d.orb_binary_path || '/path/to/orb-binary';
+    const claudeConf = JSON.stringify({
+      mcpServers: {
+        [d.name]: {
+          command: orbPath,
+          args: ['--stdio-gui']
+        }
+      }
+    }, null, 2);
+    document.getElementById('claude-config').textContent = claudeConf;
+
+    const cursorConf = JSON.stringify({
+      [d.name]: {
+        command: orbPath,
+        args: ['--stdio-gui']
+      }
+    }, null, 2);
+    document.getElementById('cursor-config').textContent = cursorConf;
+
+    const configNote = document.getElementById('mcp-config-note');
+    configNote.innerHTML = d.orb_binary_path
+      ? `Detected packaged Orb binary: <code style="color:#a5f3fc">${escapeHtml(d.orb_binary_path)}</code><br>The Orb runs locally — no cloud, no API key required.`
+      : 'Replace <code style="color:#a5f3fc">/path/to/orb-binary</code> with the actual path to the packaged Orb executable.<br>The Orb runs locally — no cloud, no API key required.';
+
+    // About tab
+    const about = document.getElementById('about-content');
+    const rows = [
+      ['Name', d.name],
+      ['Version', d.version || '—'],
+      ['Description', d.description || '—'],
+      ['Build time', d.build_time || '—'],
+      ['Orb format', d.orb_format_version || '—'],
+      ['MCP protocol', d.mcp_protocol_version || '—'],
+      ['Retrieval plan', d.selected_retrieval_plan || '—'],
+      ['Capabilities', (d.enabled_capabilities || []).join(', ') || '—'],
+      ['Sources', (d.source_documents || []).join(', ') || '—'],
+    ];
+    about.innerHTML = rows.map(([k, v]) =>
+      `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${escapeHtml(String(v))}</span></div>`
+    ).join('');
+    if (d.planning_rationale && d.planning_rationale.length) {
+      about.innerHTML += `<div style="margin-top:1rem"><div class="info-key" style="margin-bottom:.5rem">Planning rationale</div><div class="rationale">${
+        d.planning_rationale.map(r => `<p>${escapeHtml(r)}</p>`).join('')
+      }</div></div>`;
+    }
+
+    return d;
   }
 
   async function loadDocuments() {
@@ -81,12 +223,15 @@
     list.innerHTML = '';
     document.getElementById('stat-docs').textContent = d.documents.length;
     if (d.documents.length === 0) {
-      list.innerHTML = '<li>No documents loaded.</li>';
+      list.innerHTML = '<li class="empty">No documents loaded.</li>';
       return;
     }
     d.documents.forEach(doc => {
       const li = document.createElement('li');
-      li.textContent = `${doc.title} — ${doc.section_count} sections${doc.page_count ? `, ${doc.page_count} pages` : ''}`;
+      li.innerHTML = `
+        <div class="doc-title">${escapeHtml(doc.title)}</div>
+        <div class="doc-meta">${doc.section_count} section${doc.section_count !== 1 ? 's' : ''}${doc.page_count ? ` · ${doc.page_count} pages` : ''}</div>
+      `;
       list.appendChild(li);
     });
   }
@@ -103,8 +248,10 @@
     if (!query) return;
     const status = document.getElementById('status');
     const results = document.getElementById('results');
+    const btn = document.getElementById('search-btn');
     status.textContent = 'Searching…';
     results.innerHTML = '';
+    btn.disabled = true;
     try {
       const r = await fetch(`${base}/search`, {
         method: 'POST',
@@ -112,28 +259,72 @@
         body: JSON.stringify({ query, top_k: 10 }),
       });
       const d = await r.json();
-      status.textContent = `${d.total} result(s) for "${d.query}"`;
+      status.textContent = `${d.total} result${d.total !== 1 ? 's' : ''} for "${escapeHtml(d.query)}"`;
       if (d.hits.length === 0) {
-        results.innerHTML = '<p style="color:#64748b;font-size:.9rem">No results found.</p>';
+        results.innerHTML = '<p class="empty">No results found. Try different keywords.</p>';
         return;
       }
-      d.hits.forEach(hit => {
+      d.hits.forEach((hit, i) => {
         const div = document.createElement('div');
         div.className = 'hit';
+        const textId = `hit-text-${i}`;
+        const isLong = hit.text.length > 400;
         div.innerHTML = `
-          <div class="meta">Score: ${hit.score} · Page: ${hit.page ?? '—'} · Tokens: ${hit.token_count} · Chunk #${hit.chunk_id}</div>
-          <div class="text">${escapeHtml(hit.text)}</div>
+          <div class="hit-meta">
+            <span class="hit-score">BM25 ${Number(hit.score).toFixed(3)}</span>
+            ${hit.page != null ? `<span class="hit-page">Page ${hit.page}</span>` : ''}
+            <span class="hit-tokens">${hit.token_count} tokens · Chunk #${hit.chunk_id}</span>
+          </div>
+          <div class="hit-text${isLong ? '' : ' expanded'}" id="${textId}">${escapeHtml(hit.text)}</div>
+          ${isLong ? `<button class="expand-btn" onclick="toggleExpand('${textId}', this)">Show more ↓</button>` : ''}
         `;
         results.appendChild(div);
       });
       await loadMetrics();
     } catch (e) {
       status.textContent = `Error: ${e.message}`;
+    } finally {
+      btn.disabled = false;
     }
   };
 
+  window.toggleExpand = function(id, btn) {
+    const el = document.getElementById(id);
+    if (el.classList.contains('expanded')) {
+      el.classList.remove('expanded');
+      btn.textContent = 'Show more ↓';
+    } else {
+      el.classList.add('expanded');
+      btn.textContent = 'Show less ↑';
+    }
+  };
+
+  window.switchTab = function(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const panels = ['search','documents','mcp-config','about'];
+      t.classList.toggle('active', panels[i] === name);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === `tab-${name}`);
+    });
+  };
+
+  window.copyCode = function(id) {
+    const text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.querySelector(`[onclick="copyCode('${id}')"]`);
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 1500);
+    });
+  };
+
   function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(str)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
   }
 
   // Initial load

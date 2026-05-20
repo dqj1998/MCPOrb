@@ -3,6 +3,12 @@ name = "mcporb-runtime-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["tfidf", "trigram"]
+tfidf = []
+trigram = []
+
 [dependencies]
 serde = { workspace = true }
 unicode-segmentation = { workspace = true }
+anyhow = { workspace = true }
