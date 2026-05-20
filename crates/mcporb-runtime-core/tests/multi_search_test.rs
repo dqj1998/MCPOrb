@@ -1,6 +1,6 @@
-use mcporb_runtime_core::format::{Chunk, RetrievalPlanKind};
+use mcporb_runtime_core::format::{Chunk, FlatVectorIndex, HnswIndex, RetrievalPlanKind};
 use mcporb_runtime_core::search::{SearchMethod, SearchMethodRequest};
-use mcporb_runtime_core::{build_bm25_index, SearchRequest, SearchRuntime};
+use mcporb_runtime_core::{build_bm25_index, DenseRuntime, SearchRequest, SearchRuntime};
 
 #[cfg(feature = "tfidf")]
 use mcporb_runtime_core::build_tfidf_index;
@@ -31,7 +31,17 @@ fn make_runtime() -> SearchRuntime {
         tfidf: Some(build_tfidf_index(&chunks)),
         #[cfg(feature = "trigram")]
         trigram: Some(build_trigram_index(&chunks, 1)),
+        dense: DenseRuntime::None,
         dense_tier: RetrievalPlanKind::Bm25Only,
+    }
+}
+
+fn make_vector_store() -> FlatVectorIndex {
+    FlatVectorIndex {
+        chunk_count: 3,
+        dim: 2,
+        vectors: vec![1.0, 0.0, 0.0, 1.0, 0.8, 0.2],
+        model_id: "test-embed".to_string(),
     }
 }
 
@@ -78,4 +88,97 @@ fn test_specific_method_executes_without_fusion() {
 
     assert!(!response.hits.is_empty());
     assert_eq!(response.hits[0].method, SearchMethod::Trigram);
+}
+
+#[test]
+fn test_flat_vector_method_executes_with_query_vector() {
+    let lexical = make_runtime();
+    let runtime = SearchRuntime {
+        bm25: lexical.bm25,
+        #[cfg(feature = "tfidf")]
+        tfidf: None,
+        #[cfg(feature = "trigram")]
+        trigram: None,
+        dense: DenseRuntime::from_assets(Some(make_vector_store()), None).unwrap(),
+        dense_tier: RetrievalPlanKind::Bm25FlatVector,
+    };
+
+    let response = runtime
+        .search(&SearchRequest {
+            query: "ignored lexical query".to_string(),
+            top_k: 2,
+            method: SearchMethodRequest::FlatVector,
+            query_vector: Some(vec![1.0, 0.0]),
+            explain: true,
+        })
+        .unwrap();
+
+    assert_eq!(response.hits[0].chunk_id, 0);
+    assert_eq!(response.hits[0].method, SearchMethod::FlatVector);
+}
+
+#[test]
+fn test_vector_method_requires_query_vector() {
+    let lexical = make_runtime();
+    let runtime = SearchRuntime {
+        bm25: lexical.bm25,
+        #[cfg(feature = "tfidf")]
+        tfidf: None,
+        #[cfg(feature = "trigram")]
+        trigram: None,
+        dense: DenseRuntime::from_assets(Some(make_vector_store()), None).unwrap(),
+        dense_tier: RetrievalPlanKind::Bm25FlatVector,
+    };
+
+    let error = runtime
+        .search(&SearchRequest {
+            query: "ignored lexical query".to_string(),
+            top_k: 2,
+            method: SearchMethodRequest::FlatVector,
+            query_vector: None,
+            explain: false,
+        })
+        .unwrap_err();
+
+    assert!(error.to_string().contains("query_vector"));
+}
+
+#[cfg(feature = "hnsw")]
+#[test]
+fn test_hnsw_method_executes_from_runtime_assets() {
+    let lexical = make_runtime();
+    let runtime = SearchRuntime {
+        bm25: lexical.bm25,
+        #[cfg(feature = "tfidf")]
+        tfidf: None,
+        #[cfg(feature = "trigram")]
+        trigram: None,
+        dense: DenseRuntime::from_assets(
+            Some(make_vector_store()),
+            Some(HnswIndex {
+                chunk_count: 3,
+                dim: 2,
+                m: 32,
+                ef_construction: 50,
+                ef_search: 32,
+                model_id: "test-embed".to_string(),
+                graph_bytes: Vec::new(),
+            }),
+        )
+        .unwrap(),
+        dense_tier: RetrievalPlanKind::Bm25Hnsw,
+    };
+
+    let response = runtime
+        .search(&SearchRequest {
+            query: "ignored lexical query".to_string(),
+            top_k: 2,
+            method: SearchMethodRequest::FlatVector,
+            query_vector: Some(vec![1.0, 0.0]),
+            explain: false,
+        })
+        .unwrap();
+
+    assert!(!response.hits.is_empty());
+    assert_eq!(response.hits[0].method, SearchMethod::Hnsw);
 }

@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["tfidf", "trigram"]
+default = ["tfidf", "trigram", "vector", "hnsw"]
 tfidf = []
 trigram = []
+vector = []
+hnsw = ["vector"]
 
 [dependencies]
 serde = { workspace = true }
 unicode-segmentation = { workspace = true }
 anyhow = { workspace = true }
+instant-distance = { workspace = true }

@@ -11,7 +11,10 @@ mod embedded_orb {
 
 use clap::Parser;
 use mcporb_runtime_core::format::Capability;
-use mcporb_runtime_core::{Bm25Index, Chunk, Document, OrbManifest, SearchRuntime, TfIdfIndex, TrigramIndex};
+use mcporb_runtime_core::{
+    Bm25Index, Chunk, DenseRuntime, Document, FlatVectorIndex, HnswIndex, OrbManifest,
+    SearchRuntime, TfIdfIndex, TrigramIndex,
+};
 use startup::{detect_startup, StartupMode};
 use state::OrbState;
 
@@ -24,6 +27,8 @@ fn load_orb_data(
     let index_bytes = std::fs::read(assets_path.join("bm25_index.postcard"))?;
     let tfidf_bytes = read_optional_asset(assets_path.join("tfidf_index.postcard"))?;
     let trigram_bytes = read_optional_asset(assets_path.join("trigram_index.postcard"))?;
+    let vector_bytes = read_optional_asset(assets_path.join("vector_store.postcard"))?;
+    let hnsw_bytes = read_optional_asset(assets_path.join("hnsw_index.postcard"))?;
     load_orb_data_from_bytes(
         &manifest_json,
         &docs_bytes,
@@ -31,6 +36,8 @@ fn load_orb_data(
         &index_bytes,
         tfidf_bytes.as_deref(),
         trigram_bytes.as_deref(),
+        vector_bytes.as_deref(),
+        hnsw_bytes.as_deref(),
     )
 }
 
@@ -52,6 +59,16 @@ fn load_embedded_orb_data() -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<C
         } else {
             Some(embedded_orb::EMBEDDED_TRIGRAM_INDEX)
         },
+        if embedded_orb::EMBEDDED_VECTOR_STORE.is_empty() {
+            None
+        } else {
+            Some(embedded_orb::EMBEDDED_VECTOR_STORE)
+        },
+        if embedded_orb::EMBEDDED_HNSW_INDEX.is_empty() {
+            None
+        } else {
+            Some(embedded_orb::EMBEDDED_HNSW_INDEX)
+        },
     )
 }
 
@@ -62,6 +79,8 @@ fn load_orb_data_from_bytes(
     index_bytes: &[u8],
     tfidf_bytes: Option<&[u8]>,
     trigram_bytes: Option<&[u8]>,
+    vector_bytes: Option<&[u8]>,
+    hnsw_bytes: Option<&[u8]>,
 ) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
     let manifest: OrbManifest = serde_json::from_slice(manifest_json)?;
     let documents: Vec<Document> = postcard::from_bytes(docs_bytes)?;
@@ -69,10 +88,13 @@ fn load_orb_data_from_bytes(
     let index: Bm25Index = postcard::from_bytes(index_bytes)?;
     let tfidf = load_optional_index::<TfIdfIndex>(&manifest, Capability::TfIdf, tfidf_bytes)?;
     let trigram = load_optional_index::<TrigramIndex>(&manifest, Capability::Trigram, trigram_bytes)?;
+    let vector = load_optional_index::<FlatVectorIndex>(&manifest, Capability::FlatVector, vector_bytes)?;
+    let hnsw = load_optional_index::<HnswIndex>(&manifest, Capability::Hnsw, hnsw_bytes)?;
     let search = SearchRuntime {
         bm25: index,
         tfidf,
         trigram,
+        dense: DenseRuntime::from_assets(vector, hnsw)?,
         dense_tier: manifest.selected_retrieval_plan.clone(),
     };
     Ok((manifest, documents, chunks, search))
@@ -93,6 +115,9 @@ fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
         binary_size_target_mb: 15,
         selected_retrieval_plan: RetrievalPlanKind::Bm25Only,
         enabled_capabilities: vec![Capability::Bm25],
+        embedding_dim: None,
+        embedding_model: None,
+        trigram_min_df: None,
         planning_rationale: vec!["Demo mode — no assets loaded.".to_string()],
     };
     (
@@ -103,6 +128,7 @@ fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
             bm25: Bm25Index::default(),
             tfidf: None,
             trigram: None,
+            dense: DenseRuntime::None,
             dense_tier: RetrievalPlanKind::Bm25Only,
         },
     )

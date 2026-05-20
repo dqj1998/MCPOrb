@@ -59,6 +59,12 @@ pub struct OrbManifest {
     /// The capabilities enabled in this Orb.
     #[serde(default)]
     pub enabled_capabilities: Vec<Capability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_dim: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigram_min_df: Option<usize>,
     /// Human-readable rationale for the selected plan.
     #[serde(default)]
     pub planning_rationale: Vec<String>,
@@ -107,6 +113,25 @@ pub struct TfIdfIndex {
     pub vocab: std::collections::HashMap<String, u32>,
     pub idf: Vec<f32>,
     pub doc_vectors: Vec<Vec<(u32, f32)>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FlatVectorIndex {
+    pub chunk_count: usize,
+    pub dim: usize,
+    pub vectors: Vec<f32>,
+    pub model_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HnswIndex {
+    pub chunk_count: usize,
+    pub dim: usize,
+    pub m: usize,
+    pub ef_construction: usize,
+    pub ef_search: usize,
+    pub model_id: String,
+    pub graph_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

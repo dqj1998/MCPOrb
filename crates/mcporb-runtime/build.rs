@@ -20,6 +20,8 @@ fn main() {
     let index = assets_dir.join("bm25_index.postcard");
     let tfidf = assets_dir.join("tfidf_index.postcard");
     let trigram = assets_dir.join("trigram_index.postcard");
+    let vector = assets_dir.join("vector_store.postcard");
+    let hnsw = assets_dir.join("hnsw_index.postcard");
 
     for path in [&manifest, &documents, &chunks, &index] {
         if !path.exists() {
@@ -35,13 +37,17 @@ pub const EMBEDDED_DOCUMENTS: &[u8] = include_bytes!({documents});\n\
 pub const EMBEDDED_CHUNKS: &[u8] = include_bytes!({chunks});\n\
 pub const EMBEDDED_INDEX: &[u8] = include_bytes!({index});\n\
 pub const EMBEDDED_TFIDF_INDEX: &[u8] = {tfidf};\n\
-pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = {trigram};\n",
+pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = {trigram};\n\
+pub const EMBEDDED_VECTOR_STORE: &[u8] = {vector};\n\
+pub const EMBEDDED_HNSW_INDEX: &[u8] = {hnsw};\n",
         manifest = quoted_path(&manifest),
         documents = quoted_path(&documents),
         chunks = quoted_path(&chunks),
         index = quoted_path(&index),
         tfidf = optional_include_bytes(&tfidf),
         trigram = optional_include_bytes(&trigram),
+        vector = optional_include_bytes(&vector),
+        hnsw = optional_include_bytes(&hnsw),
     );
 
     fs::write(dest, source).expect("failed to write embedded_orb.rs");
@@ -54,7 +60,9 @@ pub const EMBEDDED_DOCUMENTS: &[u8] = &[];\n\
 pub const EMBEDDED_CHUNKS: &[u8] = &[];\n\
 pub const EMBEDDED_INDEX: &[u8] = &[];\n\
 pub const EMBEDDED_TFIDF_INDEX: &[u8] = &[];\n\
-pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = &[];\n";
+pub const EMBEDDED_TRIGRAM_INDEX: &[u8] = &[];\n\
+pub const EMBEDDED_VECTOR_STORE: &[u8] = &[];\n\
+pub const EMBEDDED_HNSW_INDEX: &[u8] = &[];\n";
     fs::write(dest, source).expect("failed to write embedded_orb.rs");
 }
 

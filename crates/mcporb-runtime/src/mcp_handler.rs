@@ -76,6 +76,11 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                                         "type": "string",
                                         "description": "Search method override",
                                         "enum": state.search.available_method_names()
+                                    },
+                                    "query_vector": {
+                                        "type": "array",
+                                        "description": "Dense query vector required by method=vector and dense hybrid",
+                                        "items": { "type": "number" }
                                     }
                                 },
                                 "required": ["query"]
@@ -101,6 +106,13 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                     let query = args.get("query").and_then(|value| value.as_str()).unwrap_or("").to_string();
                     let top_k = args.get("top_k").and_then(|value| value.as_u64()).unwrap_or(5) as usize;
                     let method_name = args.get("method").and_then(|value| value.as_str()).unwrap_or("auto");
+                    let query_vector = args.get("query_vector").and_then(|value| value.as_array()).map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|value| value.as_f64())
+                            .map(|value| value as f32)
+                            .collect::<Vec<_>>()
+                    });
 
                     {
                         let mut metrics = state.metrics.write().await;
@@ -122,7 +134,7 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                             query,
                             top_k,
                             method: SearchMethodRequest::from_str(method_name),
-                            query_vector: None,
+                            query_vector,
                             explain: false,
                         }) {
                             Ok(result) => {

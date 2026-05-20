@@ -50,6 +50,7 @@ pub struct SearchRequest {
     pub query: String,
     pub top_k: Option<usize>,
     pub method: Option<String>,
+    pub query_vector: Option<Vec<f32>>,
 }
 
 pub async fn post_search(
@@ -76,7 +77,7 @@ pub async fn post_search(
         query: req.query.clone(),
         top_k,
         method: SearchMethodRequest::from_str(method_name),
-        query_vector: None,
+        query_vector: req.query_vector.clone(),
         explain: false,
     }) {
         Ok(response) => {
