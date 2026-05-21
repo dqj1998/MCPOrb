@@ -184,7 +184,7 @@ all knowledge assets and the runtime. No Rust toolchain required to run it.
 
 - **MDA Guide v1.0.1** — © 2003 Object Management Group. Reproduced for
   demonstration purposes. See the original document for copyright terms.
-- **MCPOrb Runtime** — open source, see `MCPOrb/` repository.
+- **MCPOrb Runtime** — Apache License 2.0, see `MCPOrb/` repository.
 - **MCPOrbBuilder** — commercial product, see `MCPOrbBuilder/` repository.
 
 ---

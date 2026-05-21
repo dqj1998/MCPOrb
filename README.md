@@ -108,6 +108,12 @@ MCPOrb/
 
 Check: `bash scripts/check-binary-size.sh`
 
+## License
+
+MCPOrb Runtime is licensed under the [Apache License 2.0](LICENSE).
+
+MCPOrbBuilder is a separate commercial product with its own terms.
+
 ## Development
 
 ```bash
