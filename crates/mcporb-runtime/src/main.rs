@@ -1,5 +1,7 @@
 mod api;
 mod assets;
+#[cfg(feature = "vector-embedder")]
+mod embed_startup;
 mod mcp_handler;
 mod startup;
 mod state;
@@ -117,8 +119,9 @@ fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
         enabled_capabilities: vec![Capability::Bm25],
         embedding_dim: None,
         embedding_model: None,
+        embedding_model_tar_sha256: None,
         trigram_min_df: None,
-        planning_rationale: vec!["Demo mode — no assets loaded.".to_string()],
+        planning_rationale: vec![serde_json::json!("Demo mode — no assets loaded.")],
     };
     (
         manifest,
@@ -164,15 +167,27 @@ async fn main() -> anyhow::Result<()> {
 
     let mode_str = format!("{:?}", config.mode);
     let orb_binary_path = detect_orb_binary_path(&config);
+    #[cfg(feature = "vector-embedder")]
+    let (model_manager, embedder_slot) = embed_startup::prepare(&manifest)?;
 
     match config.mode {
         StartupMode::StdioOnly => {
-            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
+            let state = OrbState::new(
+                manifest, documents, chunks, search,
+                #[cfg(feature = "vector-embedder")] model_manager,
+                #[cfg(feature = "vector-embedder")] embedder_slot,
+                mode_str, orb_binary_path, None,
+            );
             mcp_handler::run_stdio_loop(state).await?;
         }
         StartupMode::GuiOnly => {
             let token = web_server::generate_token();
-            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
+            let state = OrbState::new(
+                manifest, documents, chunks, search,
+                #[cfg(feature = "vector-embedder")] model_manager,
+                #[cfg(feature = "vector-embedder")] embedder_slot,
+                mode_str, orb_binary_path, None,
+            );
             let (addr, server_handle) = web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());
@@ -186,7 +201,12 @@ async fn main() -> anyhow::Result<()> {
         }
         StartupMode::StdioGui => {
             let token = web_server::generate_token();
-            let state = OrbState::new(manifest, documents, chunks, search, mode_str, orb_binary_path, None);
+            let state = OrbState::new(
+                manifest, documents, chunks, search,
+                #[cfg(feature = "vector-embedder")] model_manager,
+                #[cfg(feature = "vector-embedder")] embedder_slot,
+                mode_str, orb_binary_path, None,
+            );
             let (addr, server_handle) = web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());

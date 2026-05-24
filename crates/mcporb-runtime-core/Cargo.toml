@@ -13,6 +13,7 @@ hnsw = ["vector"]
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 unicode-segmentation = { workspace = true }
 anyhow = { workspace = true }
 instant-distance = { workspace = true }

@@ -1,5 +1,11 @@
 use std::io::{BufRead, Write};
+#[cfg(feature = "vector-embedder")]
+use std::sync::Arc;
 
+#[cfg(feature = "vector-embedder")]
+use mcporb_embed::TractEmbedder;
+#[cfg(feature = "vector-embedder")]
+use mcporb_runtime_core::format::Capability;
 use mcporb_runtime_core::{SearchMethodRequest, SearchRequest};
 use serde_json::{json, Value};
 
@@ -56,7 +62,11 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": { "tools": {}, "resources": {} },
-                    "serverInfo": { "name": state.manifest.name, "version": state.manifest.version }
+                    "serverInfo": {
+                        "name": state.manifest.name,
+                        "version": state.manifest.version,
+                        "description": state.manifest.description
+                    }
                 }
             }),
             "tools/list" => json!({
@@ -130,44 +140,62 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                             }
                         })
                     } else {
-                        match state.search.search(&SearchRequest {
-                            query,
-                            top_k,
-                            method: SearchMethodRequest::from_str(method_name),
-                            query_vector,
-                            explain: false,
-                        }) {
-                            Ok(result) => {
-                                let content: Vec<Value> = result
-                                    .hits
-                                    .iter()
-                                    .filter_map(|hit| {
-                                        state.chunks.get(hit.chunk_id as usize).map(|chunk| {
-                                            let preview = &chunk.text[..chunk.text.len().min(500)];
-                                            json!({
-                                                "type": "text",
-                                                "text": format!("[{} Score: {:.3}] Page {:?}\n{}", hit.method, hit.score, chunk.page, preview)
-                                            })
-                                        })
-                                    })
-                                    .collect();
-                                json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "result": {
-                                        "content": content,
-                                        "active_plan": result.active_plan.to_string()
-                                    }
-                                })
-                            }
-                            Err(error) => json!({
+                        let requested_method = SearchMethodRequest::from_str(method_name);
+                        match auto_fill_query_vector(&state, requested_method, &query, query_vector).await {
+                            Err(msg) => json!({
                                 "jsonrpc": "2.0",
                                 "id": id,
                                 "error": {
                                     "code": -32602,
-                                    "message": error.to_string()
+                                    "message": msg,
                                 }
                             }),
+                            Ok(prepared) => match state.search.search(&SearchRequest {
+                                query: query.clone(),
+                                top_k,
+                                method: prepared.method,
+                                query_vector: prepared.query_vector,
+                                explain: false,
+                            }) {
+                                Ok(result) => {
+                                    let content: Vec<Value> = result
+                                        .hits
+                                        .iter()
+                                        .filter_map(|hit| {
+                                            state.chunks.get(hit.chunk_id as usize).map(|chunk| {
+                                                let preview = &chunk.text[..chunk.text.len().min(500)];
+                                                json!({
+                                                    "type": "text",
+                                                    "text": format!("[{} Score: {:.3}] Page {:?}\n{}", hit.method, hit.score, chunk.page, preview)
+                                                })
+                                            })
+                                        })
+                                        .collect();
+                                    let mut result_obj = serde_json::Map::new();
+                                    result_obj.insert("content".to_string(), json!(content));
+                                    result_obj.insert("active_plan".to_string(), json!(result.active_plan.to_string()));
+                                    if !prepared.metadata.is_empty() {
+                                        let mut meta_obj = serde_json::Map::new();
+                                        for (k, v) in &prepared.metadata {
+                                            meta_obj.insert(k.to_string(), json!(v));
+                                        }
+                                        result_obj.insert("metadata".to_string(), Value::Object(meta_obj));
+                                    }
+                                    json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": Value::Object(result_obj),
+                                    })
+                                }
+                                Err(error) => json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32602,
+                                        "message": error.to_string()
+                                    }
+                                }),
+                            },
                         }
                     }
                 } else if tool_name == "get_web_ui_url" {
@@ -246,4 +274,134 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Outcome of the auto-fill stage. Carries the (possibly downgraded) method,
+/// the (possibly internally-generated) query vector, and structured metadata
+/// to surface back through the MCP response.
+pub struct PreparedRequest {
+    pub method: SearchMethodRequest,
+    pub query_vector: Option<Vec<f32>>,
+    pub metadata: Vec<(&'static str, String)>,
+}
+
+/// Implements the downgrade matrix in spec §4.5. Called once per `search_knowledge`
+/// invocation, before dispatch into `SearchRuntime::search()`.
+///
+/// Returns `Err(message)` only for the hard-fail case in §4.5 row 3:
+/// the Orb manifest declares an `embedding_model_tar_sha256` that disagrees
+/// with the runtime's compile-time SHA. Every other path returns `Ok(...)`
+/// with metadata describing what happened.
+#[cfg(feature = "vector-embedder")]
+pub async fn auto_fill_query_vector(
+    state: &SharedState,
+    requested_method: SearchMethodRequest,
+    query: &str,
+    incoming_query_vector: Option<Vec<f32>>,
+) -> Result<PreparedRequest, String> {
+    let mut method = requested_method;
+    let mut metadata: Vec<(&'static str, String)> = Vec::new();
+
+    // If the caller supplied a vector, trust them. This is the original
+    // pre-embedder contract; we don't second-guess it.
+    if incoming_query_vector.is_some() {
+        return Ok(PreparedRequest {
+            method,
+            query_vector: incoming_query_vector,
+            metadata,
+        });
+    }
+
+    let orb_has_dense = state
+        .manifest
+        .enabled_capabilities
+        .iter()
+        .any(|c| matches!(c, Capability::FlatVector | Capability::Hnsw));
+    let needs_vector = matches!(method, SearchMethodRequest::FlatVector)
+        || (matches!(method, SearchMethodRequest::Hybrid) && orb_has_dense);
+
+    if !needs_vector {
+        return Ok(PreparedRequest {
+            method,
+            query_vector: None,
+            metadata,
+        });
+    }
+
+    // Snapshot the embedder slot. ArcSwap::load gives a Guard; we clone the
+    // inner Arc cheaply so we don't hold the guard across the .await.
+    let snapshot: Option<Arc<TractEmbedder>> = {
+        let guard = state.embedder_slot.load();
+        let inner: &Option<Arc<TractEmbedder>> = guard.as_ref();
+        inner.clone()
+    };
+
+    let Some(embedder) = snapshot else {
+        // Embedder not ready (still downloading / load failed). §4.5 rows 4 & 8.
+        if matches!(method, SearchMethodRequest::FlatVector) {
+            method = SearchMethodRequest::Auto;
+            metadata.push(("degraded_from", "vector".to_string()));
+            metadata.push(("reason", "embedder_not_ready".to_string()));
+        }
+        // For hybrid, dispatch will skip dense automatically — no method change.
+        return Ok(PreparedRequest {
+            method,
+            query_vector: None,
+            metadata,
+        });
+    };
+
+    // SHA check per §4.5. Hard-reject only when the manifest declares a SHA
+    // AND it disagrees with ours. Manifest with no SHA is legacy → fall through
+    // to soft constraint (vector search itself will validate dimension).
+    match state.manifest.embedding_model_tar_sha256.as_deref() {
+        Some(sha) if sha == mcporb_embed::MODEL_TAR_SHA256 => {
+            // exact match — proceed
+        }
+        Some(_) => {
+            return Err(format!(
+                "embedding_model_mismatch: orb requires model {:?} (sha {}) but runtime has {} (sha {})",
+                state.manifest.embedding_model.as_deref().unwrap_or("<unknown>"),
+                state.manifest.embedding_model_tar_sha256.as_deref().unwrap_or("<unknown>"),
+                mcporb_embed::MODEL_ID,
+                mcporb_embed::MODEL_TAR_SHA256
+            ));
+        }
+        None => {
+            // Legacy orb — proceed under soft constraint
+            metadata.push(("embedding_constraint", "soft".to_string()));
+        }
+    }
+
+    match mcporb_embed::embed(embedder, query.to_string()).await {
+        Ok(vec) => {
+            metadata.push(("query_vector_source", "runtime_internal".to_string()));
+            metadata.push(("embedding_model", mcporb_embed::MODEL_ID.to_string()));
+            Ok(PreparedRequest {
+                method,
+                query_vector: Some(vec),
+                metadata,
+            })
+        }
+        Err(e) => Err(format!("embedder_failure: {}", e)),
+    }
+}
+
+/// Lite-flavor stub: no embedder is compiled in, so this just passes the
+/// caller's request through unchanged. If the Orb's manifest declares
+/// `flat_vector` capability it should not have been packaged with the lite
+/// runtime in the first place; `available_method_names()` will hide the
+/// `vector` method from MCP `tools/list` anyway.
+#[cfg(not(feature = "vector-embedder"))]
+pub async fn auto_fill_query_vector(
+    _state: &SharedState,
+    requested_method: SearchMethodRequest,
+    _query: &str,
+    incoming_query_vector: Option<Vec<f32>>,
+) -> Result<PreparedRequest, String> {
+    Ok(PreparedRequest {
+        method: requested_method,
+        query_vector: incoming_query_vector,
+        metadata: Vec::new(),
+    })
 }

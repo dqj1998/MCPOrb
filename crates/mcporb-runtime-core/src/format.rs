@@ -63,11 +63,19 @@ pub struct OrbManifest {
     pub embedding_dim: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_model: Option<String>,
+    /// SHA256 of the embedder bundle tar.zst the Builder used. Runtime hard-rejects
+    /// dense queries when this is `Some(_)` and disagrees with its compiled-in
+    /// `mcporb_embed::MODEL_TAR_SHA256`. Older Orbs (`None`) fall back to soft
+    /// constraint (dim check only) per spec §4.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_model_tar_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigram_min_df: Option<usize>,
-    /// Human-readable rationale for the selected plan.
+    /// Rationale for the selected plan. Stored as opaque `Value` because the
+    /// Builder emits structured `{key, params}` objects while older Orbs may
+    /// emit plain strings; Runtime only forwards it to the GUI verbatim.
     #[serde(default)]
-    pub planning_rationale: Vec<String>,
+    pub planning_rationale: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

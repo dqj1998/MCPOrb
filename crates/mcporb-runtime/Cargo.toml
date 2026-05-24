@@ -9,8 +9,19 @@ build = "build.rs"
 name = "mcporb-runtime"
 path = "src/main.rs"
 
+[features]
+# Build with bundled tract embedder. ON by default for the "full" flavor
+# distributed with Orbs that carry dense vectors. Turn OFF for BM25-only
+# deployments to save ~5-10MB of binary (tract + tokenizers + onnx).
+#
+#     cargo build -p mcporb-runtime                          # full
+#     cargo build -p mcporb-runtime --no-default-features    # lite (BM25-only)
+default = ["vector-embedder"]
+vector-embedder = ["dep:mcporb-embed"]
+
 [dependencies]
 mcporb-runtime-core = { path = "../mcporb-runtime-core" }
+mcporb-embed = { path = "../mcporb-embed", optional = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
