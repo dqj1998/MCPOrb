@@ -1,0 +1,20 @@
+[package]
+name = "mcporb-embed"
+version = "0.1.0"
+edition = "2021"
+description = "Embedded ONNX query embedder for MCP Orb (tract backend)"
+license = "Apache-2.0"
+
+[dependencies]
+tract-onnx = { workspace = true }
+tokenizers = { workspace = true }
+arc-swap = { workspace = true }
+dirs = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+tar = { workspace = true }
+zstd = { workspace = true }
+sha2 = { workspace = true }
+futures-util = { workspace = true }

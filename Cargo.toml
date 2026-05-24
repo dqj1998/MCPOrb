@@ -3,6 +3,7 @@ members = [
     "crates/mcporb-runtime",
     "crates/mcporb-runtime-core",
     "crates/mcporb-size-spike",
+    "crates/mcporb-embed",
 ]
 resolver = "2"
 
@@ -29,6 +30,20 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
 instant-distance = "0.6.1"
+# mcporb-embed (vector search query embedder, see plans/vector-search-spec.md)
+# Pinned to local d-tract clone with LayerNorm F16 fix
+# (see d-tract/onnx/src/ops/nn/layer_norm.rs — cast back to fact.datum_type
+# AFTER scale/bias, not before, so F16 inputs produce F16 outputs).
+tract-onnx = { path = "../d-tract/onnx" }
+tokenizers = "0.20"
+ndarray = "0.15"
+arc-swap = "1"
+dirs = "5"
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"], default-features = false }
+tar = "0.4"
+zstd = "0.13"
+sha2 = "0.10"
+futures-util = "0.3"
 
 [profile.release]
 lto = "fat"
