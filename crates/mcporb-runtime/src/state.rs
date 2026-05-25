@@ -18,6 +18,7 @@ pub struct OrbState {
     /// Source of truth for the on-disk model bundle. Read by both startup and
     /// the hot-load post-download path. Present only in the full build flavor.
     #[cfg(feature = "vector-embedder")]
+    #[allow(dead_code)]
     pub model_manager: Arc<ModelManager>,
     /// Hot-swappable embedder. Starts empty; populated on cache-hit at startup
     /// or once the background download completes. See spec §5.5.

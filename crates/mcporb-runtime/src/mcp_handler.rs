@@ -11,6 +11,34 @@ use serde_json::{json, Value};
 
 use crate::state::SharedState;
 
+/// Build a human-readable description of the `method` parameter for `tools/list`,
+/// based on which methods are actually available in this Orb at runtime.
+/// This description is shown to the LLM so it can choose the right method.
+fn build_method_description(methods: &[&str]) -> String {
+    let mut parts: Vec<&str> = vec![
+        "Search method (default: auto).",
+    ];
+    if methods.contains(&"auto") {
+        parts.push("'auto': automatically picks the best available method(s).");
+    }
+    if methods.contains(&"bm25") {
+        parts.push("'bm25': exact keyword match, best for precise term lookup.");
+    }
+    if methods.contains(&"tfidf") {
+        parts.push("'tfidf': term-frequency ranking, good for topical relevance.");
+    }
+    if methods.contains(&"trigram") {
+        parts.push("'trigram': fuzzy/typo-tolerant character-level match.");
+    }
+    if methods.contains(&"vector") {
+        parts.push("'vector': semantic similarity search, best for conceptual or paraphrase queries.");
+    }
+    if methods.contains(&"hybrid") {
+        parts.push("'hybrid': fuses all available rankers via RRF, recommended for mixed queries.");
+    }
+    parts.join(" ")
+}
+
 pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
     tracing::info!("MCP stdio loop started");
 
@@ -84,13 +112,8 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
                                     "top_k": { "type": "integer", "description": "Number of results (default: 5)" },
                                     "method": {
                                         "type": "string",
-                                        "description": "Search method override",
+                                        "description": build_method_description(&state.search.available_method_names()),
                                         "enum": state.search.available_method_names()
-                                    },
-                                    "query_vector": {
-                                        "type": "array",
-                                        "description": "Dense query vector required by method=vector and dense hybrid",
-                                        "items": { "type": "number" }
                                     }
                                 },
                                 "required": ["query"]
