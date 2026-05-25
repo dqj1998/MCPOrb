@@ -2,53 +2,47 @@
 
 **MCPOrb: The PDF for AI-native knowledge delivery.**
 
-This directory contains public demo Orbs and source packs used to explain what an
-Orb looks like in practice.
+This directory contains public demo Orbs ready to use with any MCP-compatible AI client.
+Each `.orb` file is a self-contained, locally-runnable knowledge asset — no build step required.
 
-Each demo folder is intended to hold:
+## Available Orbs
 
-- raw source materials
-- a packaged `.orb` output when built
-- a local README describing scope, sources, build notes, and naming conventions
-
-## Available folders
-
-| Folder | Theme | Source availability | Status |
+| Folder | Theme | Orb file | Status |
 |---|---|---|---|
-| `MDA/` | Model Driven Architecture reference guide | high | built |
-| `AI-Governance/` | AI governance, policy, and compliance corpus | high | seeded with first public source batch |
-| `Industrial-Safety-Ops/` | industrial safety, maintenance, and training corpus | medium | planned |
-| `Public-Procurement-Delivery/` | public procurement and project delivery corpus | medium-high | planned |
+| `MDA/` | Model Driven Architecture reference guide | `MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` | available |
+| `AI-Governance/` | AI governance, policy, and compliance corpus | `AI_Governance_Control_Compendium.orb` | available |
+| `Industrial-Safety-Ops/` | Industrial safety, maintenance, and training corpus | — | planned |
+| `Public-Procurement-Delivery/` | Public procurement and project delivery corpus | — | planned |
 
-## Current layout decision
+## How to use an Orb
 
-Yes: single-demo documentation belongs in the demo folder itself.
+An `.orb` file is a single self-contained executable.
 
-That means:
+### With an MCP client (stdio mode)
 
-- `MDA/README.md` holds the MDA-specific walkthrough
-- this top-level README stays as the index for all public demo folders
+Point your MCP client at the Orb directly:
 
-## Multi-source builds
+```json
+{
+  "mcpServers": {
+    "orb-name": {
+      "command": "/path/to/YourOrb.orb",
+      "args": ["--stdio-only"]
+    }
+  }
+}
+```
 
-The **Wizard GUI** accepts multiple source files and folders in one build.
-Drop any mix of PDF, HTML, DOCX, PPTX, and Markdown files into the source
-list; the Builder ingests them all, merges the chunks, and selects a single
-retrieval plan over the combined corpus.
+### With the built-in Web UI
 
-The **CLI** (`mcporb build`) still takes one source file at a time.
-For multi-document demos via CLI, the recommended pattern is:
+Run the Orb directly to open an interactive query interface in your browser:
 
-1. keep the raw public source files in the demo folder
-2. run `mcporb build` once per source (or pick the most representative one
-   for a spot-check)
-3. for a full multi-source build, use the Wizard GUI
+```bash
+/path/to/YourOrb.orb --open
+```
 
-## Suggested naming convention
+- `--open` launches the browser automatically at `http://127.0.0.1:<port>/<token>/`.
+- Omit `--open` to start the server only; the URL is printed to stdout.
+- You can also ask the LLM to call the `get_web_ui_url` tool — it returns the URL, which you can then open in your browser.
 
-- Folder name: theme-oriented and human-readable
-- Orb internal name: lowercase kebab-case, e.g. `ai-governance`
-- Consolidated build source: `Theme_Public_Corpus_v1.md` or `.pdf`
-- Packaged Orb filename: `Theme_Public_Corpus_v1.orb`
-
-See each demo folder for the concrete target names.
+See each demo folder's README for client-specific configuration and example queries.

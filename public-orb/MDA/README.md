@@ -2,10 +2,9 @@
 
 **MCPOrb: The PDF for AI-native knowledge delivery.**
 
-This is the first built public demo Orb for MCPOrb. It packages the
-[MDA Guide v1.0.1](https://www.omg.org/mda/) — the Object Management Group's
-foundational document on Model Driven Architecture — into a self-contained,
-locally-runnable MCP knowledge asset.
+This Orb packages the [MDA Guide v1.0.1](https://www.omg.org/mda/) — the Object Management Group's
+foundational document on Model Driven Architecture — into a self-contained, locally-runnable MCP
+knowledge asset.
 
 ---
 
@@ -13,8 +12,8 @@ locally-runnable MCP knowledge asset.
 
 | File | Purpose |
 |---|---|
-| `00-2_MDA_Guide_v1.0.1.pdf` | Raw public source document |
-| `MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` | Packaged Orb executable |
+| `MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` | Packaged Orb executable — use this directly |
+| `00-2_MDA_Guide_v1.0.1.pdf` | Original public source document |
 
 ---
 
@@ -31,85 +30,20 @@ locally-runnable MCP knowledge asset.
 
 ---
 
-## Canonical names
+## Open the Web UI
 
-- Orb name: `mda-guide`
-- Target asset dir: `target/orbs/mda-guide/`
-- Target packaged filename: `MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb`
-
----
-
-## What you can ask
-
-This Orb is best at answering questions about Model Driven Architecture concepts,
-terminology, and the structure of the MDA approach. Good questions include:
-
-1. **What is Model Driven Architecture?**
-2. **What is the role of a Platform Independent Model (PIM)?**
-3. **How does MDA describe transformation between models?**
-4. **What is a Computation Independent Model (CIM)?**
-5. **What is a Platform Specific Model (PSM)?**
-6. **How does MDA relate to UML?**
-7. **What is the MDA pattern?**
-8. **Where does the guide discuss computation independent models?**
-
-Known limitations:
-- Single-word queries (e.g. `architects`) may return no results due to BM25 tokenization.
-- Natural-language paraphrase queries work better with longer phrases.
-- This Orb uses BM25-only retrieval (v0.1). Dense semantic search is planned for v0.2.
-
----
-
-## Run locally
-
-### Prerequisites
-
-- Rust toolchain (`rustup`, `cargo`) — [install](https://rustup.rs)
-- Both `MCPOrb` and `MCPOrbBuilder` repositories cloned as siblings
-
-### Step 1: Build the MDA Orb assets
+Run the Orb without `--stdio-only` to start the built-in Web UI:
 
 ```bash
-cd MCPOrbBuilder
-cargo build --workspace
-
-cargo run -p mcporb-cli -- build \
-  ../MCPOrb/public-orb/MDA/00-2_MDA_Guide_v1.0.1.pdf \
-  --name mda-guide \
-  --description "MDA Guide v1.0.1 — Model Driven Architecture Guide from OMG"
+/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb --open
 ```
 
-Output: `MCPOrbBuilder/target/orbs/mda-guide/`
+- `--open` automatically opens the browser at `http://127.0.0.1:<port>/<token>/`.
+- Omit `--open` to start the server without launching a browser; the URL is printed to stdout.
+- The Web UI lets you run queries interactively and inspect retrieved chunks with scores and page numbers.
 
-### Step 2: Inspect the Orb
-
-```bash
-cargo run -p mcporb-cli -- inspect target/orbs/mda-guide
-```
-
-### Step 3: Run a test query
-
-```bash
-cargo run -p mcporb-cli -- test-query target/orbs/mda-guide \
-  "What is Model Driven Architecture" --top-k 5
-```
-
-### Step 4: Build the runtime and launch the Web UI
-
-The `mcporb run` command delegates to the `mcporb-runtime` binary. Build it
-once from the sibling `MCPOrb` repository, then launch via the CLI:
-
-```bash
-# Build the runtime (one-time)
-cd ../MCPOrb
-cargo build -p mcporb-runtime
-
-# Launch the Orb with the Web UI
-cd ../MCPOrbBuilder
-cargo run -p mcporb-cli -- run target/orbs/mda-guide --open
-```
-
-This opens `http://127.0.0.1:<port>/<token>/` in your browser.
+Once the Orb is running, you can also ask the LLM to call the `get_web_ui_url` tool — it returns
+the URL, which you can open directly in your browser.
 
 ---
 
@@ -156,8 +90,7 @@ Add to `.cursor/mcp.json` or Cursor settings:
 }
 ```
 
-Replace `/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` with the
-absolute path to the packaged Orb executable.
+Replace `/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` with the absolute path to the Orb file.
 
 ---
 
@@ -182,16 +115,24 @@ absolute path to the packaged Orb executable.
 
 ---
 
-## Package as a single executable
+## What you can ask
 
-```bash
-cd MCPOrbBuilder
-cargo run -p mcporb-cli -- package target/orbs/mda-guide \
-  --output ../MCPOrb/public-orb/MDA/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb
-```
+This Orb is best at answering questions about Model Driven Architecture concepts,
+terminology, and the structure of the MDA approach. Good questions include:
 
-This produces a single self-contained executable that embeds all knowledge assets
-and the runtime.
+1. **What is Model Driven Architecture?**
+2. **What is the role of a Platform Independent Model (PIM)?**
+3. **How does MDA describe transformation between models?**
+4. **What is a Computation Independent Model (CIM)?**
+5. **What is a Platform Specific Model (PSM)?**
+6. **How does MDA relate to UML?**
+7. **What is the MDA pattern?**
+8. **Where does the guide discuss computation independent models?**
+
+Known limitations:
+- Single-word queries (e.g. `architects`) may return no results due to BM25 tokenization.
+- Natural-language paraphrase queries work better with longer phrases.
+- This Orb uses BM25-only retrieval (v0.1). Dense semantic search is planned for v0.2.
 
 ---
 
