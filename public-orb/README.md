@@ -29,15 +29,20 @@ That means:
 - `MDA/README.md` holds the MDA-specific walkthrough
 - this top-level README stays as the index for all public demo folders
 
-## Current builder limitation
+## Multi-source builds
 
-Today, `mcporb build` accepts a single Markdown or PDF source file.
+The **Wizard GUI** accepts multiple source files and folders in one build.
+Drop any mix of PDF, HTML, DOCX, PPTX, and Markdown files into the source
+list; the Builder ingests them all, merges the chunks, and selects a single
+retrieval plan over the combined corpus.
 
-So for multi-document public demos, the recommended directory pattern is:
+The **CLI** (`mcporb build`) still takes one source file at a time.
+For multi-document demos via CLI, the recommended pattern is:
 
 1. keep the raw public source files in the demo folder
-2. curate a canonical single-source build document for the current CLI
-3. package the resulting Orb back into the same demo folder
+2. run `mcporb build` once per source (or pick the most representative one
+   for a spot-check)
+3. for a full multi-source build, use the Wizard GUI
 
 ## Suggested naming convention
 

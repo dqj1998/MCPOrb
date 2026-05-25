@@ -94,12 +94,17 @@ cargo run -p mcporb-cli -- test-query target/orbs/mda-guide \
   "What is Model Driven Architecture" --top-k 5
 ```
 
-### Step 4: Launch the Web UI
+### Step 4: Build the runtime and launch the Web UI
+
+The `mcporb run` command delegates to the `mcporb-runtime` binary. Build it
+once from the sibling `MCPOrb` repository, then launch via the CLI:
 
 ```bash
+# Build the runtime (one-time)
 cd ../MCPOrb
 cargo build -p mcporb-runtime
 
+# Launch the Orb with the Web UI
 cd ../MCPOrbBuilder
 cargo run -p mcporb-cli -- run target/orbs/mda-guide --open
 ```
@@ -118,7 +123,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "mda-guide": {
-      "command": "/path/to/mda-guide",
+      "command": "/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb",
       "args": ["--stdio-only"]
     }
   }
@@ -132,7 +137,7 @@ Add to `.cursor/mcp.json` or Cursor settings:
 ```json
 {
   "mda-guide": {
-    "command": "/path/to/mda-guide",
+    "command": "/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb",
     "args": ["--stdio-only"]
   }
 }
@@ -144,14 +149,15 @@ Add to `.cursor/mcp.json` or Cursor settings:
 {
   "mcp.servers": {
     "mda-guide": {
-      "command": "/path/to/mda-guide",
+      "command": "/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb",
       "args": ["--stdio-only"]
     }
   }
 }
 ```
 
-Replace `/path/to/mda-guide` with the path to the packaged Orb binary.
+Replace `/path/to/MDA_ModelDrivenArchitecture_Guide_v1.0.1.orb` with the
+absolute path to the packaged Orb executable.
 
 ---
 
@@ -159,7 +165,7 @@ Replace `/path/to/mda-guide` with the path to the packaged Orb binary.
 
 | Tool | Description |
 |---|---|
-| `search_knowledge` | BM25 search over the MDA Guide. Returns top-k chunks with scores and page numbers. |
+| `search_knowledge` | Lexical search over the MDA Guide. Returns top-k chunks with scores and page numbers. Accepts an optional `method` parameter (`"bm25"` — default for this Orb). |
 | `get_web_ui_url` | Returns the local Web UI URL when the Orb is running in GUI mode. |
 
 ### Example `search_knowledge` call

@@ -8,8 +8,20 @@ This public Orb shows MCPOrb packaging a large, mixed-format knowledge set for g
 
 ```
 ai-governance/
-├── README.md          ← this file (zero other docs)
-└── sources/           ← 11 source files, no nesting
+├── README.md                          ← this file (zero other docs)
+└── sources/
+    ├── AI_Governance_Control_Compendium.md   ← primary build source
+    └── others/                        ← 10 additional sources
+        ├── NIST_AI_RMF_Framework.pdf
+        ├── NIST_AI_RMF_GenAI_Profile.pdf
+        ├── NIST_AI_RMF_Playbook.html
+        ├── EC_AI_Act_Overview.html
+        ├── EC_AI_Act_Overview.docx
+        ├── EU_Parl_AI_Office_Presentation.pptx
+        ├── AI_Governance_Bilingual_FAQ.md
+        ├── AI_Governance_Risk_Scenario_Library.md
+        ├── AI_Governance_Launch_Readiness_Checklist.md
+        └── AI_Governance_Glossary.md
 ```
 
 There is no `INDEX.md`, no `SOURCES.md`, no `build.plan.json`, no `demo-embeddings.bin`, no `tools/`. The Builder makes every planning decision from the source set; user-adjustable knobs live in the GUI's *Advanced Options* panel.
@@ -18,17 +30,17 @@ There is no `INDEX.md`, no `SOURCES.md`, no `build.plan.json`, no `demo-embeddin
 
 | File | Format | Publisher | Origin |
 |---|---|---|---|
-| `sources/NIST_AI_RMF_Framework.pdf` | PDF | NIST | `https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf` |
-| `sources/NIST_AI_RMF_GenAI_Profile.pdf` | PDF | NIST | `https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf` |
-| `sources/NIST_AI_RMF_Playbook.html` | HTML | NIST | `https://airc.nist.gov/AI_RMF_Knowledge_Base/AI_RMF` |
-| `sources/EC_AI_Act_Overview.html` | HTML | European Commission | `https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai` |
-| `sources/EC_AI_Act_Overview.docx` | DOCX | European Commission | derived locally from the same Commission text export |
-| `sources/EU_Parl_AI_Office_Presentation.pptx` | PPTX | European Parliament | `https://www.europarl.europa.eu/cmsdata/300890/Mr%20Boulange%20-%20AFCO%20Workshop%20-%20AI%20Office%20Presentation%20-%203%20December%202025%20-%20v1.2.pptx` |
+| `sources/others/NIST_AI_RMF_Framework.pdf` | PDF | NIST | `https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf` |
+| `sources/others/NIST_AI_RMF_GenAI_Profile.pdf` | PDF | NIST | `https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf` |
+| `sources/others/NIST_AI_RMF_Playbook.html` | HTML | NIST | `https://airc.nist.gov/AI_RMF_Knowledge_Base/AI_RMF` |
+| `sources/others/EC_AI_Act_Overview.html` | HTML | European Commission | `https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai` |
+| `sources/others/EC_AI_Act_Overview.docx` | DOCX | European Commission | derived locally from the same Commission text export |
+| `sources/others/EU_Parl_AI_Office_Presentation.pptx` | PPTX | European Parliament | `https://www.europarl.europa.eu/cmsdata/300890/Mr%20Boulange%20-%20AFCO%20Workshop%20-%20AI%20Office%20Presentation%20-%203%20December%202025%20-%20v1.2.pptx` |
 | `sources/AI_Governance_Control_Compendium.md` | Markdown | MCPOrb demo supplement | locally authored — long operational control narrative |
-| `sources/AI_Governance_Bilingual_FAQ.md` | Markdown | MCPOrb demo supplement | locally authored — Chinese + English governance prompts |
-| `sources/AI_Governance_Risk_Scenario_Library.md` | Markdown | MCPOrb demo supplement | locally authored — ten governance scenarios |
-| `sources/AI_Governance_Launch_Readiness_Checklist.md` | Markdown | MCPOrb demo supplement | locally authored — bilingual control checklist |
-| `sources/AI_Governance_Glossary.md` | Markdown | MCPOrb demo supplement | locally authored — 60+ bilingual term definitions |
+| `sources/others/AI_Governance_Bilingual_FAQ.md` | Markdown | MCPOrb demo supplement | locally authored — Chinese + English governance prompts |
+| `sources/others/AI_Governance_Risk_Scenario_Library.md` | Markdown | MCPOrb demo supplement | locally authored — ten governance scenarios |
+| `sources/others/AI_Governance_Launch_Readiness_Checklist.md` | Markdown | MCPOrb demo supplement | locally authored — bilingual control checklist |
+| `sources/others/AI_Governance_Glossary.md` | Markdown | MCPOrb demo supplement | locally authored — 60+ bilingual term definitions |
 
 11 files across 5 formats (PDF, HTML, DOCX, PPTX, Markdown).
 
@@ -65,7 +77,8 @@ There is no `INDEX.md`, no `SOURCES.md`, no `build.plan.json`, no `demo-embeddin
 
 ### CLI (single-source spot-check)
 
-The CLI currently builds one source at a time; the multi-source path is GUI-only. For a spot-check pointed at any one of the sources:
+The CLI builds one source at a time; for a full 11-file build use the Wizard
+GUI. For a spot-check using the primary Markdown source:
 
 ```bash
 cd MCPOrbBuilder
@@ -76,7 +89,7 @@ cargo run -p mcporb-cli -- build \
     --allow-typo-tolerance \
     --force-tfidf \
     --synthesize-embeddings-demo \
-    --plan bm25_hnsw
+    --plan bm25-hnsw
 
 cargo run -p mcporb-cli -- package target/orbs/ai-governance \
     --output ../MCPOrb/public-orb/AI-Governance/ai-governance.orb
