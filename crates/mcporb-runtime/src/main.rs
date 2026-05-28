@@ -11,6 +11,8 @@ mod embedded_orb {
     include!(concat!(env!("OUT_DIR"), "/embedded_orb.rs"));
 }
 
+use std::path::PathBuf;
+
 use clap::Parser;
 use mcporb_runtime_core::format::Capability;
 use mcporb_runtime_core::{
@@ -138,14 +140,26 @@ fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
 }
 
 fn detect_orb_binary_path(config: &startup::StartupConfig) -> Option<String> {
-    if config.assets_path.is_some() || !embedded_orb::HAS_EMBEDDED_ORB {
+    if config.assets_path.is_some() {
         return None;
     }
 
-    std::env::current_exe()
-        .ok()
-        .map(|path| path.canonicalize().unwrap_or(path))
-        .map(|path| path.display().to_string())
+    if embedded_orb::HAS_EMBEDDED_ORB {
+        return std::env::current_exe()
+            .ok()
+            .map(|path| path.canonicalize().unwrap_or(path))
+            .map(|path| path.display().to_string());
+    }
+
+    // Sidecar mode: look for <exe_path>.data/ directory
+    let exe = std::env::current_exe().ok()?;
+    let exe_str = exe.to_string_lossy();
+    let data_dir = PathBuf::from(format!("{}.data", exe_str));
+    if data_dir.join("orb_manifest.json").exists() {
+        Some(exe.canonicalize().unwrap_or(exe).display().to_string())
+    } else {
+        None
+    }
 }
 
 #[tokio::main]
@@ -153,9 +167,23 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
     let args = startup::OrbArgs::parse();
-    let config = detect_startup(&args);
+    let mut config = detect_startup(&args);
 
     tracing::info!(mode = ?config.mode, "MCPOrb runtime starting");
+
+    // Sidecar auto-detection: if no --assets and no embedded orb, look for
+    // <exe_path>.data/ directory next to the binary.
+    if config.assets_path.is_none() && !embedded_orb::HAS_EMBEDDED_ORB {
+        if let Ok(exe) = std::env::current_exe() {
+            let data_dir = PathBuf::from(format!("{}.data", exe.to_string_lossy()));
+            if data_dir.join("orb_manifest.json").exists() {
+                config = startup::StartupConfig {
+                    assets_path: Some(data_dir),
+                    ..config
+                };
+            }
+        }
+    }
 
     let (manifest, documents, chunks, search) = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
