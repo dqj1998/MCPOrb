@@ -7,9 +7,6 @@ This repository owns the runtime that powers a standalone Orb executable:
 - Serves a **local Web UI** at `http://127.0.0.1:<port>/<token>/` for human inspection
 - Loads Orb assets produced elsewhere and serves BM25-based retrieval at runtime
 
-Builder-side code now lives in the sibling `../MCPOrbBuilder` repository.
-Shared plans, fixtures, and reports live in `../MCPOrbEtc`.
-
 ## Quick Start
 
 ```bash
@@ -20,7 +17,7 @@ cargo build -p mcporb-runtime
 cargo run -p mcporb-runtime -- --assets target/orbs/mda-guide --gui-only --open
 ```
 
-To build, inspect, or package Orbs, use the sibling `MCPOrbBuilder` repository.
+To build, inspect, or package Orbs, use the `MCPOrbBuilder` that is undergoing development.
 
 ## Packaged Orb Release
 
