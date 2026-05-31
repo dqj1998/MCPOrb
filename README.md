@@ -7,7 +7,7 @@ A runtime-only repository for packaged MCP Orbs.
 This repository owns the runtime that powers a standalone Orb executable:
 - Exposes a **MCP Server** (stdio JSON-RPC) for AI clients like Claude Desktop, Cursor, VS Code
 - Serves a **local Web UI** at `http://127.0.0.1:<port>/<token>/` for human inspection
-- Loads Orb assets produced elsewhere and serves BM25-based retrieval at runtime
+- Loads Orb assets produced elsewhere and serves multi-strategy retrieval at runtime (BM25, TF-IDF, Trigram, Vector, Hybrid)
 
 ## Quick Start
 
@@ -82,7 +82,7 @@ When an Orb runs with `--stdio-gui`, MCP clients should call the `get_web_ui_url
 MCPOrb/
 ├── crates/
 │   ├── mcporb-runtime/        # Orb runtime: MCP stdio + axum Web UI
-│   ├── mcporb-runtime-core/   # Runtime-only data contracts and BM25 query logic
+│   ├── mcporb-runtime-core/   # Runtime-only data contracts and multi-strategy search logic
 │   └── mcporb-size-spike/     # Runtime binary size spike
 ├── public-orb/                # Published showcase Orb artifacts and collateral
 └── scripts/
