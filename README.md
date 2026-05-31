@@ -1,5 +1,7 @@
 # MCPOrb
 
+🌐 [MCPOrb.ai](https://MCPOrb.ai) — The PDF for AI-native knowledge delivery.
+
 A runtime-only repository for packaged MCP Orbs.
 
 This repository owns the runtime that powers a standalone Orb executable:
