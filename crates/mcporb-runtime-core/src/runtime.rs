@@ -3,15 +3,16 @@ use std::time::Instant;
 use anyhow::{anyhow, bail, Result};
 
 use crate::format::{
-    Bm25Index, Capability, FlatVectorIndex, HnswIndex, RetrievalPlanKind, TfIdfIndex,
-    TrigramIndex,
+    Bm25Index, Capability, FlatVectorIndex, HnswIndex, RetrievalPlanKind, TfIdfIndex, TrigramIndex,
 };
 use crate::search::{rrf_fuse, SearchMethod, SearchMethodRequest, SearchResult};
 
 pub enum DenseRuntime {
     None,
     #[cfg(feature = "vector")]
-    Flat { store: FlatVectorIndex },
+    Flat {
+        store: FlatVectorIndex,
+    },
     #[cfg(feature = "hnsw")]
     Hnsw {
         store: FlatVectorIndex,
@@ -233,7 +234,10 @@ impl SearchRuntime {
                     "vector",
                     0,
                     Instant::now(),
-                    vec!["dense tier available but query_vector was omitted; skipped in auto mode".to_string()],
+                    vec![
+                        "dense tier available but query_vector was omitted; skipped in auto mode"
+                            .to_string(),
+                    ],
                 );
             }
         }
@@ -404,7 +408,14 @@ impl SearchRuntime {
                     method: SearchMethod::Trigram,
                 })
                 .collect::<Vec<_>>();
-            push_trace(request, traces, "trigram", hits.len(), started_at, Vec::new());
+            push_trace(
+                request,
+                traces,
+                "trigram",
+                hits.len(),
+                started_at,
+                Vec::new(),
+            );
             Ok(hits)
         }
 
@@ -436,25 +447,33 @@ impl SearchRuntime {
             let started_at = Instant::now();
             let hits = match &self.dense {
                 DenseRuntime::None => bail!("method=vector not available in this Orb"),
-                DenseRuntime::Flat { store } => crate::vector::search(store, query_vector, request.top_k)
-                    .into_iter()
-                    .map(|(chunk_id, score)| SearchResult {
-                        chunk_id,
-                        score,
-                        method: SearchMethod::FlatVector,
-                    })
-                    .collect::<Vec<_>>(),
+                DenseRuntime::Flat { store } => {
+                    crate::vector::search(store, query_vector, request.top_k)
+                        .into_iter()
+                        .map(|(chunk_id, score)| SearchResult {
+                            chunk_id,
+                            score,
+                            method: SearchMethod::FlatVector,
+                        })
+                        .collect::<Vec<_>>()
+                }
                 #[cfg(feature = "hnsw")]
-                DenseRuntime::Hnsw { ann, .. } => crate::vector::search_hnsw(ann, query_vector, request.top_k)
-                    .into_iter()
-                    .map(|(chunk_id, score)| SearchResult {
-                        chunk_id,
-                        score,
-                        method: SearchMethod::Hnsw,
-                    })
-                    .collect::<Vec<_>>(),
+                DenseRuntime::Hnsw { ann, .. } => {
+                    crate::vector::search_hnsw(ann, query_vector, request.top_k)
+                        .into_iter()
+                        .map(|(chunk_id, score)| SearchResult {
+                            chunk_id,
+                            score,
+                            method: SearchMethod::Hnsw,
+                        })
+                        .collect::<Vec<_>>()
+                }
             };
-            let stage = if self.dense.uses_hnsw() { "vector_hnsw" } else { "vector_flat" };
+            let stage = if self.dense.uses_hnsw() {
+                "vector_hnsw"
+            } else {
+                "vector_flat"
+            };
             push_trace(request, traces, stage, hits.len(), started_at, Vec::new());
             Ok(hits)
         }

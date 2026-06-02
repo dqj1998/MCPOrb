@@ -1,3 +1,4 @@
+use crate::{api, assets::WebAssets, mcp_handler, state::SharedState};
 use axum::{
     extract::Request,
     http::{HeaderMap, StatusCode},
@@ -8,7 +9,6 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
-use crate::{api, assets::WebAssets, state::SharedState};
 
 pub fn generate_token() -> String {
     let mut bytes = [0u8; 32];
@@ -23,12 +23,24 @@ fn base64_url_encode(bytes: &[u8]) -> String {
     let mut i = 0;
     while i < bytes.len() {
         let b0 = bytes[i] as usize;
-        let b1 = if i + 1 < bytes.len() { bytes[i + 1] as usize } else { 0 };
-        let b2 = if i + 2 < bytes.len() { bytes[i + 2] as usize } else { 0 };
+        let b1 = if i + 1 < bytes.len() {
+            bytes[i + 1] as usize
+        } else {
+            0
+        };
+        let b2 = if i + 2 < bytes.len() {
+            bytes[i + 2] as usize
+        } else {
+            0
+        };
         result.push(CHARS[b0 >> 2] as char);
         result.push(CHARS[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        if i + 1 < bytes.len() { result.push(CHARS[((b1 & 15) << 2) | (b2 >> 6)] as char); }
-        if i + 2 < bytes.len() { result.push(CHARS[b2 & 63] as char); }
+        if i + 1 < bytes.len() {
+            result.push(CHARS[((b1 & 15) << 2) | (b2 >> 6)] as char);
+        }
+        if i + 2 < bytes.len() {
+            result.push(CHARS[b2 & 63] as char);
+        }
         i += 3;
     }
     result
@@ -59,8 +71,13 @@ pub async fn serve(
         .route("/manifest", get(api::get_manifest))
         .route("/documents", get(api::get_documents))
         .route("/metrics", get(api::get_metrics))
+        .route("/mcp-config-locations", get(api::get_mcp_config_locations))
+        .route(
+            "/open-mcp-config-location",
+            post(api::post_open_mcp_config_location),
+        )
         .route("/search", post(api::post_search))
-        .with_state(state);
+        .with_state(state.clone());
 
     let html_clone = index_html.clone();
     let token_for_redirect = token.clone();
@@ -68,7 +85,10 @@ pub async fn serve(
         .nest(&format!("/{token}/api"), api_router)
         .route(
             &format!("/{token}/"),
-            get(move || { let h = html_clone.clone(); async move { Html(h) } }),
+            get(move || {
+                let h = html_clone.clone();
+                async move { Html(h) }
+            }),
         )
         .route(
             &format!("/{token}"),
@@ -77,8 +97,13 @@ pub async fn serve(
                 async move { axum::response::Redirect::permanent(&url) }
             }),
         )
+        .route(
+            &format!("/{token}/mcp"),
+            post(mcp_handler::post_streamable_http_mcp),
+        )
         .fallback(|| async { StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn(validate_host));
+        .layer(middleware::from_fn(validate_host))
+        .with_state(state);
 
     let bind_addr = format!("127.0.0.1:{}", port.unwrap_or(0));
     let listener = TcpListener::bind(&bind_addr).await?;

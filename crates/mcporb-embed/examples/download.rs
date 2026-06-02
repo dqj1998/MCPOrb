@@ -17,7 +17,13 @@ async fn main() -> anyhow::Result<()> {
     println!("is_ready (after):  {}", mgr.is_ready());
 
     let current = mgr.current_dir();
-    for name in ["model_f16.onnx", "tokenizer.json", "special_tokens_map.json", "config.json", ".source_sha256"] {
+    for name in [
+        "model_f16.onnx",
+        "tokenizer.json",
+        "special_tokens_map.json",
+        "config.json",
+        ".source_sha256",
+    ] {
         let p = current.join(name);
         let sz = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
         println!("  {:<30} {} bytes", name, sz);

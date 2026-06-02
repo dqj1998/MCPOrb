@@ -5,8 +5,9 @@
 A runtime-only repository for packaged MCP Orbs.
 
 This repository owns the runtime that powers a standalone Orb executable:
-- Exposes a **MCP Server** (stdio JSON-RPC) for AI clients like Claude Desktop, Cursor, VS Code
+- Exposes a **MCP Server** over stdio JSON-RPC for AI clients like Claude Desktop, Cursor, VS Code
 - Serves a **local Web UI** at `http://127.0.0.1:<port>/<token>/` for human inspection
+- Exposes **MCP Streamable HTTP** at `http://127.0.0.1:<port>/<token>/mcp` when the Web UI server is running
 - Loads Orb assets produced elsewhere and serves multi-strategy retrieval at runtime (BM25, TF-IDF, Trigram, Vector, Hybrid)
 
 ## Quick Start
@@ -14,6 +15,9 @@ This repository owns the runtime that powers a standalone Orb executable:
 ```bash
 # Build the runtime
 cargo build -p mcporb-runtime
+
+# Build Builder-ready full/lite runtimes in target/release/
+bash scripts/build-builder-runtimes.sh
 
 # Run the runtime directly against an Orb assets directory
 cargo run -p mcporb-runtime -- --assets target/orbs/mda-guide --gui-only --open
@@ -34,8 +38,8 @@ The packaged `.orb` file is still the preferred distributable artifact. It is pr
 # Expose MCP over stdio only
 ./target/orbs/mda-guide.orb --stdio-only
 
-# Run both MCP stdio and Web UI
-./target/orbs/mda-guide.orb --stdio-gui
+# Run MCP stdio, Web UI, and Streamable HTTP
+./target/orbs/mda-guide.orb --all-gui
 ```
 
 ### MCP client configuration for the packaged Orb
@@ -51,13 +55,13 @@ Development setup with an external assets directory:
   "mcpServers": {
     "mda-guide": {
       "command": "/Users/qingjie.du/HDD/MCPOrb/target/debug/mcporb-runtime",
-      "args": ["--assets", "/Users/qingjie.du/HDD/MCPOrb/target/orbs/mda-guide", "--stdio-gui"]
+      "args": ["--assets", "/Users/qingjie.du/HDD/MCPOrb/target/orbs/mda-guide", "--all-gui"]
     }
   }
 }
 ```
 
-> **Note:** Build the runtime first with `cargo build -p mcporb-runtime`. For production use, replace `debug` with `release` and build with `cargo build --release -p mcporb-runtime`.
+> **Note:** Build the runtime first with `cargo build -p mcporb-runtime`. For production use, replace `debug` with `release` and build with `cargo build --release -p mcporb-runtime`. If you want Builder-compatible staged binaries (`mcporb-runtime-full` / `mcporb-runtime-lite`) in a multi-repo workspace, run `bash scripts/build-builder-runtimes.sh`.
 
 Single-file packaged Orb setup:
 
@@ -66,7 +70,7 @@ Single-file packaged Orb setup:
   "mcpServers": {
     "mda-guide": {
       "command": "/Users/qingjie.du/HDD/MCPOrb/target/orbs/mda-guide.orb",
-      "args": ["--stdio-gui"]
+      "args": ["--all-gui"]
     }
   }
 }
@@ -74,7 +78,9 @@ Single-file packaged Orb setup:
 
 For production distribution, prefer the packaged `.orb` file over `target/debug/mcporb-runtime` plus a separate `target/orbs/<name>/` directory.
 
-When an Orb runs with `--stdio-gui`, MCP clients should call the `get_web_ui_url` tool to discover the local Web UI address. The URL is not exposed as an MCP resource.
+When an Orb runs with `--all-gui`, MCP clients should call the `get_web_ui_url` tool to discover the local Web UI address. The URL is not exposed as an MCP resource.
+
+When the Web UI server is running, local MCP clients that support Streamable HTTP can connect to `http://127.0.0.1:<port>/<token>/mcp`. ChatGPT web/cloud cannot reach that local URL; ChatGPT Desktop can use it only if the installed build supports user-configured local Streamable HTTP MCP servers. If a client expects a remote connector/app URL, publish the Orb through a trusted HTTPS MCP bridge instead.
 
 ## Architecture
 
@@ -96,7 +102,7 @@ MCPOrb/
 | Auto (piped) | `./orb` | MCP stdio + silent Web UI |
 | GUI only | `./orb --gui-only --open` | Web UI only, opens browser |
 | Stdio only | `./orb --stdio-only` | MCP stdio, no HTTP server |
-| Both | `./orb --stdio-gui` | MCP stdio + Web UI |
+| All GUI | `./orb --all-gui` | MCP stdio + Web UI + Streamable HTTP |
 
 ## Binary Size Budget
 

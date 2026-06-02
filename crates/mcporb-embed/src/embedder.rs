@@ -11,8 +11,8 @@ use arc_swap::ArcSwap;
 use std::path::Path;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
-use tract_onnx::prelude::*;
 use tract_onnx::prelude::tract_ndarray::Array2;
+use tract_onnx::prelude::*;
 
 use crate::model::{MAX_SEQ_LEN, MODEL_DIM};
 
@@ -38,18 +38,9 @@ impl TractEmbedder {
         let plan = tract_onnx::onnx()
             .model_for_path(&model_path)
             .with_context(|| format!("loading ONNX from {:?}", model_path))?
-            .with_input_fact(
-                0,
-                InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)),
-            )?
-            .with_input_fact(
-                1,
-                InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)),
-            )?
-            .with_input_fact(
-                2,
-                InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)),
-            )?
+            .with_input_fact(0, InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)))?
+            .with_input_fact(1, InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)))?
+            .with_input_fact(2, InferenceFact::dt_shape(i64::datum_type(), tvec!(1, seq)))?
             .into_optimized()?
             .into_runnable()?;
 
@@ -79,10 +70,8 @@ impl TractEmbedder {
         let token_type_ids = vec![0i64; MAX_SEQ_LEN];
 
         let ids_t: Tensor = Array2::from_shape_vec((1, MAX_SEQ_LEN), ids)?.into_tensor();
-        let mask_t: Tensor =
-            Array2::from_shape_vec((1, MAX_SEQ_LEN), mask.clone())?.into_tensor();
-        let tti_t: Tensor =
-            Array2::from_shape_vec((1, MAX_SEQ_LEN), token_type_ids)?.into_tensor();
+        let mask_t: Tensor = Array2::from_shape_vec((1, MAX_SEQ_LEN), mask.clone())?.into_tensor();
+        let tti_t: Tensor = Array2::from_shape_vec((1, MAX_SEQ_LEN), token_type_ids)?.into_tensor();
 
         let outputs = self
             .plan

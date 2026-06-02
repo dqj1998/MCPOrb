@@ -14,9 +14,7 @@ use mcporb_embed::TractEmbedder;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let model_dir = args
-        .get(1)
-        .expect("usage: smoke <model_dir> [text]");
+    let model_dir = args.get(1).expect("usage: smoke <model_dir> [text]");
     let text = args
         .get(2)
         .cloned()
@@ -53,7 +51,11 @@ fn main() -> anyhow::Result<()> {
 
     println!("=== smoke test ===");
     println!("query:        {:?}", text);
-    println!("output dim:   {}  (expect {})", last.len(), mcporb_embed::MODEL_DIM);
+    println!(
+        "output dim:   {}  (expect {})",
+        last.len(),
+        mcporb_embed::MODEL_DIM
+    );
     println!("output norm:  {:.6}  (expect ≈ 1.0)", norm);
     println!("first 8:      {:?}", &last[..8]);
     println!("latency p50:  {:?}", p50);

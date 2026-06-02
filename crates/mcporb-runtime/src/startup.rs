@@ -3,7 +3,7 @@ use std::io::IsTerminal;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StartupMode {
-    StdioGui,
+    AllGui,
     GuiOnly,
     StdioOnly,
 }
@@ -12,6 +12,8 @@ pub enum StartupMode {
 #[command(name = "orb", about = "MCPOrb — self-contained knowledge Orb")]
 pub struct OrbArgs {
     #[arg(long)]
+    pub all_gui: bool,
+    #[arg(long, hide = true)]
     pub stdio_gui: bool,
     #[arg(long)]
     pub gui_only: bool,
@@ -39,13 +41,13 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         StartupMode::StdioOnly
     } else if args.gui_only {
         StartupMode::GuiOnly
-    } else if args.stdio_gui {
-        StartupMode::StdioGui
+    } else if args.all_gui || args.stdio_gui {
+        StartupMode::AllGui
     } else {
         if std::io::stdin().is_terminal() {
             StartupMode::GuiOnly
         } else {
-            StartupMode::StdioGui
+            StartupMode::AllGui
         }
     };
 

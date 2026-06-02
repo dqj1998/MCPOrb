@@ -1,7 +1,7 @@
-use std::sync::Arc;
 #[cfg(feature = "vector-embedder")]
 use mcporb_embed::{EmbedderSlot, ModelManager};
 use mcporb_runtime_core::{Chunk, Document, OrbManifest, SearchRuntime};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Default)]

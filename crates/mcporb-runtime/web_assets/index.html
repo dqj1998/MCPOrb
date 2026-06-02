@@ -9,6 +9,10 @@
     body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
     header{background:#1e293b;border-bottom:1px solid #334155;padding:.875rem 2rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
     header h1{font-size:1.2rem;font-weight:700;color:#38bdf8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .lang-switch{display:flex;gap:.25rem;background:#0f172a;border:1px solid #334155;border-radius:999px;padding:.2rem;align-items:center}
+    .lang-btn{background:transparent;border:none;color:#94a3b8;border-radius:999px;font-size:.68rem;font-weight:700;padding:.2rem .45rem;cursor:pointer;white-space:nowrap;transition:all .15s}
+    .lang-btn:hover{color:#e2e8f0;background:#1e293b}
+    .lang-btn.active{color:#fff;background:#0ea5e9}
     .badge{background:#0ea5e9;color:#fff;font-size:.7rem;padding:.2rem .55rem;border-radius:9999px;font-weight:600;white-space:nowrap}
     .badge.plan{background:#7c3aed}
     .badge.cap{background:#059669;font-size:.65rem}
@@ -40,13 +44,19 @@
     .doc-title{color:#e2e8f0;font-weight:500}
     .doc-meta{color:#64748b;font-size:.75rem;margin-top:.15rem}
     #status{font-size:.8rem;color:#64748b;margin-bottom:.5rem;min-height:1.2em}
-    .rationale{background:#0f172a;border-radius:.375rem;padding:.75rem 1rem;margin-top:.75rem}
-    .rationale p{font-size:.8rem;color:#94a3b8;line-height:1.6;margin-bottom:.25rem}
-    .rationale p:last-child{margin-bottom:0}
-    .rationale p::before{content:"→ ";color:#38bdf8}
     .code-block{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:1rem;font-family:'SF Mono',ui-monospace,monospace;font-size:.78rem;color:#a5f3fc;overflow-x:auto;white-space:pre;line-height:1.6;position:relative}
     .copy-btn{position:absolute;top:.5rem;right:.5rem;background:#1e293b;border:1px solid #334155;color:#94a3b8;font-size:.7rem;padding:.2rem .5rem;border-radius:.25rem;cursor:pointer;transition:all .15s}
     .copy-btn:hover{background:#334155;color:#e2e8f0}
+    .config-location-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.625rem;margin-bottom:1rem}
+    .config-location{background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.75rem;min-width:0}
+    .config-location-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.45rem}
+    .config-location-title{font-weight:700;color:#e2e8f0;font-size:.85rem;min-width:0;flex:1}
+    .config-location-state{font-size:.65rem;color:#64748b;border:1px solid #334155;border-radius:999px;padding:.1rem .4rem;white-space:nowrap}
+    .config-location-state.exists{color:#86efac;border-color:#166534;background:#052e16}
+    .config-path{display:block;color:#a5f3fc;font-family:'SF Mono',ui-monospace,monospace;font-size:.72rem;line-height:1.45;white-space:normal;overflow-wrap:anywhere;margin-bottom:.625rem}
+    .open-config-btn{background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:.35rem;font-size:.72rem;font-weight:600;padding:.35rem .6rem;cursor:pointer;transition:all .15s}
+    .open-config-btn:hover{background:#334155;color:#fff}
+    .section-title{font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin:.875rem 0 .5rem}
     .tabs{display:flex;gap:.25rem;margin-bottom:1rem;border-bottom:1px solid #334155;padding-bottom:0}
     .tab{background:none;border:none;color:#64748b;font-size:.8rem;padding:.5rem .875rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;font-weight:500}
     .tab.active{color:#38bdf8;border-bottom-color:#38bdf8}
@@ -69,30 +79,36 @@
   <span class="badge" id="mode-badge">loading…</span>
   <span class="badge plan" id="plan-badge" style="display:none"></span>
   <span id="caps-badges"></span>
+  <div class="lang-switch" aria-label="Language">
+    <button class="lang-btn" type="button" data-lang-choice="auto">Auto</button>
+    <button class="lang-btn" type="button" data-lang-choice="en">EN</button>
+    <button class="lang-btn" type="button" data-lang-choice="ja">日本語</button>
+    <button class="lang-btn" type="button" data-lang-choice="zh">简中</button>
+  </div>
 </header>
 <main>
   <!-- Overview stats -->
   <div class="card">
-    <h2>Overview</h2>
+    <h2 id="overview-title">Overview</h2>
     <div class="stat-grid">
-      <div class="stat"><div class="val" id="stat-chunks">—</div><div class="lbl">Chunks</div></div>
-      <div class="stat"><div class="val" id="stat-docs">—</div><div class="lbl">Documents</div></div>
-      <div class="stat"><div class="val" id="stat-mcp">—</div><div class="lbl">MCP Requests</div></div>
-      <div class="stat"><div class="val" id="stat-searches">—</div><div class="lbl">Searches</div></div>
+      <div class="stat"><div class="val" id="stat-chunks">—</div><div class="lbl" id="stat-chunks-label">Chunks</div></div>
+      <div class="stat"><div class="val" id="stat-docs">—</div><div class="lbl" id="stat-docs-label">Documents</div></div>
+      <div class="stat"><div class="val" id="stat-mcp">—</div><div class="lbl" id="stat-mcp-label">MCP Requests</div></div>
+      <div class="stat"><div class="val" id="stat-searches">—</div><div class="lbl" id="stat-searches-label">Searches</div></div>
     </div>
   </div>
 
-  <!-- Tabs: Search / Documents / MCP Config / About -->
+  <!-- Tabs: MCP Config / Search / Documents / About -->
   <div class="card">
     <div class="tabs">
-      <button class="tab active" onclick="switchTab('search')">Search</button>
+      <button class="tab active" onclick="switchTab('mcp-config')">MCP Config</button>
+      <button class="tab" onclick="switchTab('search')">Search</button>
       <button class="tab" onclick="switchTab('documents')">Documents</button>
-      <button class="tab" onclick="switchTab('mcp-config')">MCP Config</button>
       <button class="tab" onclick="switchTab('about')">About</button>
     </div>
 
     <!-- Search tab -->
-    <div class="tab-panel active" id="tab-search">
+    <div class="tab-panel" id="tab-search">
       <div class="search-row">
         <input id="query" type="text" placeholder="Enter search query…" onkeydown="if(event.key==='Enter')doSearch()" autocomplete="off" />
         <button id="search-btn" onclick="doSearch()">Search</button>
@@ -107,20 +123,46 @@
     </div>
 
     <!-- MCP Config tab -->
-    <div class="tab-panel" id="tab-mcp-config">
-      <p style="font-size:.875rem;color:#94a3b8;margin-bottom:1rem;line-height:1.6">
+    <div class="tab-panel active" id="tab-mcp-config">
+      <p id="config-intro" style="font-size:.875rem;color:#94a3b8;margin-bottom:1rem;line-height:1.6">
         Add this Orb to your MCP client configuration to use <code style="background:#0f172a;padding:.1rem .3rem;border-radius:.25rem;color:#a5f3fc">search_knowledge</code> directly from Claude Desktop, Cursor, VS Code, or any MCP-compatible AI tool.
       </p>
-      <h3 style="font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem">Claude Desktop (claude_desktop_config.json)</h3>
+      <h3 class="section-title" id="common-config-title" style="margin-top:0">Common config locations on this OS</h3>
+      <div class="config-location-list" id="mcp-config-locations"><div class="empty">Loading…</div></div>
+      <h3 class="section-title" id="claude-desktop-title">Claude Desktop (claude_desktop_config.json)</h3>
       <div style="position:relative">
         <pre class="code-block" id="claude-config">loading…</pre>
         <button class="copy-btn" onclick="copyCode('claude-config')">Copy</button>
       </div>
-      <h3 style="font-size:.8rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin:.875rem 0 .5rem">Cursor / VS Code (settings.json → mcpServers)</h3>
+      <h3 class="section-title" id="cursor-vscode-title">Cursor / VS Code (settings.json → mcpServers)</h3>
       <div style="position:relative">
         <pre class="code-block" id="cursor-config">loading…</pre>
         <button class="copy-btn" onclick="copyCode('cursor-config')">Copy</button>
       </div>
+      <h3 class="section-title" id="claude-code-title">Claude Code</h3>
+      <div style="position:relative">
+        <pre class="code-block" id="claude-code-command">loading…</pre>
+        <button class="copy-btn" onclick="copyCode('claude-code-command')">Copy</button>
+      </div>
+      <p id="claude-code-note" style="font-size:.75rem;color:#64748b;margin:.5rem 0 1rem;line-height:1.5">
+        Run this in a terminal to add the Orb to Claude Code's user-level MCP servers. For a repository-specific setup, use Claude Code's project <code style="color:#a5f3fc">.mcp.json</code> workflow instead.
+      </p>
+      <h3 class="section-title" id="streamable-http-title">Streamable HTTP</h3>
+      <div style="position:relative">
+        <pre class="code-block" id="streamable-http-url">loading…</pre>
+        <button class="copy-btn" onclick="copyCode('streamable-http-url')">Copy</button>
+      </div>
+      <p id="streamable-http-note" style="font-size:.75rem;color:#64748b;margin:.5rem 0 1rem;line-height:1.5">
+        Use this URL only with MCP clients that explicitly support local Streamable HTTP. It is bound to this machine and protected by the URL token.
+      </p>
+      <h3 class="section-title" id="openai-title">OpenAI / ChatGPT Desktop</h3>
+      <div style="position:relative">
+        <pre class="code-block" id="openai-desktop-note">loading…</pre>
+        <button class="copy-btn" onclick="copyCode('openai-desktop-note')">Copy</button>
+      </div>
+      <p id="openai-note" style="font-size:.75rem;color:#64748b;margin:.5rem 0 1rem;line-height:1.5">
+        ChatGPT web/cloud cannot reach this local URL. ChatGPT Desktop can use it only if that specific build supports user-configured local Streamable HTTP MCP servers; otherwise use a trusted HTTPS MCP bridge.
+      </p>
       <p id="mcp-config-note" style="font-size:.75rem;color:#475569;margin-top:.875rem;line-height:1.5">
         Replace <code style="color:#a5f3fc">/path/to/orb-binary</code> with the actual path to the packaged Orb executable.<br>
         The Orb runs locally — no cloud, no API key required.
@@ -141,13 +183,141 @@
   const base = `/${token}/api`;
 
   let orbName = 'orb';
+  let lastManifest = null;
+  let lastDocuments = null;
+
+  const translations = {
+    en: {
+      lang: 'en', loading: 'loading…', unknown: 'unknown', copy: 'Copy', copied: 'Copied!', overview: 'Overview', chunks: 'Chunks', documents: 'Documents', mcpRequests: 'MCP Requests', searches: 'Searches',
+      tabMcpConfig: 'MCP Config', tabSearch: 'Search', tabDocuments: 'Documents', tabAbout: 'About', searchPlaceholder: 'Enter search query…', searchButton: 'Search',
+      configIntro: 'Add this Orb to your MCP client configuration to use <code style="background:#0f172a;padding:.1rem .3rem;border-radius:.25rem;color:#a5f3fc">search_knowledge</code> directly from Claude Desktop, Cursor, VS Code, or any MCP-compatible AI tool.',
+      commonConfigLocations: 'Common config locations on this OS', claudeDesktopTitle: 'Claude Desktop (claude_desktop_config.json)', cursorVsCodeTitle: 'Cursor / VS Code (settings.json → mcpServers)', claudeCodeTitle: 'Claude Code', streamableHttpTitle: 'Streamable HTTP', openaiTitle: 'OpenAI / ChatGPT Desktop',
+      claudeCodeNote: 'Run this in a terminal to add the Orb to Claude Code\'s user-level MCP servers. For a repository-specific setup, use Claude Code\'s project <code style="color:#a5f3fc">.mcp.json</code> workflow instead.',
+      streamableHttpNote: 'Use this URL only with MCP clients that explicitly support local Streamable HTTP. It is bound to this machine and protected by the URL token.',
+      openaiNote: 'ChatGPT web/cloud cannot reach this local URL. ChatGPT Desktop can use it only if that specific build supports user-configured local Streamable HTTP MCP servers; otherwise use a trusted HTTPS MCP bridge.',
+      detectedOrb: 'Detected packaged Orb binary: <code style="color:#a5f3fc">{path}</code><br>The Orb runs locally — no cloud, no API key required.',
+      replaceOrb: 'Replace <code style="color:#a5f3fc">/path/to/orb-binary</code> with the actual path to the packaged Orb executable.<br>The Orb runs locally — no cloud, no API key required.',
+      openaiCompatibility: 'OpenAI / ChatGPT compatibility:', localMcpUrl: 'Local Streamable HTTP MCP URL: {url}', chatgptWebCannot: 'ChatGPT web/cloud cannot access localhost URLs on this computer.', chatgptDesktopCan: 'ChatGPT Desktop can use this URL only if it supports user-configured local Streamable HTTP MCP servers.', httpsBridge: 'If it expects a remote connector/app URL, publish through a trusted HTTPS MCP bridge instead.',
+      noDocuments: 'No documents loaded.', docMeta: '{sections} section{plural}{pages}', pages: ' · {count} pages', noKnownLocations: 'No known MCP client config locations for this OS.', loadLocationsError: 'Could not load config locations: {message}', found: 'Found', typical: 'Typical', openLocation: 'Open location', opening: 'Opening…', opened: 'Opened', openFailed: 'Open failed',
+      searching: 'Searching…', searchResults: '{total} result{plural} for "{query}"', noResults: 'No results found. Try different keywords.', page: 'Page {page}', tokens: '{tokens} tokens · Chunk #{chunk}', showMore: 'Show more ↓', showLess: 'Show less ↑', error: 'Error: {message}',
+      aboutName: 'Name', aboutVersion: 'Version', aboutDescription: 'Description', aboutCapabilities: 'Capabilities'
+    },
+    ja: {
+      lang: 'ja', loading: '読み込み中…', unknown: '不明', copy: 'コピー', copied: 'コピー済み', overview: '概要', chunks: 'チャンク', documents: 'ドキュメント', mcpRequests: 'MCPリクエスト', searches: '検索',
+      tabMcpConfig: 'MCP設定', tabSearch: '検索', tabDocuments: 'ドキュメント', tabAbout: '情報', searchPlaceholder: '検索クエリを入力…', searchButton: '検索',
+      configIntro: 'このOrbをMCPクライアント設定に追加すると、Claude Desktop、Cursor、VS Code、またはMCP対応AIツールから <code style="background:#0f172a;padding:.1rem .3rem;border-radius:.25rem;color:#a5f3fc">search_knowledge</code> を直接利用できます。',
+      commonConfigLocations: 'このOSでよく使われる設定場所', claudeDesktopTitle: 'Claude Desktop (claude_desktop_config.json)', cursorVsCodeTitle: 'Cursor / VS Code (settings.json → mcpServers)', claudeCodeTitle: 'Claude Code', streamableHttpTitle: 'Streamable HTTP', openaiTitle: 'OpenAI / ChatGPT Desktop',
+      claudeCodeNote: 'このコマンドをターミナルで実行すると、OrbをClaude CodeのユーザーレベルMCPサーバーに追加できます。リポジトリ単位の設定には、Claude Codeのプロジェクト <code style="color:#a5f3fc">.mcp.json</code> ワークフローを使ってください。',
+      streamableHttpNote: 'このURLは、ローカルのStreamable HTTPに明示的に対応したMCPクライアントでのみ使用してください。このマシンにバインドされ、URLトークンで保護されています。',
+      openaiNote: 'ChatGPTのWeb/クラウド版はこのローカルURLに到達できません。ChatGPT Desktopで使えるのは、そのビルドがユーザー設定のローカルStreamable HTTP MCPサーバーに対応している場合だけです。それ以外は信頼できるHTTPS MCPブリッジを使ってください。',
+      detectedOrb: '検出されたパッケージ済みOrbバイナリ: <code style="color:#a5f3fc">{path}</code><br>Orbはローカルで実行されます。クラウドもAPIキーも不要です。',
+      replaceOrb: '<code style="color:#a5f3fc">/path/to/orb-binary</code> を実際のパッケージ済みOrb実行ファイルのパスに置き換えてください。<br>Orbはローカルで実行されます。クラウドもAPIキーも不要です。',
+      openaiCompatibility: 'OpenAI / ChatGPT 互換性:', localMcpUrl: 'ローカルStreamable HTTP MCP URL: {url}', chatgptWebCannot: 'ChatGPTのWeb/クラウド版は、このコンピューターのlocalhost URLにアクセスできません。', chatgptDesktopCan: 'ChatGPT Desktopで使えるのは、ユーザー設定のローカルStreamable HTTP MCPサーバーに対応している場合だけです。', httpsBridge: 'リモートのconnector/app URLが必要な場合は、信頼できるHTTPS MCPブリッジ経由で公開してください。',
+      noDocuments: 'ドキュメントは読み込まれていません。', docMeta: '{sections} セクション{pages}', pages: ' · {count}ページ', noKnownLocations: 'このOSで既知のMCPクライアント設定場所はありません。', loadLocationsError: '設定場所を読み込めませんでした: {message}', found: '検出済み', typical: '標準', openLocation: '場所を開く', opening: '開いています…', opened: '開きました', openFailed: '開けませんでした',
+      searching: '検索中…', searchResults: '「{query}」の結果 {total} 件', noResults: '結果が見つかりません。別のキーワードを試してください。', page: 'ページ {page}', tokens: '{tokens} tokens · チャンク #{chunk}', showMore: 'もっと見る ↓', showLess: '閉じる ↑', error: 'エラー: {message}',
+      aboutName: '名前', aboutVersion: 'バージョン', aboutDescription: '説明', aboutCapabilities: '機能'
+    },
+    zh: {
+      lang: 'zh-Hans', loading: '加载中…', unknown: '未知', copy: '复制', copied: '已复制', overview: '概览', chunks: '分块', documents: '文档', mcpRequests: 'MCP 请求', searches: '搜索',
+      tabMcpConfig: 'MCP 配置', tabSearch: '搜索', tabDocuments: '文档', tabAbout: '关于', searchPlaceholder: '输入搜索查询…', searchButton: '搜索',
+      configIntro: '将这个 Orb 添加到 MCP 客户端配置后，就可以从 Claude Desktop、Cursor、VS Code 或任何兼容 MCP 的 AI 工具中直接使用 <code style="background:#0f172a;padding:.1rem .3rem;border-radius:.25rem;color:#a5f3fc">search_knowledge</code>。',
+      commonConfigLocations: '此系统常见配置位置', claudeDesktopTitle: 'Claude Desktop (claude_desktop_config.json)', cursorVsCodeTitle: 'Cursor / VS Code (settings.json → mcpServers)', claudeCodeTitle: 'Claude Code', streamableHttpTitle: 'Streamable HTTP', openaiTitle: 'OpenAI / ChatGPT Desktop',
+      claudeCodeNote: '在终端运行此命令，可将 Orb 添加到 Claude Code 的用户级 MCP servers。仓库级配置请使用 Claude Code 的项目 <code style="color:#a5f3fc">.mcp.json</code> 工作流。',
+      streamableHttpNote: '仅在明确支持本地 Streamable HTTP 的 MCP 客户端中使用此 URL。它绑定在本机，并由 URL token 保护。',
+      openaiNote: 'ChatGPT 网页版/云端无法访问这个本地 URL。ChatGPT Desktop 只有在当前版本支持用户配置的本地 Streamable HTTP MCP server 时才能使用；否则请通过可信的 HTTPS MCP bridge 暴露。',
+      detectedOrb: '已检测到打包后的 Orb 可执行文件：<code style="color:#a5f3fc">{path}</code><br>Orb 在本地运行，无需云端或 API key。',
+      replaceOrb: '请将 <code style="color:#a5f3fc">/path/to/orb-binary</code> 替换为实际打包后的 Orb 可执行文件路径。<br>Orb 在本地运行，无需云端或 API key。',
+      openaiCompatibility: 'OpenAI / ChatGPT 兼容性：', localMcpUrl: '本地 Streamable HTTP MCP URL：{url}', chatgptWebCannot: 'ChatGPT 网页版/云端无法访问此电脑上的 localhost URL。', chatgptDesktopCan: 'ChatGPT Desktop 只有在支持用户配置本地 Streamable HTTP MCP server 时，才能使用此 URL。', httpsBridge: '如果客户端要求远程 connector/app URL，请通过可信的 HTTPS MCP bridge 发布。',
+      noDocuments: '未加载文档。', docMeta: '{sections} 个章节{pages}', pages: ' · {count} 页', noKnownLocations: '此 OS 没有已知的 MCP 客户端配置位置。', loadLocationsError: '无法加载配置位置：{message}', found: '已找到', typical: '常见', openLocation: '打开位置', opening: '正在打开…', opened: '已打开', openFailed: '打开失败',
+      searching: '搜索中…', searchResults: '“{query}” 的结果：{total} 条', noResults: '没有找到结果。请尝试其他关键词。', page: '第 {page} 页', tokens: '{tokens} tokens · 分块 #{chunk}', showMore: '展开 ↓', showLess: '收起 ↑', error: '错误：{message}',
+      aboutName: '名称', aboutVersion: '版本', aboutDescription: '描述', aboutCapabilities: '能力'
+    }
+  };
+
+  const languageButtons = Array.from(document.querySelectorAll('[data-lang-choice]'));
+  let languageChoice = localStorage.getItem('mcporb-language') || 'auto';
+  let currentLanguage = resolveLanguage(languageChoice);
+
+  function resolveLanguage(choice) {
+    if (choice === 'en' || choice === 'ja' || choice === 'zh') return choice;
+    const languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    for (const lang of languages) {
+      const normalized = String(lang).toLowerCase();
+      if (normalized.startsWith('ja')) return 'ja';
+      if (normalized.startsWith('zh')) return 'zh';
+    }
+    return 'en';
+  }
+
+  function tr(key, vars = {}) {
+    let text = (translations[currentLanguage] && translations[currentLanguage][key]) || translations.en[key] || key;
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replaceAll(`{${name}}`, String(value));
+    }
+    return text;
+  }
+
+  function applyI18n() {
+    currentLanguage = resolveLanguage(languageChoice);
+    document.documentElement.lang = translations[currentLanguage].lang;
+    document.title = `MCPOrb — ${orbName}`;
+    document.getElementById('mode-badge').textContent ||= tr('loading');
+    setText('overview-title', tr('overview'));
+    setText('stat-chunks-label', tr('chunks'));
+    setText('stat-docs-label', tr('documents'));
+    setText('stat-mcp-label', tr('mcpRequests'));
+    setText('stat-searches-label', tr('searches'));
+    setText('search-btn', tr('searchButton'));
+    document.getElementById('query').placeholder = tr('searchPlaceholder');
+    document.querySelector("button[onclick=\"switchTab('mcp-config')\"]").textContent = tr('tabMcpConfig');
+    document.querySelector("button[onclick=\"switchTab('search')\"]").textContent = tr('tabSearch');
+    document.querySelector("button[onclick=\"switchTab('documents')\"]").textContent = tr('tabDocuments');
+    document.querySelector("button[onclick=\"switchTab('about')\"]").textContent = tr('tabAbout');
+    document.getElementById('config-intro').innerHTML = tr('configIntro');
+    setText('common-config-title', tr('commonConfigLocations'));
+    setText('claude-desktop-title', tr('claudeDesktopTitle'));
+    setText('cursor-vscode-title', tr('cursorVsCodeTitle'));
+    setText('claude-code-title', tr('claudeCodeTitle'));
+    setText('streamable-http-title', tr('streamableHttpTitle'));
+    setText('openai-title', tr('openaiTitle'));
+    document.getElementById('claude-code-note').innerHTML = tr('claudeCodeNote');
+    setText('streamable-http-note', tr('streamableHttpNote'));
+    setText('openai-note', tr('openaiNote'));
+    document.querySelectorAll('.copy-btn').forEach(btn => { btn.textContent = tr('copy'); });
+    languageButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.langChoice === languageChoice));
+  }
+
+  function setText(id, value) {
+    document.getElementById(id).textContent = value;
+  }
+
+  languageButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      languageChoice = btn.dataset.langChoice;
+      if (languageChoice === 'auto') {
+        localStorage.removeItem('mcporb-language');
+      } else {
+        localStorage.setItem('mcporb-language', languageChoice);
+      }
+      applyI18n();
+      if (lastManifest) renderManifest(lastManifest);
+      if (lastDocuments) renderDocuments(lastDocuments);
+      loadMcpConfigLocations();
+    });
+  });
 
   async function loadManifest() {
     const r = await fetch(`${base}/manifest`);
     const d = await r.json();
+    lastManifest = d;
+    renderManifest(d);
+    return d;
+  }
+
+  function renderManifest(d) {
     orbName = d.name;
     document.getElementById('orb-name').textContent = d.name;
-    document.getElementById('mode-badge').textContent = d.startup_mode || 'unknown';
+    document.getElementById('mode-badge').textContent = d.startup_mode || tr('unknown');
     document.getElementById('stat-chunks').textContent = d.chunk_count;
     document.title = `MCPOrb — ${d.name}`;
 
@@ -168,11 +338,36 @@
 
     // MCP config
     const orbPath = d.orb_binary_path || '/path/to/orb-binary';
+    const claudeCodeCommand = [
+      'claude',
+      'mcp',
+      'add',
+      '--scope',
+      'user',
+      d.name,
+      '--',
+      orbPath,
+      '--all-gui'
+    ].map(shellQuote).join(' ');
+    document.getElementById('claude-code-command').textContent = claudeCodeCommand;
+
+    const mcpHttpUrl = `${window.location.origin}/${token}/mcp`;
+    document.getElementById('streamable-http-url').textContent = mcpHttpUrl;
+
+    document.getElementById('openai-desktop-note').textContent = [
+      tr('openaiCompatibility'),
+      tr('localMcpUrl', { url: mcpHttpUrl }),
+      '',
+      tr('chatgptWebCannot'),
+      tr('chatgptDesktopCan'),
+      tr('httpsBridge')
+    ].join('\n');
+
     const claudeConf = JSON.stringify({
       mcpServers: {
         [d.name]: {
           command: orbPath,
-          args: ['--stdio-gui']
+          args: ['--all-gui']
         }
       }
     }, null, 2);
@@ -181,56 +376,50 @@
     const cursorConf = JSON.stringify({
       [d.name]: {
         command: orbPath,
-        args: ['--stdio-gui']
+        args: ['--all-gui']
       }
     }, null, 2);
     document.getElementById('cursor-config').textContent = cursorConf;
 
     const configNote = document.getElementById('mcp-config-note');
     configNote.innerHTML = d.orb_binary_path
-      ? `Detected packaged Orb binary: <code style="color:#a5f3fc">${escapeHtml(d.orb_binary_path)}</code><br>The Orb runs locally — no cloud, no API key required.`
-      : 'Replace <code style="color:#a5f3fc">/path/to/orb-binary</code> with the actual path to the packaged Orb executable.<br>The Orb runs locally — no cloud, no API key required.';
+      ? tr('detectedOrb', { path: escapeHtml(d.orb_binary_path) })
+      : tr('replaceOrb');
 
     // About tab
     const about = document.getElementById('about-content');
     const rows = [
-      ['Name', d.name],
-      ['Version', d.version || '—'],
-      ['Description', d.description || '—'],
-      ['Build time', d.build_time || '—'],
-      ['Orb format', d.orb_format_version || '—'],
-      ['MCP protocol', d.mcp_protocol_version || '—'],
-      ['Retrieval plan', d.selected_retrieval_plan || '—'],
-      ['Capabilities', (d.enabled_capabilities || []).join(', ') || '—'],
-      ['Sources', (d.source_documents || []).join(', ') || '—'],
+      [tr('aboutName'), d.name],
+      [tr('aboutVersion'), d.version || '—'],
+      [tr('aboutDescription'), d.description || '—'],
+      [tr('aboutCapabilities'), (d.enabled_capabilities || []).join(', ') || '—'],
     ];
     about.innerHTML = rows.map(([k, v]) =>
       `<div class="info-row"><span class="info-key">${k}</span><span class="info-val">${escapeHtml(String(v))}</span></div>`
     ).join('');
-    if (d.planning_rationale && d.planning_rationale.length) {
-      about.innerHTML += `<div style="margin-top:1rem"><div class="info-key" style="margin-bottom:.5rem">Planning rationale</div><div class="rationale">${
-        d.planning_rationale.map(r => `<p>${escapeHtml(r)}</p>`).join('')
-      }</div></div>`;
-    }
 
-    return d;
   }
 
   async function loadDocuments() {
     const r = await fetch(`${base}/documents`);
     const d = await r.json();
+    lastDocuments = d;
+    renderDocuments(d);
+  }
+
+  function renderDocuments(d) {
     const list = document.getElementById('doc-list');
     list.innerHTML = '';
     document.getElementById('stat-docs').textContent = d.documents.length;
     if (d.documents.length === 0) {
-      list.innerHTML = '<li class="empty">No documents loaded.</li>';
+      list.innerHTML = `<li class="empty">${tr('noDocuments')}</li>`;
       return;
     }
     d.documents.forEach(doc => {
       const li = document.createElement('li');
       li.innerHTML = `
-        <div class="doc-title">${escapeHtml(doc.title)}</div>
-        <div class="doc-meta">${doc.section_count} section${doc.section_count !== 1 ? 's' : ''}${doc.page_count ? ` · ${doc.page_count} pages` : ''}</div>
+        <div class="doc-title">${escapeHtml(doc.format || 'Document')}</div>
+        <div class="doc-meta">${tr('docMeta', { sections: doc.section_count, plural: doc.section_count !== 1 ? 's' : '', pages: doc.page_count ? tr('pages', { count: doc.page_count }) : '' })}</div>
       `;
       list.appendChild(li);
     });
@@ -243,13 +432,59 @@
     document.getElementById('stat-searches').textContent = d.search_count;
   }
 
+  async function loadMcpConfigLocations() {
+    const list = document.getElementById('mcp-config-locations');
+    try {
+      const r = await fetch(`${base}/mcp-config-locations`);
+      const d = await r.json();
+      const locations = d.locations || [];
+      if (locations.length === 0) {
+        list.innerHTML = `<div class="empty">${tr('noKnownLocations')}</div>`;
+        return;
+      }
+      list.innerHTML = locations.map(location => `
+        <div class="config-location">
+          <div class="config-location-head">
+            <div class="config-location-title">${escapeHtml(location.label)}</div>
+            <div class="config-location-state${location.exists ? ' exists' : ''}">${location.exists ? tr('found') : tr('typical')}</div>
+          </div>
+          <code class="config-path">${escapeHtml(location.display_path)}</code>
+          <button class="open-config-btn" onclick="openMcpConfigLocation('${escapeAttr(location.client)}', this)">${tr('openLocation')}</button>
+        </div>
+      `).join('');
+    } catch (e) {
+      list.innerHTML = `<div class="empty">${tr('loadLocationsError', { message: escapeHtml(e.message) })}</div>`;
+    }
+  }
+
+  window.openMcpConfigLocation = async function(client, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = tr('opening');
+    try {
+      const r = await fetch(`${base}/open-mcp-config-location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client }),
+      });
+      if (!r.ok) throw new Error(await r.text() || `HTTP ${r.status}`);
+      btn.textContent = tr('opened');
+      setTimeout(() => btn.textContent = original, 1500);
+    } catch (e) {
+      btn.textContent = tr('openFailed');
+      setTimeout(() => btn.textContent = original, 1800);
+    } finally {
+      setTimeout(() => { btn.disabled = false; }, 300);
+    }
+  };
+
   window.doSearch = async function() {
     const query = document.getElementById('query').value.trim();
     if (!query) return;
     const status = document.getElementById('status');
     const results = document.getElementById('results');
     const btn = document.getElementById('search-btn');
-    status.textContent = 'Searching…';
+    status.textContent = tr('searching');
     results.innerHTML = '';
     btn.disabled = true;
     try {
@@ -259,9 +494,10 @@
         body: JSON.stringify({ query, top_k: 10 }),
       });
       const d = await r.json();
-      status.textContent = `${d.total} result${d.total !== 1 ? 's' : ''} for "${escapeHtml(d.query)}"`;
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      status.textContent = tr('searchResults', { total: d.total, plural: d.total !== 1 ? 's' : '', query: d.query });
       if (d.hits.length === 0) {
-        results.innerHTML = '<p class="empty">No results found. Try different keywords.</p>';
+        results.innerHTML = `<p class="empty">${tr('noResults')}</p>`;
         return;
       }
       d.hits.forEach((hit, i) => {
@@ -272,17 +508,17 @@
         div.innerHTML = `
           <div class="hit-meta">
             <span class="hit-score">BM25 ${Number(hit.score).toFixed(3)}</span>
-            ${hit.page != null ? `<span class="hit-page">Page ${hit.page}</span>` : ''}
-            <span class="hit-tokens">${hit.token_count} tokens · Chunk #${hit.chunk_id}</span>
+            ${hit.page != null ? `<span class="hit-page">${tr('page', { page: hit.page })}</span>` : ''}
+            <span class="hit-tokens">${tr('tokens', { tokens: hit.token_count, chunk: hit.chunk_id })}</span>
           </div>
           <div class="hit-text${isLong ? '' : ' expanded'}" id="${textId}">${escapeHtml(hit.text)}</div>
-          ${isLong ? `<button class="expand-btn" onclick="toggleExpand('${textId}', this)">Show more ↓</button>` : ''}
+          ${isLong ? `<button class="expand-btn" onclick="toggleExpand('${textId}', this)">${tr('showMore')}</button>` : ''}
         `;
         results.appendChild(div);
       });
       await loadMetrics();
     } catch (e) {
-      status.textContent = `Error: ${e.message}`;
+      status.textContent = tr('error', { message: e.message });
     } finally {
       btn.disabled = false;
     }
@@ -292,16 +528,16 @@
     const el = document.getElementById(id);
     if (el.classList.contains('expanded')) {
       el.classList.remove('expanded');
-      btn.textContent = 'Show more ↓';
+      btn.textContent = tr('showMore');
     } else {
       el.classList.add('expanded');
-      btn.textContent = 'Show less ↑';
+      btn.textContent = tr('showLess');
     }
   };
 
   window.switchTab = function(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
-      const panels = ['search','documents','mcp-config','about'];
+      const panels = ['mcp-config','search','documents','about'];
       t.classList.toggle('active', panels[i] === name);
     });
     document.querySelectorAll('.tab-panel').forEach(p => {
@@ -314,7 +550,7 @@
     navigator.clipboard.writeText(text).then(() => {
       const btn = document.querySelector(`[onclick="copyCode('${id}')"]`);
       const orig = btn.textContent;
-      btn.textContent = 'Copied!';
+      btn.textContent = tr('copied');
       setTimeout(() => btn.textContent = orig, 1500);
     });
   };
@@ -327,8 +563,19 @@
       .replace(/"/g,'&quot;');
   }
 
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/'/g,'&#39;');
+  }
+
+  function shellQuote(value) {
+    const text = String(value);
+    if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text)) return text;
+    return `'${text.replace(/'/g, `'\\''`)}'`;
+  }
+
   // Initial load
-  Promise.all([loadManifest(), loadDocuments(), loadMetrics()]).catch(console.error);
+  applyI18n();
+  Promise.all([loadManifest(), loadDocuments(), loadMetrics(), loadMcpConfigLocations()]).catch(console.error);
 
   // Refresh metrics every 5 seconds
   setInterval(loadMetrics, 5000);

@@ -91,7 +91,11 @@ pub fn search_hnsw(map: &DenseHnswMap, query_vector: &[f32], top_k: usize) -> Ve
 
 fn normalize_copy(values: &[f32]) -> Vec<f32> {
     let mut normalized = values.to_vec();
-    let norm = normalized.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let norm = normalized
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
     if norm > 0.0 {
         for value in &mut normalized {
             *value /= norm;

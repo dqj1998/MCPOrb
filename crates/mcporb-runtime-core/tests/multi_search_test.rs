@@ -20,7 +20,10 @@ fn make_chunk(id: u32, text: &str) -> Chunk {
 
 fn make_runtime() -> SearchRuntime {
     let chunks = vec![
-        make_chunk(0, "model driven architecture and platform independent model"),
+        make_chunk(
+            0,
+            "model driven architecture and platform independent model",
+        ),
         make_chunk(1, "completely unrelated text about foxes"),
         make_chunk(2, "architecture model transitions and model driven design"),
     ];
@@ -47,11 +50,26 @@ fn make_vector_store() -> FlatVectorIndex {
 
 #[test]
 fn test_method_request_parse() {
-    assert_eq!(SearchMethodRequest::from_str("bm25"), SearchMethodRequest::Bm25);
-    assert_eq!(SearchMethodRequest::from_str("tfidf"), SearchMethodRequest::TfIdf);
-    assert_eq!(SearchMethodRequest::from_str("trigram"), SearchMethodRequest::Trigram);
-    assert_eq!(SearchMethodRequest::from_str("hybrid"), SearchMethodRequest::Hybrid);
-    assert_eq!(SearchMethodRequest::from_str("unknown"), SearchMethodRequest::Auto);
+    assert_eq!(
+        SearchMethodRequest::from_str("bm25"),
+        SearchMethodRequest::Bm25
+    );
+    assert_eq!(
+        SearchMethodRequest::from_str("tfidf"),
+        SearchMethodRequest::TfIdf
+    );
+    assert_eq!(
+        SearchMethodRequest::from_str("trigram"),
+        SearchMethodRequest::Trigram
+    );
+    assert_eq!(
+        SearchMethodRequest::from_str("hybrid"),
+        SearchMethodRequest::Hybrid
+    );
+    assert_eq!(
+        SearchMethodRequest::from_str("unknown"),
+        SearchMethodRequest::Auto
+    );
 }
 
 #[test]

@@ -56,7 +56,9 @@ impl ModelManager {
     }
 
     pub fn optimized_plan_path(&self, sha: &str) -> PathBuf {
-        self.cache_dir.join("optimized").join(format!("{}.plan", sha))
+        self.cache_dir
+            .join("optimized")
+            .join(format!("{}.plan", sha))
     }
 
     /// Fast readiness check: compares the marker file content against the
@@ -93,9 +95,8 @@ impl ModelManager {
     /// Try each URL in [`MODEL_URLS`] until one succeeds end-to-end
     /// (download + verify + extract + commit). Returns the URL that worked.
     pub async fn download(&self) -> Result<&'static str> {
-        std::fs::create_dir_all(&self.cache_dir).with_context(|| {
-            format!("creating cache dir {:?}", self.cache_dir)
-        })?;
+        std::fs::create_dir_all(&self.cache_dir)
+            .with_context(|| format!("creating cache dir {:?}", self.cache_dir))?;
 
         let mut last_err: Option<anyhow::Error> = None;
         for url in MODEL_URLS {
@@ -185,7 +186,9 @@ async fn stream_to_file_with_hash(url: &str, dest: &Path) -> Result<String> {
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("reading response stream")?;
         hasher.update(&chunk);
-        file.write_all(&chunk).await.context("writing chunk to disk")?;
+        file.write_all(&chunk)
+            .await
+            .context("writing chunk to disk")?;
     }
     file.flush().await?;
     drop(file);
@@ -196,10 +199,9 @@ async fn stream_to_file_with_hash(url: &str, dest: &Path) -> Result<String> {
 /// 4 whitelisted regular files in [`ALLOWED_FILES`]. Rejects any entry with
 /// path traversal segments, absolute paths, or symlinks.
 fn extract_bundle(bundle_path: &Path, dest_dir: &Path) -> Result<()> {
-    let bundle = std::fs::File::open(bundle_path)
-        .with_context(|| format!("opening {:?}", bundle_path))?;
-    let zstd_reader = zstd::stream::read::Decoder::new(bundle)
-        .context("creating zstd decoder")?;
+    let bundle =
+        std::fs::File::open(bundle_path).with_context(|| format!("opening {:?}", bundle_path))?;
+    let zstd_reader = zstd::stream::read::Decoder::new(bundle).context("creating zstd decoder")?;
     let mut tar = tar::Archive::new(zstd_reader);
 
     let allowed: HashSet<&str> = ALLOWED_FILES.iter().copied().collect();
@@ -217,7 +219,10 @@ fn extract_bundle(bundle_path: &Path, dest_dir: &Path) -> Result<()> {
             );
         }
 
-        let path = entry.path().context("decoding tar entry path")?.into_owned();
+        let path = entry
+            .path()
+            .context("decoding tar entry path")?
+            .into_owned();
         let name = path
             .file_name()
             .and_then(|s| s.to_str())
@@ -242,7 +247,9 @@ fn extract_bundle(bundle_path: &Path, dest_dir: &Path) -> Result<()> {
 
         // Read into memory then write — small, safe, lets us bound size.
         let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).context("reading tar entry body")?;
+        entry
+            .read_to_end(&mut buf)
+            .context("reading tar entry body")?;
         let out = dest_dir.join(name);
         std::fs::write(&out, &buf).with_context(|| format!("writing {:?}", out))?;
     }
@@ -427,6 +434,9 @@ mod tests {
 
     fn uniq() -> u128 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     }
 }
