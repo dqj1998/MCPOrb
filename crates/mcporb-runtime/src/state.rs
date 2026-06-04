@@ -1,7 +1,7 @@
 #[cfg(feature = "vector-embedder")]
 use mcporb_embed::{EmbedderSlot, ModelManager};
 use mcporb_runtime_core::{Chunk, Document, OrbManifest, SearchRuntime};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::RwLock;
 
 use crate::security::{SecurityConfig, SecurityState};
@@ -24,11 +24,19 @@ pub struct LoadedKnowledge {
     pub search: SearchRuntime,
 }
 
-/// Result of loading an Orb's bundle: its security policy plus its knowledge.
+/// What a loader produced for an Orb's assets: either plaintext knowledge ready
+/// to serve, or the still-encrypted payload awaiting an unlock (plan §4.2).
+pub enum LoadedAssets {
+    Plain(LoadedKnowledge),
+    /// Ciphertext bytes of `orb_assets.enc`; decrypted on unlock (Phase 4).
+    Encrypted(Vec<u8>),
+}
+
+/// Result of loading an Orb's bundle: its security policy plus its assets.
 /// Replaces the previous 4-tuple return shape (plan §4.2, E1).
 pub struct LoadedOrb {
     pub security: SecurityConfig,
-    pub knowledge: LoadedKnowledge,
+    pub assets: LoadedAssets,
 }
 
 pub struct OrbState {
@@ -38,6 +46,9 @@ pub struct OrbState {
     /// on unlock for encrypted Orbs (Phase 4). Reads go through [`knowledge`] /
     /// [`knowledge_opt`], never the field directly.
     knowledge: OnceLock<LoadedKnowledge>,
+    /// Ciphertext of `orb_assets.enc` for an encrypted Orb, held until unlock
+    /// decrypts it into `knowledge` and clears this. `None` for plaintext Orbs.
+    encrypted_blob: Mutex<Option<Vec<u8>>>,
     /// Source of truth for the on-disk model bundle. Read by both startup and
     /// the hot-load post-download path. Present only in the full build flavor.
     #[cfg(feature = "vector-embedder")]
@@ -59,7 +70,7 @@ impl OrbState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         security: SecurityConfig,
-        knowledge: Option<LoadedKnowledge>,
+        assets: LoadedAssets,
         #[cfg(feature = "vector-embedder")] model_manager: Arc<ModelManager>,
         #[cfg(feature = "vector-embedder")] embedder_slot: Arc<EmbedderSlot>,
         startup_mode: String,
@@ -67,13 +78,19 @@ impl OrbState {
         gui_url: Option<String>,
     ) -> SharedState {
         let knowledge_slot = OnceLock::new();
-        if let Some(k) = knowledge {
-            // Infallible: the slot is fresh.
-            let _ = knowledge_slot.set(k);
+        let mut encrypted = None;
+        match assets {
+            // Plaintext Orb: publish knowledge now (infallible — slot is fresh).
+            LoadedAssets::Plain(k) => {
+                let _ = knowledge_slot.set(k);
+            }
+            // Encrypted Orb: hold ciphertext until unlock decrypts it.
+            LoadedAssets::Encrypted(blob) => encrypted = Some(blob),
         }
         Arc::new(OrbState {
             security: SecurityState::new(security),
             knowledge: knowledge_slot,
+            encrypted_blob: Mutex::new(encrypted),
             #[cfg(feature = "vector-embedder")]
             model_manager,
             #[cfg(feature = "vector-embedder")]
@@ -105,8 +122,18 @@ impl OrbState {
 
     /// Publish freshly decrypted knowledge after an unlock (Phase 4). Returns
     /// `false` if it was already set (a benign race — first writer wins).
-    #[allow(dead_code)]
     pub fn set_knowledge(&self, knowledge: LoadedKnowledge) -> bool {
         self.knowledge.set(knowledge).is_ok()
+    }
+
+    /// Clone the held ciphertext for an encrypted Orb (the rare unlock path).
+    /// `None` once decrypted/cleared or for a plaintext Orb.
+    pub fn encrypted_blob_clone(&self) -> Option<Vec<u8>> {
+        self.encrypted_blob.lock().expect("encrypted_blob poisoned").clone()
+    }
+
+    /// Drop the ciphertext once it has been decrypted and published.
+    pub fn clear_encrypted_blob(&self) {
+        *self.encrypted_blob.lock().expect("encrypted_blob poisoned") = None;
     }
 }

@@ -2,6 +2,7 @@ mod api;
 mod assets;
 #[cfg(feature = "vector-embedder")]
 mod embed_startup;
+mod encrypted_assets;
 mod mcp_handler;
 mod security;
 mod startup;
@@ -22,7 +23,7 @@ use mcporb_runtime_core::{
 };
 use security::SecurityConfig;
 use startup::{detect_startup, StartupMode};
-use state::{LoadedKnowledge, LoadedOrb, OrbState};
+use state::{LoadedAssets, LoadedKnowledge, LoadedOrb, OrbState};
 
 const APPENDED_BUNDLE_MAGIC: &[u8; 16] = b"MCPORB_BUNDLE_V1";
 const APPENDED_BUNDLE_TRAILER_SIZE: u64 = 32;
@@ -57,7 +58,7 @@ fn load_orb_data(assets_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
     )?;
     Ok(LoadedOrb {
         security,
-        knowledge,
+        assets: LoadedAssets::Plain(knowledge),
     })
 }
 
@@ -96,7 +97,7 @@ fn load_embedded_orb_data() -> anyhow::Result<LoadedOrb> {
     // Embedded Orbs carry no security config today; default to disabled.
     Ok(LoadedOrb {
         security: SecurityConfig::disabled(),
-        knowledge,
+        assets: LoadedAssets::Plain(knowledge),
     })
 }
 
@@ -124,6 +125,30 @@ fn load_orb_from_archive<R: Read + Seek>(
 ) -> anyhow::Result<LoadedOrb> {
     let security = parse_security(read_optional_bundle_asset(archive, "orb_security.json")?)?;
 
+    // Encrypted Orb (plan §4.2): the plaintext assets are absent — only
+    // `orb_assets.enc` is present. Hold the ciphertext; it is decrypted on the
+    // first successful unlock. `asset_encryption` is `Some` only when enabled.
+    if security.asset_encryption.is_some() {
+        let blob = read_bundle_asset(archive, "orb_assets.enc")?;
+        return Ok(LoadedOrb {
+            security,
+            assets: LoadedAssets::Encrypted(blob),
+        });
+    }
+
+    let knowledge = read_knowledge_from_archive(archive)?;
+    Ok(LoadedOrb {
+        security,
+        assets: LoadedAssets::Plain(knowledge),
+    })
+}
+
+/// Read the plaintext knowledge assets (manifest + postcard files) from a zip
+/// archive and build a [`LoadedKnowledge`]. Shared by the plaintext bundle path
+/// and the post-decryption path ([`build_knowledge_from_asset_zip`]).
+fn read_knowledge_from_archive<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> anyhow::Result<LoadedKnowledge> {
     let manifest_json = read_bundle_asset(archive, "orb_manifest.json")?;
     let docs_bytes = read_bundle_asset(archive, "documents.postcard")?;
     let chunks_bytes = read_bundle_asset(archive, "chunks.postcard")?;
@@ -133,7 +158,7 @@ fn load_orb_from_archive<R: Read + Seek>(
     let vector_bytes = read_optional_bundle_asset(archive, "vector_store.postcard")?;
     let hnsw_bytes = read_optional_bundle_asset(archive, "hnsw_index.postcard")?;
 
-    let knowledge = load_orb_data_from_bytes(
+    load_orb_data_from_bytes(
         &manifest_json,
         &docs_bytes,
         &chunks_bytes,
@@ -142,11 +167,67 @@ fn load_orb_from_archive<R: Read + Seek>(
         trigram_bytes.as_deref(),
         vector_bytes.as_deref(),
         hnsw_bytes.as_deref(),
-    )?;
-    Ok(LoadedOrb {
-        security,
-        knowledge,
-    })
+    )
+}
+
+/// Parse a decrypted asset zip (the plaintext bytes recovered from
+/// `orb_assets.enc`) into a [`LoadedKnowledge`]. Used on unlock (plan §4.4).
+fn build_knowledge_from_asset_zip(zip_bytes: &[u8]) -> anyhow::Result<LoadedKnowledge> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))?;
+    read_knowledge_from_archive(&mut archive)
+}
+
+/// Full unlock used by both the Web and MCP unlock paths.
+///
+/// - Password-only Orb: verify the password (marks unlocked on success).
+/// - Encrypted Orb: derive keys, decrypt `orb_assets.enc`, parse + publish the
+///   knowledge, then mark unlocked. The AEAD tag is the password check, so a
+///   wrong password surfaces as `InvalidPassword` (and is rate-limited).
+///
+/// Idempotent: a no-op `Ok` if already unlocked / no password required.
+pub(crate) fn perform_unlock(state: &OrbState, password: &str) -> Result<(), security::AuthError> {
+    use security::AuthError;
+
+    if state.security.is_unlocked() || !state.security.password_required() {
+        return Ok(());
+    }
+
+    // Asset encryption is enabled iff the config carries an encryption block.
+    let enc = state.security.config().asset_encryption.clone();
+    let Some(enc) = enc else {
+        // Password-only: verifier check + unlock + failure accounting are all
+        // handled inside verify_and_unlock.
+        return state.security.verify_and_unlock(password).map(|_| ());
+    };
+
+    let keys = state.security.derive_keys(password)?;
+    let blob = state
+        .encrypted_blob_clone()
+        .ok_or_else(|| AuthError::Crypto("encrypted Orb has no asset payload".into()))?;
+
+    match encrypted_assets::decrypt_asset_blob(&enc, &keys.asset_key, &blob) {
+        Ok(zip_bytes) => {
+            let knowledge = build_knowledge_from_asset_zip(&zip_bytes)
+                .map_err(|e| AuthError::Crypto(format!("decrypted asset parse failed: {e}")))?;
+            // Kick off the embedder now that the manifest is available (it was
+            // inside the encrypted payload, so startup could not prepare it).
+            #[cfg(feature = "vector-embedder")]
+            embed_startup::start_for_manifest(
+                state.model_manager.clone(),
+                state.embedder_slot.clone(),
+                &knowledge.manifest,
+            );
+            state.set_knowledge(knowledge);
+            state.clear_encrypted_blob();
+            state.security.mark_unlocked();
+            Ok(())
+        }
+        Err(e) => {
+            // Wrong password (AEAD tag fail) or corrupt payload — rate-limit.
+            state.security.record_failure();
+            Err(e)
+        }
+    }
 }
 
 fn try_load_self_bundle() -> anyhow::Result<Option<LoadedOrb>> {
@@ -234,7 +315,7 @@ fn demo_manifest() -> LoadedOrb {
     };
     LoadedOrb {
         security: SecurityConfig::disabled(),
-        knowledge: LoadedKnowledge {
+        assets: LoadedAssets::Plain(LoadedKnowledge {
             manifest,
             documents: vec![],
             chunks: vec![],
@@ -245,7 +326,7 @@ fn demo_manifest() -> LoadedOrb {
                 dense: DenseRuntime::None,
                 dense_tier: RetrievalPlanKind::Bm25Only,
             },
-        },
+        }),
     }
 }
 
@@ -383,7 +464,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         demo_manifest()
     };
-    let LoadedOrb { security, knowledge } = loaded;
+    let LoadedOrb { security, assets } = loaded;
 
     if security.password.is_some() {
         tracing::info!("Password protection enabled for this Orb");
@@ -391,14 +472,20 @@ async fn main() -> anyhow::Result<()> {
 
     let mode_str = format!("{:?}", config.mode);
     let orb_binary_path = detect_orb_binary_path(&config);
+    // Encrypted Orbs have no manifest until unlock, so the embedder cannot be
+    // prepared at startup — `perform_unlock` starts it once the manifest is
+    // decrypted. Plaintext Orbs prepare it now as before.
     #[cfg(feature = "vector-embedder")]
-    let (model_manager, embedder_slot) = embed_startup::prepare(&knowledge.manifest)?;
+    let (model_manager, embedder_slot) = match &assets {
+        LoadedAssets::Plain(k) => embed_startup::prepare(&k.manifest)?,
+        LoadedAssets::Encrypted(_) => embed_startup::prepare_empty()?,
+    };
 
     match config.mode {
         StartupMode::StdioOnly => {
             let state = OrbState::new(
                 security,
-                Some(knowledge),
+                assets,
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -413,7 +500,7 @@ async fn main() -> anyhow::Result<()> {
             let token = web_server::generate_token();
             let state = OrbState::new(
                 security,
-                Some(knowledge),
+                assets,
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -440,7 +527,7 @@ async fn main() -> anyhow::Result<()> {
             let token = web_server::generate_token();
             let state = OrbState::new(
                 security,
-                Some(knowledge),
+                assets,
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -597,7 +684,7 @@ mod tests {
 
         let loaded = load_appended_orb_data(&orb_path).unwrap();
         assert!(loaded.security.password.is_none());
-        let k = loaded.knowledge;
+        let LoadedAssets::Plain(k) = loaded.assets else { panic!("expected plaintext") };
         assert_eq!(k.manifest.name, "test-orb");
         assert_eq!(k.documents.len(), 1);
         assert_eq!(k.chunks.len(), 1);
@@ -617,7 +704,7 @@ mod tests {
         std::fs::write(&sidecar, build_test_bundle()).unwrap();
 
         let loaded = load_sidecar_orb_data(&orb_path).unwrap();
-        let k = loaded.knowledge;
+        let LoadedAssets::Plain(k) = loaded.assets else { panic!("expected plaintext") };
         assert_eq!(k.manifest.name, "test-orb");
         assert_eq!(k.documents.len(), 1);
         assert_eq!(k.chunks.len(), 1);
@@ -689,12 +776,13 @@ mod tests {
         );
 
         let loaded = load_orb_data(p).unwrap();
-        assert_eq!(loaded.knowledge.manifest.name, "guarded-orb");
+        let LoadedAssets::Plain(knowledge) = loaded.assets else { panic!("expected plaintext") };
+        assert_eq!(knowledge.manifest.name, "guarded-orb");
 
         // The policy gates: starts locked, wrong password fails, right unlocks.
         let state = OrbState::new(
             loaded.security,
-            Some(loaded.knowledge),
+            LoadedAssets::Plain(knowledge),
             #[cfg(feature = "vector-embedder")]
             std::sync::Arc::new(mcporb_embed::ModelManager::with_cache_dir(
                 tempfile::tempdir().unwrap().path().to_path_buf(),

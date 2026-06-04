@@ -136,11 +136,10 @@ pub enum AssetEncryptionAlgorithm {
     XChaCha20Poly1305,
 }
 
-// Consumed by encrypted-asset loading (Phase 4).
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AssetEncryptionConfig {
     pub algorithm: AssetEncryptionAlgorithm,
+    #[allow(dead_code)] // payload name is fixed ("orb_assets.enc"); kept for clarity/forward use
     pub payload: String,
     pub nonce: Vec<u8>,
     pub aad: Vec<u8>,
@@ -149,8 +148,6 @@ pub struct AssetEncryptionConfig {
 #[derive(Debug, Clone, Default)]
 pub struct SecurityConfig {
     pub password: Option<PasswordConfig>,
-    /// Consumed by encrypted-asset loading (Phase 4).
-    #[allow(dead_code)]
     pub asset_encryption: Option<AssetEncryptionConfig>,
 }
 
@@ -277,8 +274,7 @@ impl SecurityState {
     }
 
     /// Read access to the parsed config (asset-encryption metadata, persistence
-    /// policy). Used by Phase 4/5 loaders.
-    #[allow(dead_code)]
+    /// policy).
     pub fn config(&self) -> &SecurityConfig {
         &self.config
     }
@@ -314,8 +310,6 @@ impl SecurityState {
 
     /// Derive key material from a candidate password. Pure: does not touch unlock
     /// state. `Err(Crypto)` only on bad KDF params, never on a wrong password.
-    /// Used directly by the keychain remember path (Phase 5).
-    #[allow(dead_code)]
     pub fn derive_keys(&self, password: &str) -> Result<DerivedKeys, AuthError> {
         let pc = self
             .config
@@ -360,7 +354,10 @@ impl SecurityState {
         }
     }
 
-    fn record_failure(&self) {
+    /// Record a failed unlock attempt (drives [`backoff_delay`]). Public to the
+    /// crate so the encrypted-mode unlock path (where the AEAD tag is the check)
+    /// can record failures too.
+    pub(crate) fn record_failure(&self) {
         if let Ok(mut n) = self.failed_attempts.lock() {
             *n = n.saturating_add(1);
         }

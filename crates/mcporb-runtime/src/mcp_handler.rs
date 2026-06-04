@@ -379,12 +379,10 @@ async fn handle_unlock_orb(state: &SharedState, id: Value, params: &Value) -> Va
         .and_then(|p| p.as_str())
         .unwrap_or("");
 
-    match state.security.verify_and_unlock(password) {
-        Ok(_keys) => {
-            // Phase 1: password-only mode unlocks inside verify_and_unlock.
-            // Asset-encrypted Orbs decrypt with `_keys` before unlocking (Phase 4).
-            unlock_success(id)
-        }
+    match crate::perform_unlock(state, password) {
+        // Password-only Orbs verify here; encrypted Orbs decrypt + load before
+        // unlocking (handled inside perform_unlock).
+        Ok(()) => unlock_success(id),
         Err(_) => {
             let delay = state.security.backoff_delay();
             if !delay.is_zero() {
@@ -714,7 +712,7 @@ mod gate_tests {
         };
         OrbState::new(
             test_password_config("open-sesame-123"),
-            Some(LoadedKnowledge {
+            crate::state::LoadedAssets::Plain(LoadedKnowledge {
                 manifest,
                 documents: vec![],
                 chunks,

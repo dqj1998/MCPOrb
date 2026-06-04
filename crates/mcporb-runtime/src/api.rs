@@ -30,10 +30,10 @@ pub async fn post_auth_unlock(
     if state.security.is_unlocked() {
         return (StatusCode::OK, Json(json!({ "unlocked": true })));
     }
-    match state.security.verify_and_unlock(&req.password) {
-        // Phase 4: asset-encrypted Orbs decrypt with the derived keys here before
-        // reporting unlocked.
-        Ok(_keys) => (StatusCode::OK, Json(json!({ "unlocked": true }))),
+    match crate::perform_unlock(&state, &req.password) {
+        // perform_unlock verifies the password and, for encrypted Orbs, decrypts
+        // and publishes the knowledge before reporting unlocked.
+        Ok(()) => (StatusCode::OK, Json(json!({ "unlocked": true }))),
         Err(_) => {
             let delay = state.security.backoff_delay();
             if !delay.is_zero() {
@@ -405,7 +405,7 @@ mod tests {
 
         OrbState::new(
             security,
-            Some(crate::state::LoadedKnowledge {
+            crate::state::LoadedAssets::Plain(crate::state::LoadedKnowledge {
                 manifest,
                 documents,
                 chunks,
