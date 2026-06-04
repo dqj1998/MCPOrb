@@ -2,6 +2,7 @@ mod api;
 mod assets;
 #[cfg(feature = "vector-embedder")]
 mod embed_startup;
+mod device_unlock;
 mod encrypted_assets;
 mod mcp_handler;
 mod security;
@@ -177,56 +178,136 @@ fn build_knowledge_from_asset_zip(zip_bytes: &[u8]) -> anyhow::Result<LoadedKnow
     read_knowledge_from_archive(&mut archive)
 }
 
-/// Full unlock used by both the Web and MCP unlock paths.
-///
-/// - Password-only Orb: verify the password (marks unlocked on success).
-/// - Encrypted Orb: derive keys, decrypt `orb_assets.enc`, parse + publish the
-///   knowledge, then mark unlocked. The AEAD tag is the password check, so a
-///   wrong password surfaces as `InvalidPassword` (and is rate-limited).
-///
+/// Full unlock from a user-entered password (Web `auth/unlock`, MCP `unlock_orb`,
+/// or `--unlock` priming). Runs Argon2, then the shared [`finish_unlock`].
 /// Idempotent: a no-op `Ok` if already unlocked / no password required.
 pub(crate) fn perform_unlock(state: &OrbState, password: &str) -> Result<(), security::AuthError> {
-    use security::AuthError;
-
     if state.security.is_unlocked() || !state.security.password_required() {
         return Ok(());
     }
+    let keys = state.security.derive_keys(password)?; // Argon2 + HKDF
+    finish_unlock(state, keys, /* persist = */ true)
+}
+
+/// Complete an unlock from already-derived keys (from a password or a recalled
+/// keychain `master_key`). Verifies (password-only) or decrypts + loads
+/// (encrypted), marks the process unlocked, and — when `persist` and the Orb is
+/// `remember_on_this_device` — stores `master_key` in the OS keychain so future
+/// launches auto-unlock.
+fn finish_unlock(
+    state: &OrbState,
+    keys: security::DerivedKeys,
+    persist: bool,
+) -> Result<(), security::AuthError> {
+    use security::AuthError;
 
     // Asset encryption is enabled iff the config carries an encryption block.
     let enc = state.security.config().asset_encryption.clone();
-    let Some(enc) = enc else {
-        // Password-only: verifier check + unlock + failure accounting are all
-        // handled inside verify_and_unlock.
-        return state.security.verify_and_unlock(password).map(|_| ());
-    };
-
-    let keys = state.security.derive_keys(password)?;
-    let blob = state
-        .encrypted_blob_clone()
-        .ok_or_else(|| AuthError::Crypto("encrypted Orb has no asset payload".into()))?;
-
-    match encrypted_assets::decrypt_asset_blob(&enc, &keys.asset_key, &blob) {
-        Ok(zip_bytes) => {
-            let knowledge = build_knowledge_from_asset_zip(&zip_bytes)
-                .map_err(|e| AuthError::Crypto(format!("decrypted asset parse failed: {e}")))?;
-            // Kick off the embedder now that the manifest is available (it was
-            // inside the encrypted payload, so startup could not prepare it).
-            #[cfg(feature = "vector-embedder")]
-            embed_startup::start_for_manifest(
-                state.model_manager.clone(),
-                state.embedder_slot.clone(),
-                &knowledge.manifest,
-            );
-            state.set_knowledge(knowledge);
-            state.clear_encrypted_blob();
+    match enc {
+        None => {
+            // Password-only: verifier check.
+            if !state.security.verify_keys(&keys) {
+                state.security.record_failure();
+                return Err(AuthError::InvalidPassword);
+            }
             state.security.mark_unlocked();
+        }
+        Some(enc) => {
+            let blob = state
+                .encrypted_blob_clone()
+                .ok_or_else(|| AuthError::Crypto("encrypted Orb has no asset payload".into()))?;
+            match encrypted_assets::decrypt_asset_blob(&enc, &keys.asset_key, &blob) {
+                Ok(zip_bytes) => {
+                    let knowledge = build_knowledge_from_asset_zip(&zip_bytes).map_err(|e| {
+                        AuthError::Crypto(format!("decrypted asset parse failed: {e}"))
+                    })?;
+                    // Kick off the embedder now that the manifest is available (it
+                    // was inside the encrypted payload, unavailable at startup).
+                    #[cfg(feature = "vector-embedder")]
+                    embed_startup::start_for_manifest(
+                        state.model_manager.clone(),
+                        state.embedder_slot.clone(),
+                        &knowledge.manifest,
+                    );
+                    state.set_knowledge(knowledge);
+                    state.clear_encrypted_blob();
+                    state.security.mark_unlocked();
+                }
+                Err(e) => {
+                    // Wrong password (AEAD tag fail) or corrupt payload — rate-limit.
+                    state.security.record_failure();
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // Success. Persist for remember-on-device (best-effort; never blocks unlock).
+    if persist {
+        if let Some(pc) = state.security.config().password.as_ref() {
+            if pc.unlock_persistence == security::UnlockPersistence::RememberOnThisDevice {
+                if let Err(e) = device_unlock::remember(&pc.orb_identity, &keys.master_key) {
+                    tracing::warn!("could not remember unlock on this device: {e}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// At startup, for a `remember_on_this_device` Orb, try to unlock from a key
+/// stored in the OS keychain — no password prompt. A stale/invalid stored key
+/// is dropped so the normal password flow takes over. For `every_launch` Orbs,
+/// proactively clear any leftover entry (e.g. after a policy change).
+fn try_auto_unlock(state: &OrbState) {
+    let Some(pc) = state.security.config().password.as_ref() else {
+        return;
+    };
+    if pc.unlock_persistence != security::UnlockPersistence::RememberOnThisDevice {
+        device_unlock::forget(&pc.orb_identity);
+        return;
+    }
+    let orb_identity = pc.orb_identity.clone();
+    let Some(master_key) = device_unlock::recall(&orb_identity) else {
+        return;
+    };
+    let keys = security::derive_from_master(master_key);
+    match finish_unlock(state, keys, /* persist = */ false) {
+        Ok(()) => tracing::info!("unlocked from remembered device credential"),
+        Err(_) => {
+            tracing::warn!("remembered device credential invalid; forgetting it");
+            device_unlock::forget(&orb_identity);
+        }
+    }
+}
+
+/// `--unlock`: prompt for the password once (hidden) and, on success, remember
+/// it on this device so subsequent (e.g. stdio MCP) launches auto-unlock without
+/// the password ever entering the LLM conversation (plan §3.2 fallback B).
+fn prime_device_unlock(state: &OrbState) -> anyhow::Result<()> {
+    let persistence = state
+        .security
+        .config()
+        .password
+        .as_ref()
+        .map(|p| p.unlock_persistence);
+    match persistence {
+        None => anyhow::bail!("this Orb is not password-protected — nothing to unlock"),
+        Some(security::UnlockPersistence::EveryLaunch) => anyhow::bail!(
+            "this Orb uses 'require password every launch' — there is nothing to remember; \
+             package with --remember-unlock to enable device unlock"
+        ),
+        Some(security::UnlockPersistence::RememberOnThisDevice) => {}
+    }
+
+    let password = rpassword::prompt_password("Orb password: ")
+        .map_err(|e| anyhow::anyhow!("could not read password: {e}"))?;
+    match perform_unlock(state, &password) {
+        Ok(()) => {
+            println!("✅ Unlock remembered on this device. Future launches won't prompt.");
             Ok(())
         }
-        Err(e) => {
-            // Wrong password (AEAD tag fail) or corrupt payload — rate-limit.
-            state.security.record_failure();
-            Err(e)
-        }
+        Err(_) => anyhow::bail!("Invalid password"),
     }
 }
 
@@ -481,34 +562,33 @@ async fn main() -> anyhow::Result<()> {
         LoadedAssets::Encrypted(_) => embed_startup::prepare_empty()?,
     };
 
+    let state = OrbState::new(
+        security,
+        assets,
+        #[cfg(feature = "vector-embedder")]
+        model_manager,
+        #[cfg(feature = "vector-embedder")]
+        embedder_slot,
+        mode_str,
+        orb_binary_path,
+        None,
+    );
+
+    // `--unlock`: prompt once, remember on this device, then exit (no server).
+    if args.unlock {
+        return prime_device_unlock(&state);
+    }
+
+    // For remember-on-device Orbs, try to unlock from the keychain before
+    // serving so the user isn't prompted again on this machine (plan §2.5).
+    try_auto_unlock(&state);
+
     match config.mode {
         StartupMode::StdioOnly => {
-            let state = OrbState::new(
-                security,
-                assets,
-                #[cfg(feature = "vector-embedder")]
-                model_manager,
-                #[cfg(feature = "vector-embedder")]
-                embedder_slot,
-                mode_str,
-                orb_binary_path,
-                None,
-            );
             mcp_handler::run_stdio_loop(state).await?;
         }
         StartupMode::GuiOnly => {
             let token = web_server::generate_token();
-            let state = OrbState::new(
-                security,
-                assets,
-                #[cfg(feature = "vector-embedder")]
-                model_manager,
-                #[cfg(feature = "vector-embedder")]
-                embedder_slot,
-                mode_str,
-                orb_binary_path,
-                None,
-            );
             let (addr, server_handle) =
                 web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
@@ -525,17 +605,6 @@ async fn main() -> anyhow::Result<()> {
         }
         StartupMode::AllGui => {
             let token = web_server::generate_token();
-            let state = OrbState::new(
-                security,
-                assets,
-                #[cfg(feature = "vector-embedder")]
-                model_manager,
-                #[cfg(feature = "vector-embedder")]
-                embedder_slot,
-                mode_str,
-                orb_binary_path,
-                None,
-            );
             let (addr, server_handle) =
                 web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
@@ -795,8 +864,8 @@ mod tests {
         );
         assert!(state.security.password_required());
         assert!(!state.security.is_unlocked());
-        assert!(state.security.verify_and_unlock("wrong").is_err());
-        assert!(state.security.verify_and_unlock("dir-pw-strong").is_ok());
+        assert!(perform_unlock(&state, "wrong").is_err());
+        assert!(perform_unlock(&state, "dir-pw-strong").is_ok());
         assert!(state.security.is_unlocked());
     }
 }

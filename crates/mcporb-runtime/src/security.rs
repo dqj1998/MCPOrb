@@ -319,38 +319,15 @@ impl SecurityState {
         derive_keys(password, &pc.salt, pc.kdf_params)
     }
 
-    /// Verify a password and, in password-only mode, unlock the process.
-    ///
-    /// - Password-only mode (`auth_verifier` present): constant-time HMAC check;
-    ///   on success marks unlocked and returns the derived keys.
-    /// - Encrypted mode (`auth_verifier` absent): derivation succeeds but the
-    ///   keys cannot be verified here — the caller must AEAD-decrypt the assets
-    ///   and then call [`mark_unlocked`] (wired in Phase 4). Returns the keys
-    ///   **without** unlocking.
-    ///
-    /// On a wrong password returns [`AuthError::InvalidPassword`] and records a
-    /// failed attempt (see [`backoff_delay`]).
-    pub fn verify_and_unlock(&self, password: &str) -> Result<DerivedKeys, AuthError> {
-        let pc = self
-            .config
-            .password
-            .as_ref()
-            .ok_or_else(|| AuthError::Crypto("no password configured".into()))?;
 
-        let keys = derive_keys(password, &pc.salt, pc.kdf_params)?;
-
-        match pc.auth_verifier.as_deref() {
-            Some(expected) => {
-                if verify_auth(&keys.auth_key, expected) {
-                    self.mark_unlocked();
-                    Ok(keys)
-                } else {
-                    self.record_failure();
-                    Err(AuthError::InvalidPassword)
-                }
-            }
-            // Encrypted mode: defer verification to AEAD decryption (Phase 4).
-            None => Ok(keys),
+    /// Password-only verification given already-derived keys (no Argon2). Returns
+    /// true iff a stored `auth_verifier` matches `keys.auth_key`. Always false in
+    /// encrypted mode (no verifier — the AEAD decrypt is the check). Used by the
+    /// shared unlock path for both password- and master-key-derived keys.
+    pub(crate) fn verify_keys(&self, keys: &DerivedKeys) -> bool {
+        match self.config.password.as_ref().and_then(|p| p.auth_verifier.as_deref()) {
+            Some(expected) => verify_auth(&keys.auth_key, expected),
+            None => false,
         }
     }
 
@@ -392,19 +369,26 @@ fn derive_keys(
         .hash_password_into(password.as_bytes(), salt, &mut master_key)
         .map_err(|e| AuthError::Crypto(format!("argon2: {e}")))?;
 
+    Ok(derive_from_master(master_key))
+}
+
+/// Re-derive the HKDF legs from a stored `master_key`, skipping Argon2. Used by
+/// the keychain remember-on-device path (Phase 5), which persists `master_key`
+/// so subsequent launches unlock without the password (and without the KDF).
+pub(crate) fn derive_from_master(master_key: [u8; 32]) -> DerivedKeys {
     let hk = Hkdf::<Sha256>::new(None, &master_key);
     let mut auth_key = [0u8; 32];
     let mut asset_key = [0u8; 32];
+    // HKDF-expand for a 32-byte output cannot fail (well under the 255*HashLen cap).
     hk.expand(AUTH_KEY_INFO, &mut auth_key)
-        .map_err(|e| AuthError::Crypto(format!("hkdf auth: {e}")))?;
+        .expect("hkdf auth expand (32B)");
     hk.expand(ASSET_KEY_INFO, &mut asset_key)
-        .map_err(|e| AuthError::Crypto(format!("hkdf asset: {e}")))?;
-
-    Ok(DerivedKeys {
+        .expect("hkdf asset expand (32B)");
+    DerivedKeys {
         master_key,
         auth_key,
         asset_key,
-    })
+    }
 }
 
 /// Constant-time check that `auth_key` reproduces the stored verifier.
@@ -499,8 +483,10 @@ mod tests {
         assert!(!s.is_unlocked());
         assert!(s.require_unlocked().is_err());
 
-        let keys = s.verify_and_unlock("hunter2-strong").unwrap();
+        let keys = s.derive_keys("hunter2-strong").unwrap();
         assert_eq!(keys.master_key.len(), 32);
+        assert!(s.verify_keys(&keys));
+        s.mark_unlocked();
         assert!(s.is_unlocked());
         assert!(s.require_unlocked().is_ok());
     }
@@ -509,8 +495,8 @@ mod tests {
     fn wrong_password_does_not_unlock() {
         // Contract: a wrong password is rejected and leaves the Orb locked.
         let s = SecurityState::new(password_only_config("correct-horse"));
-        let err = s.verify_and_unlock("battery-staple").unwrap_err();
-        assert_eq!(err, AuthError::InvalidPassword);
+        let keys = s.derive_keys("battery-staple").unwrap();
+        assert!(!s.verify_keys(&keys));
         assert!(!s.is_unlocked());
         assert!(s.require_unlocked().is_err());
     }
@@ -531,15 +517,18 @@ mod tests {
         let s = SecurityState::new(password_only_config("pw-aaaa-bbbb"));
         assert_eq!(s.backoff_delay(), Duration::ZERO);
         for _ in 0..5 {
-            let _ = s.verify_and_unlock("nope-nope-nope");
+            s.record_failure();
         }
         assert_eq!(s.backoff_delay(), Duration::from_secs(1));
         for _ in 0..5 {
-            let _ = s.verify_and_unlock("nope-nope-nope");
+            s.record_failure();
         }
         assert_eq!(s.backoff_delay(), Duration::from_secs(3));
-        // A correct password still works after many failures (no lockout).
-        assert!(s.verify_and_unlock("pw-aaaa-bbbb").is_ok());
+        // A correct unlock still works after many failures and resets the
+        // counter (no lockout).
+        let keys = s.derive_keys("pw-aaaa-bbbb").unwrap();
+        assert!(s.verify_keys(&keys));
+        s.mark_unlocked();
         assert_eq!(s.backoff_delay(), Duration::ZERO);
     }
 
@@ -583,7 +572,8 @@ mod tests {
         assert!(pc.auth_verifier.is_some());
 
         let s = SecurityState::new(cfg);
-        assert!(s.verify_and_unlock("file-pw-strong").is_ok());
+        let keys = s.derive_keys("file-pw-strong").unwrap();
+        assert!(s.verify_keys(&keys));
     }
 
     #[test]
@@ -594,8 +584,9 @@ mod tests {
 
     #[test]
     fn encrypted_mode_derives_without_unlocking() {
-        // Contract: with no verifier (encrypted mode), verify_and_unlock returns
-        // keys but does NOT unlock — Phase 4 unlocks only after AEAD succeeds.
+        // Contract: with no verifier (encrypted mode) the password cannot be
+        // verified here — verify_keys is false and the Orb stays locked until
+        // the AEAD decrypt succeeds (Phase 4, in main::finish_unlock).
         let salt = b"0123456789abcdef".to_vec();
         let cfg = SecurityConfig {
             password: Some(PasswordConfig {
@@ -608,8 +599,9 @@ mod tests {
             asset_encryption: None,
         };
         let s = SecurityState::new(cfg);
-        let keys = s.verify_and_unlock("any-password").unwrap();
+        let keys = s.derive_keys("any-password").unwrap();
         assert_eq!(keys.asset_key.len(), 32);
+        assert!(!s.verify_keys(&keys), "no verifier in encrypted mode");
         assert!(!s.is_unlocked(), "encrypted mode must not self-unlock");
     }
 }
