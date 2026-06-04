@@ -95,27 +95,35 @@ async fn handle_single_json_rpc_request(
     }
 
     let response = match method {
-        "initialize" => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": { "tools": {}, "resources": {} },
-                "serverInfo": {
-                    "name": state.manifest.name,
-                    "version": state.manifest.version,
-                    "description": state.manifest.description
+        // Always allowed — even when locked. Must not read knowledge directly:
+        // an asset-encrypted Orb has no manifest until unlocked (plan §4.4).
+        "initialize" => {
+            let (name, version, description) = match state.knowledge_opt() {
+                Some(k) => (
+                    k.manifest.name.clone(),
+                    k.manifest.version.clone(),
+                    k.manifest.description.clone(),
+                ),
+                None => ("MCPOrb".to_string(), String::new(), String::new()),
+            };
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": { "tools": {}, "resources": {} },
+                    "serverInfo": { "name": name, "version": version, "description": description }
                 }
-            }
-        }),
-        "tools/list" => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "tools": [
+            })
+        }
+        // Locked Orbs expose only the unlock affordances (plan §3.2).
+        "tools/list" => {
+            let tools = if state.security.is_unlocked() {
+                let k = state.knowledge();
+                json!([
                     {
                         "name": "search_knowledge",
-                        "description": format!("Search the {} knowledge base", state.manifest.name),
+                        "description": format!("Search the {} knowledge base", k.manifest.name),
                         "inputSchema": {
                             "type": "object",
                             "properties": {
@@ -123,44 +131,83 @@ async fn handle_single_json_rpc_request(
                                 "top_k": { "type": "integer", "description": "Number of results (default: 5)" },
                                 "method": {
                                     "type": "string",
-                                    "description": build_method_description(&state.search.available_method_names()),
-                                    "enum": state.search.available_method_names()
+                                    "description": build_method_description(&k.search.available_method_names()),
+                                    "enum": k.search.available_method_names()
                                 }
                             },
                             "required": ["query"]
                         }
                     },
-                    {
-                        "name": "get_web_ui_url",
-                        "description": "Get the local Web UI URL for this Orb when GUI mode is enabled",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {}
-                        }
-                    }
-                ]
-            }
-        }),
+                    get_web_ui_url_tool_def()
+                ])
+            } else {
+                json!([unlock_orb_tool_def(), get_web_ui_url_tool_def()])
+            };
+            json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools } })
+        }
         "tools/call" => handle_tool_call(state, id, request).await?,
         "resources/list" => {
-            let resources: Vec<Value> = state
-                .documents
-                .iter()
-                .map(|document| {
-                    json!({
-                        "uri": format!("orb://documents/{}", document.id),
-                        "name": document.title,
-                        "mimeType": "text/plain"
+            if state.security.require_unlocked().is_err() {
+                locked_error(id)
+            } else {
+                let resources: Vec<Value> = state
+                    .knowledge()
+                    .documents
+                    .iter()
+                    .map(|document| {
+                        json!({
+                            "uri": format!("orb://documents/{}", document.id),
+                            "name": document.title,
+                            "mimeType": "text/plain"
+                        })
                     })
-                })
-                .collect();
-            json!({ "jsonrpc": "2.0", "id": id, "result": { "resources": resources } })
+                    .collect();
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "resources": resources } })
+            }
         }
-        "resources/read" => handle_resource_read(state, id, request),
+        "resources/read" => {
+            if state.security.require_unlocked().is_err() {
+                locked_error(id)
+            } else {
+                handle_resource_read(state, id, request)
+            }
+        }
         _ => json_rpc_error(id, -32601, &format!("Method not found: {method}")),
     };
 
     Ok(Some(response))
+}
+
+/// `tools/list` entry for the password-unlock tool (shown only while locked).
+fn unlock_orb_tool_def() -> Value {
+    json!({
+        "name": "unlock_orb",
+        "description": "This Orb is locked. Open the Web UI (get_web_ui_url) to unlock without sharing the password here, or pass the password to unlock now.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "password": { "type": "string", "description": "Password for this local Orb" }
+            },
+            "required": ["password"]
+        }
+    })
+}
+
+fn get_web_ui_url_tool_def() -> Value {
+    json!({
+        "name": "get_web_ui_url",
+        "description": "Get the local Web UI URL for this Orb when GUI mode is enabled",
+        "inputSchema": { "type": "object", "properties": {} }
+    })
+}
+
+/// Standard locked response. References the Web UI unlock path (plan §4.4).
+fn locked_error(id: Value) -> Value {
+    json_rpc_error(
+        id,
+        -32001,
+        "Orb is locked. Open the Web UI to unlock (see get_web_ui_url), or call unlock_orb with the password.",
+    )
 }
 
 async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> anyhow::Result<Value> {
@@ -170,7 +217,18 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
         .and_then(|value| value.as_str())
         .unwrap_or("");
 
+    // Always-allowed: unlock the process with a password (fallback path; the
+    // primary UX is browser unlock via the shared Web UI — plan §3.2).
+    if tool_name == "unlock_orb" {
+        return Ok(handle_unlock_orb(state, id, &params).await);
+    }
+
     if tool_name == "search_knowledge" {
+        // Gate: knowledge is only readable once unlocked (plan §4.4).
+        if state.security.require_unlocked().is_err() {
+            return Ok(locked_error(id));
+        }
+        let k = state.knowledge();
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
         let query = args
             .get("query")
@@ -201,7 +259,7 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
             metrics.search_count += 1;
         }
 
-        let available_methods = state.search.available_method_names();
+        let available_methods = k.search.available_method_names();
         if !available_methods.iter().any(|value| *value == method_name) {
             return Ok(json_rpc_error(
                 id,
@@ -216,7 +274,7 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
         let requested_method = SearchMethodRequest::from_str(method_name);
         return match auto_fill_query_vector(state, requested_method, &query, query_vector).await {
             Err(msg) => Ok(json_rpc_error(id, -32602, &msg)),
-            Ok(prepared) => match state.search.search(&SearchRequest {
+            Ok(prepared) => match k.search.search(&SearchRequest {
                 query: query.clone(),
                 top_k,
                 method: prepared.method,
@@ -228,7 +286,7 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
                         .hits
                         .iter()
                         .filter_map(|hit| {
-                            state.chunks.get(hit.chunk_id as usize).map(|chunk| {
+                            k.chunks.get(hit.chunk_id as usize).map(|chunk| {
                                 let preview = &chunk.text[..chunk.text.len().min(500)];
                                 json!({
                                     "type": "text",
@@ -262,17 +320,25 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
     }
 
     if tool_name == "get_web_ui_url" {
+        // Always allowed. When locked, point the caller at the browser-unlock
+        // path so the password never needs to enter the conversation (§3.2).
         let gui_url = state.gui_url.read().await;
+        let password_required = state.security.password_required();
+        let unlocked = state.security.is_unlocked();
         let text = match gui_url.as_deref() {
             Some(url) => serde_json::to_string(&json!({
                 "url": url,
                 "mode": state.startup_mode,
-                "available": true
+                "available": true,
+                "password_required": password_required,
+                "unlocked": unlocked
             }))?,
             None => serde_json::to_string(&json!({
                 "url": null,
                 "mode": state.startup_mode,
-                "available": false
+                "available": false,
+                "password_required": password_required,
+                "unlocked": unlocked
             }))?,
         };
 
@@ -295,6 +361,46 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
     ))
 }
 
+/// Verify a password supplied via the `unlock_orb` tool and unlock the process.
+/// On failure, applies the throttle delay (plan §2.6) before returning a
+/// generic `-32002`, never leaking whether the Orb even has a password.
+async fn handle_unlock_orb(state: &SharedState, id: Value, params: &Value) -> Value {
+    // Already open (no password, or unlocked elsewhere in the process).
+    if state.security.is_unlocked() {
+        return unlock_success(id);
+    }
+    if !state.security.password_required() {
+        return unlock_success(id);
+    }
+
+    let password = params
+        .get("arguments")
+        .and_then(|a| a.get("password"))
+        .and_then(|p| p.as_str())
+        .unwrap_or("");
+
+    match crate::perform_unlock(state, password) {
+        // Password-only Orbs verify here; encrypted Orbs decrypt + load before
+        // unlocking (handled inside perform_unlock).
+        Ok(()) => unlock_success(id),
+        Err(_) => {
+            let delay = state.security.backoff_delay();
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            json_rpc_error(id, -32002, "Invalid password")
+        }
+    }
+}
+
+fn unlock_success(id: Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": { "content": [{ "type": "text", "text": "Orb unlocked." }] }
+    })
+}
+
 fn handle_resource_read(state: &SharedState, id: Value, request: Value) -> Value {
     let params = request.get("params").cloned().unwrap_or(json!({}));
     let uri = params
@@ -305,9 +411,10 @@ fn handle_resource_read(state: &SharedState, id: Value, request: Value) -> Value
     let doc_id: Option<u32> = uri
         .strip_prefix("orb://documents/")
         .and_then(|value| value.parse().ok());
+    let k = state.knowledge();
     if let Some(doc_id) = doc_id {
-        if state.documents.iter().any(|document| document.id == doc_id) {
-            let text: String = state
+        if k.documents.iter().any(|document| document.id == doc_id) {
+            let text: String = k
                 .chunks
                 .iter()
                 .filter(|chunk| chunk.document_id == doc_id)
@@ -463,6 +570,7 @@ pub async fn auto_fill_query_vector(
     }
 
     let orb_has_dense = state
+        .knowledge()
         .manifest
         .enabled_capabilities
         .iter()
@@ -505,15 +613,15 @@ pub async fn auto_fill_query_vector(
     // SHA check per §4.5. Hard-reject only when the manifest declares a SHA
     // AND it disagrees with ours. Manifest with no SHA is legacy → fall through
     // to soft constraint (vector search itself will validate dimension).
-    match state.manifest.embedding_model_tar_sha256.as_deref() {
+    match state.knowledge().manifest.embedding_model_tar_sha256.as_deref() {
         Some(sha) if sha == mcporb_embed::MODEL_TAR_SHA256 => {
             // exact match — proceed
         }
         Some(_) => {
             return Err(format!(
                 "embedding_model_mismatch: orb requires model {:?} (sha {}) but runtime has {} (sha {})",
-                state.manifest.embedding_model.as_deref().unwrap_or("<unknown>"),
-                state.manifest.embedding_model_tar_sha256.as_deref().unwrap_or("<unknown>"),
+                state.knowledge().manifest.embedding_model.as_deref().unwrap_or("<unknown>"),
+                state.knowledge().manifest.embedding_model_tar_sha256.as_deref().unwrap_or("<unknown>"),
                 mcporb_embed::MODEL_ID,
                 mcporb_embed::MODEL_TAR_SHA256
             ));
@@ -555,4 +663,203 @@ pub async fn auto_fill_query_vector(
         query_vector: incoming_query_vector,
         metadata: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    use crate::security::test_password_config;
+    use crate::state::{LoadedKnowledge, OrbState};
+    use mcporb_runtime_core::format::{Capability, RetrievalPlanKind};
+    use mcporb_runtime_core::{build_bm25_index, Chunk, DenseRuntime, OrbManifest, SearchRuntime};
+
+    /// A password-protected state with a single searchable chunk. `password` is
+    /// "open-sesame-123"; the process starts locked.
+    fn locked_state() -> SharedState {
+        let chunks = vec![Chunk {
+            id: 0,
+            document_id: 0,
+            section_id: None,
+            page: Some(1),
+            text: "alpha bravo charlie knowledge content".to_string(),
+            token_count: 5,
+        }];
+        let manifest = OrbManifest {
+            name: "secret-orb".to_string(),
+            version: "0.1.0".to_string(),
+            description: "guarded".to_string(),
+            orb_format_version: "0.2".to_string(),
+            mcp_protocol_version: "2024-11-05".to_string(),
+            build_time: "2026-06-04T00:00:00Z".to_string(),
+            source_documents: vec![],
+            chunk_count: chunks.len(),
+            index_format_version: "0.2".to_string(),
+            binary_size_target_mb: 20,
+            selected_retrieval_plan: RetrievalPlanKind::Bm25Only,
+            enabled_capabilities: vec![Capability::Bm25],
+            embedding_dim: None,
+            embedding_model: None,
+            embedding_model_tar_sha256: None,
+            trigram_min_df: None,
+            planning_rationale: vec![],
+        };
+        let search = SearchRuntime {
+            bm25: build_bm25_index(&chunks),
+            tfidf: None,
+            trigram: None,
+            dense: DenseRuntime::None,
+            dense_tier: RetrievalPlanKind::Bm25Only,
+        };
+        OrbState::new(
+            test_password_config("open-sesame-123"),
+            crate::state::LoadedAssets::Plain(LoadedKnowledge {
+                manifest,
+                documents: vec![],
+                chunks,
+                search,
+            }),
+            #[cfg(feature = "vector-embedder")]
+            std::sync::Arc::new(mcporb_embed::ModelManager::with_cache_dir(
+                tempfile::tempdir().unwrap().path().to_path_buf(),
+            )),
+            #[cfg(feature = "vector-embedder")]
+            std::sync::Arc::new(mcporb_embed::empty_slot()),
+            "AllGui".to_string(),
+            None,
+            Some("http://127.0.0.1:5599/tok/".to_string()),
+        )
+    }
+
+    fn req(method: &str, params: Value) -> Value {
+        json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })
+    }
+
+    fn tool_names(list_result: &Value) -> Vec<String> {
+        list_result["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn locked_tools_list_only_exposes_unlock_affordances() {
+        // Contract (§3.2): a locked Orb hides search_knowledge; shows only the
+        // two unlock affordances.
+        let state = locked_state();
+        let resp = handle_json_rpc_request(&state, req("tools/list", json!({})))
+            .await
+            .unwrap()
+            .unwrap();
+        let names = tool_names(&resp);
+        assert!(names.contains(&"unlock_orb".to_string()));
+        assert!(names.contains(&"get_web_ui_url".to_string()));
+        assert!(!names.contains(&"search_knowledge".to_string()));
+    }
+
+    #[tokio::test]
+    async fn locked_search_knowledge_returns_auth_error() {
+        // Contract (§4.4): calling a protected tool while locked is -32001.
+        let state = locked_state();
+        let resp = handle_json_rpc_request(
+            &state,
+            req(
+                "tools/call",
+                json!({ "name": "search_knowledge", "arguments": { "query": "alpha" } }),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(resp["error"]["code"], -32001);
+        // Error guides the user to the browser-unlock path.
+        assert!(resp["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Web UI"));
+    }
+
+    #[tokio::test]
+    async fn wrong_then_right_password_unlocks_and_search_works() {
+        // Contract: -32002 on wrong password; success + working search after the
+        // right one; tools/list then includes search_knowledge.
+        let state = locked_state();
+
+        let bad = handle_json_rpc_request(
+            &state,
+            req(
+                "tools/call",
+                json!({ "name": "unlock_orb", "arguments": { "password": "nope" } }),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(bad["error"]["code"], -32002);
+        assert!(!state.security.is_unlocked());
+
+        let ok = handle_json_rpc_request(
+            &state,
+            req(
+                "tools/call",
+                json!({ "name": "unlock_orb", "arguments": { "password": "open-sesame-123" } }),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(ok["result"]["content"][0]["text"], "Orb unlocked.");
+        assert!(state.security.is_unlocked());
+
+        let names = tool_names(
+            &handle_json_rpc_request(&state, req("tools/list", json!({})))
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+        assert!(names.contains(&"search_knowledge".to_string()));
+
+        let search = handle_json_rpc_request(
+            &state,
+            req(
+                "tools/call",
+                json!({ "name": "search_knowledge", "arguments": { "query": "alpha" } }),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(search["result"]["content"].is_array());
+    }
+
+    #[tokio::test]
+    async fn initialize_allowed_while_locked() {
+        // Contract: initialize never gates (handshake must work pre-unlock).
+        let state = locked_state();
+        let resp = handle_json_rpc_request(&state, req("initialize", json!({})))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
+    }
+
+    #[tokio::test]
+    async fn get_web_ui_url_reports_lock_status_while_locked() {
+        // Contract (§4.4): get_web_ui_url is allowed locked and advertises the
+        // URL + lock status so the client can steer to browser unlock.
+        let state = locked_state();
+        let resp = handle_json_rpc_request(
+            &state,
+            req("tools/call", json!({ "name": "get_web_ui_url" })),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(parsed["password_required"], true);
+        assert_eq!(parsed["unlocked"], false);
+        assert_eq!(parsed["available"], true);
+    }
 }

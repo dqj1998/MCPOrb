@@ -27,6 +27,11 @@ pub struct OrbArgs {
     pub port: Option<u16>,
     #[arg(long)]
     pub assets: Option<std::path::PathBuf>,
+    /// Remember this Orb's password on this device (OS keychain), then exit.
+    /// Prompts once; future launches unlock without prompting. Only meaningful
+    /// for Orbs packaged with --remember-unlock.
+    #[arg(long)]
+    pub unlock: bool,
 }
 
 pub struct StartupConfig {

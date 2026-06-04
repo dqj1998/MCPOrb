@@ -44,6 +44,14 @@ tar = "0.4"
 zstd = "0.13"
 sha2 = "0.10"
 futures-util = "0.3"
+# Orb password access / asset encryption (see plans/orb-password-access-plan.md)
+argon2 = "0.5"
+hkdf = "0.12"
+hmac = "0.12"
+base64 = "0.22"
+zeroize = { version = "1", features = ["derive"] }
+chacha20poly1305 = "0.10"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [profile.release]
 lto = "fat"
