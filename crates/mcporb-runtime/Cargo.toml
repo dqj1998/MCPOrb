@@ -37,6 +37,15 @@ clap = { workspace = true }
 postcard = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 dirs = { workspace = true }
+# Password access / key derivation (see plans/orb-password-access-plan.md).
+# chacha20poly1305 (asset encryption, Phase 4) and keyring (remember-on-device,
+# Phase 5) are added in their phases to avoid compiling unused platform libs early.
+argon2 = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

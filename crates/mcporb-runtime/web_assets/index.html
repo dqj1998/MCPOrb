@@ -71,9 +71,33 @@
     .caps-row{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.25rem}
     a{color:#38bdf8;text-decoration:none}
     a:hover{text-decoration:underline}
+    /* Auth gate (password unlock) */
+    .auth-overlay{position:fixed;inset:0;background:#0f172a;display:flex;align-items:center;justify-content:center;z-index:1000;padding:1.5rem}
+    .auth-card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:2rem;width:100%;max-width:360px;text-align:center}
+    .auth-card h1{font-size:1.3rem;font-weight:700;color:#38bdf8;margin-bottom:.5rem}
+    .auth-card p{font-size:.85rem;color:#94a3b8;margin-bottom:1.25rem;line-height:1.5}
+    .auth-card input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:.5rem;padding:.7rem 1rem;color:#e2e8f0;font-size:.95rem;outline:none;transition:border-color .15s;margin-bottom:.75rem}
+    .auth-card input:focus{border-color:#38bdf8}
+    .auth-card button{width:100%;background:#0ea5e9;color:#fff;border:none;border-radius:.5rem;padding:.7rem 1.25rem;cursor:pointer;font-weight:600;font-size:.95rem;transition:background .15s}
+    .auth-card button:hover{background:#0284c7}
+    .auth-card button:disabled{background:#334155;cursor:not-allowed}
+    .auth-error{color:#f87171;font-size:.8rem;margin-top:.75rem;min-height:1rem}
+    .hidden{display:none !important}
   </style>
 </head>
 <body>
+<!-- Auth gate: shown only when this Orb is password-protected and still locked.
+     Title stays "MCPOrb" — the Orb name is not available before unlock. -->
+<div class="auth-overlay hidden" id="auth-overlay">
+  <div class="auth-card">
+    <h1>MCPOrb</h1>
+    <p id="auth-prompt">This Orb is password-protected.</p>
+    <input id="auth-password" type="password" autocomplete="current-password"
+           placeholder="Password" onkeydown="if(event.key==='Enter')window.__mcporbUnlock()" />
+    <button id="auth-unlock-btn" type="button" onclick="window.__mcporbUnlock()">Unlock</button>
+    <div class="auth-error" id="auth-error"></div>
+  </div>
+</div>
 <header>
   <h1 id="orb-name">MCPOrb</h1>
   <span class="badge" id="mode-badge">loading…</span>
@@ -200,7 +224,8 @@
       openaiCompatibility: 'OpenAI / ChatGPT compatibility:', localMcpUrl: 'Local Streamable HTTP MCP URL: {url}', chatgptWebCannot: 'ChatGPT web/cloud cannot access localhost URLs on this computer.', chatgptDesktopCan: 'ChatGPT Desktop can use this URL only if it supports user-configured local Streamable HTTP MCP servers.', httpsBridge: 'If it expects a remote connector/app URL, publish through a trusted HTTPS MCP bridge instead.',
       noDocuments: 'No documents loaded.', docMeta: '{sections} section{plural}{pages}', pages: ' · {count} pages', noKnownLocations: 'No known MCP client config locations for this OS.', loadLocationsError: 'Could not load config locations: {message}', found: 'Found', typical: 'Typical', openLocation: 'Open location', opening: 'Opening…', opened: 'Opened', openFailed: 'Open failed',
       searching: 'Searching…', searchResults: '{total} result{plural} for "{query}"', noResults: 'No results found. Try different keywords.', page: 'Page {page}', tokens: '{tokens} tokens · Chunk #{chunk}', showMore: 'Show more ↓', showLess: 'Show less ↑', error: 'Error: {message}',
-      aboutName: 'Name', aboutVersion: 'Version', aboutDescription: 'Description', aboutCapabilities: 'Capabilities'
+      aboutName: 'Name', aboutVersion: 'Version', aboutDescription: 'Description', aboutCapabilities: 'Capabilities',
+      unlockPrompt: 'This Orb is password-protected.', unlockPassword: 'Password', unlockButton: 'Unlock', unlockError: 'Invalid password', unlocking: 'Unlocking…'
     },
     ja: {
       lang: 'ja', loading: '読み込み中…', unknown: '不明', copy: 'コピー', copied: 'コピー済み', overview: '概要', chunks: 'チャンク', documents: 'ドキュメント', mcpRequests: 'MCPリクエスト', searches: '検索',
@@ -215,7 +240,8 @@
       openaiCompatibility: 'OpenAI / ChatGPT 互換性:', localMcpUrl: 'ローカルStreamable HTTP MCP URL: {url}', chatgptWebCannot: 'ChatGPTのWeb/クラウド版は、このコンピューターのlocalhost URLにアクセスできません。', chatgptDesktopCan: 'ChatGPT Desktopで使えるのは、ユーザー設定のローカルStreamable HTTP MCPサーバーに対応している場合だけです。', httpsBridge: 'リモートのconnector/app URLが必要な場合は、信頼できるHTTPS MCPブリッジ経由で公開してください。',
       noDocuments: 'ドキュメントは読み込まれていません。', docMeta: '{sections} セクション{pages}', pages: ' · {count}ページ', noKnownLocations: 'このOSで既知のMCPクライアント設定場所はありません。', loadLocationsError: '設定場所を読み込めませんでした: {message}', found: '検出済み', typical: '標準', openLocation: '場所を開く', opening: '開いています…', opened: '開きました', openFailed: '開けませんでした',
       searching: '検索中…', searchResults: '「{query}」の結果 {total} 件', noResults: '結果が見つかりません。別のキーワードを試してください。', page: 'ページ {page}', tokens: '{tokens} tokens · チャンク #{chunk}', showMore: 'もっと見る ↓', showLess: '閉じる ↑', error: 'エラー: {message}',
-      aboutName: '名前', aboutVersion: 'バージョン', aboutDescription: '説明', aboutCapabilities: '機能'
+      aboutName: '名前', aboutVersion: 'バージョン', aboutDescription: '説明', aboutCapabilities: '機能',
+      unlockPrompt: 'この Orb はパスワードで保護されています。', unlockPassword: 'パスワード', unlockButton: 'ロック解除', unlockError: 'パスワードが正しくありません', unlocking: 'ロック解除中…'
     },
     zh: {
       lang: 'zh-Hans', loading: '加载中…', unknown: '未知', copy: '复制', copied: '已复制', overview: '概览', chunks: '分块', documents: '文档', mcpRequests: 'MCP 请求', searches: '搜索',
@@ -230,7 +256,8 @@
       openaiCompatibility: 'OpenAI / ChatGPT 兼容性：', localMcpUrl: '本地 Streamable HTTP MCP URL：{url}', chatgptWebCannot: 'ChatGPT 网页版/云端无法访问此电脑上的 localhost URL。', chatgptDesktopCan: 'ChatGPT Desktop 只有在支持用户配置本地 Streamable HTTP MCP server 时，才能使用此 URL。', httpsBridge: '如果客户端要求远程 connector/app URL，请通过可信的 HTTPS MCP bridge 发布。',
       noDocuments: '未加载文档。', docMeta: '{sections} 个章节{pages}', pages: ' · {count} 页', noKnownLocations: '此 OS 没有已知的 MCP 客户端配置位置。', loadLocationsError: '无法加载配置位置：{message}', found: '已找到', typical: '常见', openLocation: '打开位置', opening: '正在打开…', opened: '已打开', openFailed: '打开失败',
       searching: '搜索中…', searchResults: '“{query}” 的结果：{total} 条', noResults: '没有找到结果。请尝试其他关键词。', page: '第 {page} 页', tokens: '{tokens} tokens · 分块 #{chunk}', showMore: '展开 ↓', showLess: '收起 ↑', error: '错误：{message}',
-      aboutName: '名称', aboutVersion: '版本', aboutDescription: '描述', aboutCapabilities: '能力'
+      aboutName: '名称', aboutVersion: '版本', aboutDescription: '描述', aboutCapabilities: '能力',
+      unlockPrompt: '此 Orb 受密码保护。', unlockPassword: '密码', unlockButton: '解锁', unlockError: '密码不正确', unlocking: '正在解锁…'
     }
   };
 
@@ -261,6 +288,9 @@
     currentLanguage = resolveLanguage(languageChoice);
     document.documentElement.lang = translations[currentLanguage].lang;
     document.title = `MCPOrb — ${orbName}`;
+    document.getElementById('auth-prompt').textContent = tr('unlockPrompt');
+    document.getElementById('auth-password').placeholder = tr('unlockPassword');
+    document.getElementById('auth-unlock-btn').textContent = tr('unlockButton');
     document.getElementById('mode-badge').textContent ||= tr('loading');
     setText('overview-title', tr('overview'));
     setText('stat-chunks-label', tr('chunks'));
@@ -573,12 +603,71 @@
     return `'${text.replace(/'/g, `'\\''`)}'`;
   }
 
+  // ── Auth gate (plan §3.1) ─────────────────────────────────────────────────
+  // Primary unlock UX. In AllGui mode (the default when an MCP client spawns the
+  // Orb) this same browser unlock also unlocks the in-process stdio MCP, so the
+  // password never has to enter the LLM conversation (plan §3.2).
+  let dashboardStarted = false;
+  function initDashboard() {
+    if (dashboardStarted) return;
+    dashboardStarted = true;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    Promise.all([loadManifest(), loadDocuments(), loadMetrics(), loadMcpConfigLocations()]).catch(console.error);
+    setInterval(loadMetrics, 5000);
+  }
+
+  function showAuthGate() {
+    document.getElementById('auth-overlay').classList.remove('hidden');
+    document.getElementById('auth-password').focus();
+  }
+
+  window.__mcporbUnlock = async function () {
+    const btn = document.getElementById('auth-unlock-btn');
+    const input = document.getElementById('auth-password');
+    const errEl = document.getElementById('auth-error');
+    const password = input.value;
+    if (!password || btn.disabled) return;
+    // Loading state: encrypted Orbs can take a moment to derive + decrypt (UX2).
+    btn.disabled = true;
+    btn.textContent = tr('unlocking');
+    errEl.textContent = '';
+    try {
+      const r = await fetch(`${base}/auth/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (r.ok) {
+        input.value = '';
+        initDashboard();
+        return;
+      }
+      errEl.textContent = tr('unlockError');
+    } catch (e) {
+      errEl.textContent = tr('unlockError');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = tr('unlockButton');
+    }
+  };
+
+  async function bootstrap() {
+    try {
+      const r = await fetch(`${base}/auth/status`);
+      const s = await r.json();
+      if (s.password_required && !s.unlocked) {
+        showAuthGate();
+        return;
+      }
+    } catch (e) {
+      // If status can't be read, fall through and let the dashboard try.
+    }
+    initDashboard();
+  }
+
   // Initial load
   applyI18n();
-  Promise.all([loadManifest(), loadDocuments(), loadMetrics(), loadMcpConfigLocations()]).catch(console.error);
-
-  // Refresh metrics every 5 seconds
-  setInterval(loadMetrics, 5000);
+  bootstrap();
 </script>
 </body>
 </html>

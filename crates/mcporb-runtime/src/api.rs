@@ -6,21 +6,64 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-pub async fn get_manifest(State(state): State<SharedState>) -> Json<Value> {
+/// `GET /api/auth/status` — unauthenticated. Lets the Web UI decide whether to
+/// show the login gate before any protected call (plan §3.1, §4.3).
+pub async fn get_auth_status(State(state): State<SharedState>) -> Json<Value> {
     Json(json!({
-        "name": state.manifest.name,
-        "version": state.manifest.version,
-        "description": state.manifest.description,
-        "chunk_count": state.manifest.chunk_count,
+        "password_required": state.security.password_required(),
+        "unlocked": state.security.is_unlocked(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UnlockRequest {
+    pub password: String,
+}
+
+/// `POST /api/auth/unlock` — unauthenticated. Verifies the password and, in
+/// password-only mode, unlocks the whole process. On failure applies the
+/// throttle delay (plan §2.6) and returns a generic 401.
+pub async fn post_auth_unlock(
+    State(state): State<SharedState>,
+    Json(req): Json<UnlockRequest>,
+) -> (StatusCode, Json<Value>) {
+    if state.security.is_unlocked() {
+        return (StatusCode::OK, Json(json!({ "unlocked": true })));
+    }
+    match state.security.verify_and_unlock(&req.password) {
+        // Phase 4: asset-encrypted Orbs decrypt with the derived keys here before
+        // reporting unlocked.
+        Ok(_keys) => (StatusCode::OK, Json(json!({ "unlocked": true }))),
+        Err(_) => {
+            let delay = state.security.backoff_delay();
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "unlocked": false, "error": "Invalid password" })),
+            )
+        }
+    }
+}
+
+pub async fn get_manifest(State(state): State<SharedState>) -> Json<Value> {
+    let k = state.knowledge();
+    Json(json!({
+        "name": k.manifest.name,
+        "version": k.manifest.version,
+        "description": k.manifest.description,
+        "chunk_count": k.manifest.chunk_count,
         "startup_mode": state.startup_mode,
-        "enabled_capabilities": state.search.capabilities().iter().map(|c| format!("{c:?}").to_lowercase()).collect::<Vec<_>>(),
-        "available_methods": state.search.available_method_names(),
+        "enabled_capabilities": k.search.capabilities().iter().map(|c| format!("{c:?}").to_lowercase()).collect::<Vec<_>>(),
+        "available_methods": k.search.available_method_names(),
         "orb_binary_path": state.orb_binary_path,
     }))
 }
 
 pub async fn get_documents(State(state): State<SharedState>) -> Json<Value> {
     let docs: Vec<Value> = state
+        .knowledge()
         .documents
         .iter()
         .map(|d| {
@@ -230,7 +273,8 @@ pub async fn post_search(
         metrics.search_count += 1;
     }
 
-    let available_methods = state.search.available_method_names();
+    let k = state.knowledge();
+    let available_methods = k.search.available_method_names();
     if !available_methods.iter().any(|value| *value == method_name) {
         return Json(json!({
             "query": req.query,
@@ -258,7 +302,7 @@ pub async fn post_search(
         }
     };
 
-    match state.search.search(&RuntimeSearchRequest {
+    match k.search.search(&RuntimeSearchRequest {
         query: req.query.clone(),
         top_k,
         method: prepared.method.clone(),
@@ -270,7 +314,7 @@ pub async fn post_search(
                 .hits
                 .iter()
                 .filter_map(|result| {
-                    state.chunks.get(result.chunk_id as usize).map(|chunk| {
+                    k.chunks.get(result.chunk_id as usize).map(|chunk| {
                         json!({
                             "chunk_id": chunk.id,
                             "score": result.score,
@@ -313,6 +357,10 @@ mod tests {
     use mcporb_runtime_core::{build_bm25_index, DenseRuntime, SearchRuntime};
 
     fn test_state() -> SharedState {
+        state_with_security(crate::security::SecurityConfig::disabled())
+    }
+
+    fn state_with_security(security: crate::security::SecurityConfig) -> SharedState {
         let chunks = vec![Chunk {
             id: 0,
             document_id: 0,
@@ -356,10 +404,13 @@ mod tests {
         };
 
         OrbState::new(
-            manifest,
-            documents,
-            chunks,
-            search,
+            security,
+            Some(crate::state::LoadedKnowledge {
+                manifest,
+                documents,
+                chunks,
+                search,
+            }),
             #[cfg(feature = "vector-embedder")]
             std::sync::Arc::new(mcporb_embed::ModelManager::with_cache_dir(
                 tempfile::tempdir().unwrap().path().to_path_buf(),
@@ -418,5 +469,50 @@ mod tests {
         assert!(clients.contains(&"cursor"));
         assert!(clients.contains(&"vscode"));
         assert!(clients.contains(&"windsurf"));
+    }
+
+    #[tokio::test]
+    async fn auth_status_reports_locked_then_unlocked() {
+        // Contract (§4.3): status drives the Web UI gate; flips after unlock.
+        let state = state_with_security(crate::security::test_password_config("pw-strong-aaaa"));
+        let Json(before) = get_auth_status(State(state.clone())).await;
+        assert_eq!(before["password_required"], true);
+        assert_eq!(before["unlocked"], false);
+
+        let (code, _) = post_auth_unlock(
+            State(state.clone()),
+            Json(UnlockRequest {
+                password: "pw-strong-aaaa".to_string(),
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+
+        let Json(after) = get_auth_status(State(state)).await;
+        assert_eq!(after["unlocked"], true);
+    }
+
+    #[tokio::test]
+    async fn wrong_password_unlock_is_unauthorized_and_stays_locked() {
+        // Contract: a bad password returns 401 and does not unlock.
+        let state = state_with_security(crate::security::test_password_config("pw-strong-aaaa"));
+        let (code, Json(body)) = post_auth_unlock(
+            State(state.clone()),
+            Json(UnlockRequest {
+                password: "wrong".to_string(),
+            }),
+        )
+        .await;
+        assert_eq!(code, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["unlocked"], false);
+        assert!(!state.security.is_unlocked());
+    }
+
+    #[tokio::test]
+    async fn disabled_security_reports_unlocked() {
+        // Contract: an Orb with no password needs no unlock.
+        let Json(status) = get_auth_status(State(test_state())).await;
+        assert_eq!(status["password_required"], false);
+        assert_eq!(status["unlocked"], true);
     }
 }

@@ -3,6 +3,7 @@ mod assets;
 #[cfg(feature = "vector-embedder")]
 mod embed_startup;
 mod mcp_handler;
+mod security;
 mod startup;
 mod state;
 mod web_server;
@@ -19,8 +20,9 @@ use mcporb_runtime_core::{
     Bm25Index, Chunk, DenseRuntime, Document, FlatVectorIndex, HnswIndex, OrbManifest,
     SearchRuntime, TfIdfIndex, TrigramIndex,
 };
+use security::SecurityConfig;
 use startup::{detect_startup, StartupMode};
-use state::OrbState;
+use state::{LoadedKnowledge, LoadedOrb, OrbState};
 
 const APPENDED_BUNDLE_MAGIC: &[u8; 16] = b"MCPORB_BUNDLE_V1";
 const APPENDED_BUNDLE_TRAILER_SIZE: u64 = 32;
@@ -31,9 +33,10 @@ struct AppendedBundleFooter {
     length: u64,
 }
 
-fn load_orb_data(
-    assets_path: &std::path::Path,
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
+fn load_orb_data(assets_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
+    // Dev/test convenience: an assets dir may carry an optional orb_security.json
+    // alongside the plaintext knowledge files (plan §4.2).
+    let security = parse_security(read_optional_asset(assets_path.join("orb_security.json"))?)?;
     let manifest_json = std::fs::read(assets_path.join("orb_manifest.json"))?;
     let docs_bytes = std::fs::read(assets_path.join("documents.postcard"))?;
     let chunks_bytes = std::fs::read(assets_path.join("chunks.postcard"))?;
@@ -42,7 +45,7 @@ fn load_orb_data(
     let trigram_bytes = read_optional_asset(assets_path.join("trigram_index.postcard"))?;
     let vector_bytes = read_optional_asset(assets_path.join("vector_store.postcard"))?;
     let hnsw_bytes = read_optional_asset(assets_path.join("hnsw_index.postcard"))?;
-    load_orb_data_from_bytes(
+    let knowledge = load_orb_data_from_bytes(
         &manifest_json,
         &docs_bytes,
         &chunks_bytes,
@@ -51,17 +54,20 @@ fn load_orb_data(
         trigram_bytes.as_deref(),
         vector_bytes.as_deref(),
         hnsw_bytes.as_deref(),
-    )
+    )?;
+    Ok(LoadedOrb {
+        security,
+        knowledge,
+    })
 }
 
-fn load_embedded_orb_data(
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
+fn load_embedded_orb_data() -> anyhow::Result<LoadedOrb> {
     anyhow::ensure!(
         embedded_orb::HAS_EMBEDDED_ORB,
         "no embedded orb assets were compiled into this binary"
     );
 
-    load_orb_data_from_bytes(
+    let knowledge = load_orb_data_from_bytes(
         embedded_orb::EMBEDDED_MANIFEST_JSON,
         embedded_orb::EMBEDDED_DOCUMENTS,
         embedded_orb::EMBEDDED_CHUNKS,
@@ -86,55 +92,48 @@ fn load_embedded_orb_data(
         } else {
             Some(embedded_orb::EMBEDDED_HNSW_INDEX)
         },
-    )
+    )?;
+    // Embedded Orbs carry no security config today; default to disabled.
+    Ok(LoadedOrb {
+        security: SecurityConfig::disabled(),
+        knowledge,
+    })
 }
 
-fn load_appended_orb_data(
-    binary_path: &std::path::Path,
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
+fn load_appended_orb_data(binary_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
     let footer = read_appended_bundle_footer(binary_path)?.ok_or_else(|| {
         anyhow::anyhow!("no appended orb bundle found in {}", binary_path.display())
     })?;
     let bundle_bytes = read_appended_bundle_bytes(binary_path, footer)?;
     let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
-
-    let manifest_json = read_bundle_asset(&mut archive, "orb_manifest.json")?;
-    let docs_bytes = read_bundle_asset(&mut archive, "documents.postcard")?;
-    let chunks_bytes = read_bundle_asset(&mut archive, "chunks.postcard")?;
-    let index_bytes = read_bundle_asset(&mut archive, "bm25_index.postcard")?;
-    let tfidf_bytes = read_optional_bundle_asset(&mut archive, "tfidf_index.postcard")?;
-    let trigram_bytes = read_optional_bundle_asset(&mut archive, "trigram_index.postcard")?;
-    let vector_bytes = read_optional_bundle_asset(&mut archive, "vector_store.postcard")?;
-    let hnsw_bytes = read_optional_bundle_asset(&mut archive, "hnsw_index.postcard")?;
-
-    load_orb_data_from_bytes(
-        &manifest_json,
-        &docs_bytes,
-        &chunks_bytes,
-        &index_bytes,
-        tfidf_bytes.as_deref(),
-        trigram_bytes.as_deref(),
-        vector_bytes.as_deref(),
-        hnsw_bytes.as_deref(),
-    )
+    load_orb_from_archive(&mut archive)
 }
 
-fn load_sidecar_orb_data(
-    binary_path: &std::path::Path,
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
+fn load_sidecar_orb_data(binary_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
     let bundle_bytes = std::fs::read(sidecar_bundle_path(binary_path))?;
     let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
+    load_orb_from_archive(&mut archive)
+}
 
-    let manifest_json = read_bundle_asset(&mut archive, "orb_manifest.json")?;
-    let docs_bytes = read_bundle_asset(&mut archive, "documents.postcard")?;
-    let chunks_bytes = read_bundle_asset(&mut archive, "chunks.postcard")?;
-    let index_bytes = read_bundle_asset(&mut archive, "bm25_index.postcard")?;
-    let tfidf_bytes = read_optional_bundle_asset(&mut archive, "tfidf_index.postcard")?;
-    let trigram_bytes = read_optional_bundle_asset(&mut archive, "trigram_index.postcard")?;
-    let vector_bytes = read_optional_bundle_asset(&mut archive, "vector_store.postcard")?;
-    let hnsw_bytes = read_optional_bundle_asset(&mut archive, "hnsw_index.postcard")?;
+/// Shared bundle reader for appended and sidecar `.orb` layouts. Reads the
+/// optional `orb_security.json` first (plan §4.2), then the plaintext knowledge
+/// assets. (Asset-encryption — skipping the plaintext reads in favor of
+/// `orb_assets.enc` — is wired in Phase 4.)
+fn load_orb_from_archive<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> anyhow::Result<LoadedOrb> {
+    let security = parse_security(read_optional_bundle_asset(archive, "orb_security.json")?)?;
 
-    load_orb_data_from_bytes(
+    let manifest_json = read_bundle_asset(archive, "orb_manifest.json")?;
+    let docs_bytes = read_bundle_asset(archive, "documents.postcard")?;
+    let chunks_bytes = read_bundle_asset(archive, "chunks.postcard")?;
+    let index_bytes = read_bundle_asset(archive, "bm25_index.postcard")?;
+    let tfidf_bytes = read_optional_bundle_asset(archive, "tfidf_index.postcard")?;
+    let trigram_bytes = read_optional_bundle_asset(archive, "trigram_index.postcard")?;
+    let vector_bytes = read_optional_bundle_asset(archive, "vector_store.postcard")?;
+    let hnsw_bytes = read_optional_bundle_asset(archive, "hnsw_index.postcard")?;
+
+    let knowledge = load_orb_data_from_bytes(
         &manifest_json,
         &docs_bytes,
         &chunks_bytes,
@@ -143,11 +142,14 @@ fn load_sidecar_orb_data(
         trigram_bytes.as_deref(),
         vector_bytes.as_deref(),
         hnsw_bytes.as_deref(),
-    )
+    )?;
+    Ok(LoadedOrb {
+        security,
+        knowledge,
+    })
 }
 
-fn try_load_self_bundle(
-) -> anyhow::Result<Option<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)>> {
+fn try_load_self_bundle() -> anyhow::Result<Option<LoadedOrb>> {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(_) => return Ok(None),
@@ -173,7 +175,7 @@ fn load_orb_data_from_bytes(
     trigram_bytes: Option<&[u8]>,
     vector_bytes: Option<&[u8]>,
     hnsw_bytes: Option<&[u8]>,
-) -> anyhow::Result<(OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime)> {
+) -> anyhow::Result<LoadedKnowledge> {
     let manifest: OrbManifest = serde_json::from_slice(manifest_json)?;
     let documents: Vec<Document> = postcard::from_bytes(docs_bytes)?;
     let chunks: Vec<Chunk> = postcard::from_bytes(chunks_bytes)?;
@@ -191,10 +193,25 @@ fn load_orb_data_from_bytes(
         dense: DenseRuntime::from_assets(vector, hnsw)?,
         dense_tier: manifest.selected_retrieval_plan.clone(),
     };
-    Ok((manifest, documents, chunks, search))
+    Ok(LoadedKnowledge {
+        manifest,
+        documents,
+        chunks,
+        search,
+    })
 }
 
-fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
+/// Parse an optional `orb_security.json` blob into a [`SecurityConfig`].
+/// Absent file → disabled (no password, no encryption).
+fn parse_security(bytes: Option<Vec<u8>>) -> anyhow::Result<SecurityConfig> {
+    match bytes {
+        Some(b) => SecurityConfig::from_bundle_json(&b)
+            .map_err(|e| anyhow::anyhow!("invalid orb_security.json: {e}")),
+        None => Ok(SecurityConfig::disabled()),
+    }
+}
+
+fn demo_manifest() -> LoadedOrb {
     use mcporb_runtime_core::format::{Capability, RetrievalPlanKind};
     let manifest = OrbManifest {
         name: "demo-orb".to_string(),
@@ -215,18 +232,21 @@ fn demo_manifest() -> (OrbManifest, Vec<Document>, Vec<Chunk>, SearchRuntime) {
         trigram_min_df: None,
         planning_rationale: vec![serde_json::json!("Demo mode — no assets loaded.")],
     };
-    (
-        manifest,
-        vec![],
-        vec![],
-        SearchRuntime {
-            bm25: Bm25Index::default(),
-            tfidf: None,
-            trigram: None,
-            dense: DenseRuntime::None,
-            dense_tier: RetrievalPlanKind::Bm25Only,
+    LoadedOrb {
+        security: SecurityConfig::disabled(),
+        knowledge: LoadedKnowledge {
+            manifest,
+            documents: vec![],
+            chunks: vec![],
+            search: SearchRuntime {
+                bm25: Bm25Index::default(),
+                tfidf: None,
+                trigram: None,
+                dense: DenseRuntime::None,
+                dense_tier: RetrievalPlanKind::Bm25Only,
+            },
         },
-    )
+    }
 }
 
 fn read_appended_bundle_footer(
@@ -354,7 +374,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(mode = ?config.mode, "MCPOrb runtime starting");
 
-    let (manifest, documents, chunks, search) = if let Some(ref p) = config.assets_path {
+    let loaded = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
     } else if embedded_orb::HAS_EMBEDDED_ORB {
         load_embedded_orb_data()?
@@ -363,19 +383,22 @@ async fn main() -> anyhow::Result<()> {
     } else {
         demo_manifest()
     };
+    let LoadedOrb { security, knowledge } = loaded;
+
+    if security.password.is_some() {
+        tracing::info!("Password protection enabled for this Orb");
+    }
 
     let mode_str = format!("{:?}", config.mode);
     let orb_binary_path = detect_orb_binary_path(&config);
     #[cfg(feature = "vector-embedder")]
-    let (model_manager, embedder_slot) = embed_startup::prepare(&manifest)?;
+    let (model_manager, embedder_slot) = embed_startup::prepare(&knowledge.manifest)?;
 
     match config.mode {
         StartupMode::StdioOnly => {
             let state = OrbState::new(
-                manifest,
-                documents,
-                chunks,
-                search,
+                security,
+                Some(knowledge),
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -389,10 +412,8 @@ async fn main() -> anyhow::Result<()> {
         StartupMode::GuiOnly => {
             let token = web_server::generate_token();
             let state = OrbState::new(
-                manifest,
-                documents,
-                chunks,
-                search,
+                security,
+                Some(knowledge),
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -418,10 +439,8 @@ async fn main() -> anyhow::Result<()> {
         StartupMode::AllGui => {
             let token = web_server::generate_token();
             let state = OrbState::new(
-                manifest,
-                documents,
-                chunks,
-                search,
+                security,
+                Some(knowledge),
                 #[cfg(feature = "vector-embedder")]
                 model_manager,
                 #[cfg(feature = "vector-embedder")]
@@ -576,13 +595,15 @@ mod tests {
         assert_eq!(footer.offset, b"fake-runtime".len() as u64);
         assert_eq!(footer.length, bundle.len() as u64);
 
-        let (manifest, documents, chunks, search) = load_appended_orb_data(&orb_path).unwrap();
-        assert_eq!(manifest.name, "test-orb");
-        assert_eq!(documents.len(), 1);
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(search.bm25.doc_count, 0);
-        assert!(search.tfidf.is_none());
-        assert!(search.trigram.is_none());
+        let loaded = load_appended_orb_data(&orb_path).unwrap();
+        assert!(loaded.security.password.is_none());
+        let k = loaded.knowledge;
+        assert_eq!(k.manifest.name, "test-orb");
+        assert_eq!(k.documents.len(), 1);
+        assert_eq!(k.chunks.len(), 1);
+        assert_eq!(k.search.bm25.doc_count, 0);
+        assert!(k.search.tfidf.is_none());
+        assert!(k.search.trigram.is_none());
     }
 
     #[test]
@@ -595,12 +616,99 @@ mod tests {
         std::fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
         std::fs::write(&sidecar, build_test_bundle()).unwrap();
 
-        let (manifest, documents, chunks, search) = load_sidecar_orb_data(&orb_path).unwrap();
-        assert_eq!(manifest.name, "test-orb");
-        assert_eq!(documents.len(), 1);
-        assert_eq!(chunks.len(), 1);
-        assert_eq!(search.bm25.doc_count, 0);
-        assert!(search.tfidf.is_none());
-        assert!(search.trigram.is_none());
+        let loaded = load_sidecar_orb_data(&orb_path).unwrap();
+        let k = loaded.knowledge;
+        assert_eq!(k.manifest.name, "test-orb");
+        assert_eq!(k.documents.len(), 1);
+        assert_eq!(k.chunks.len(), 1);
+        assert_eq!(k.search.bm25.doc_count, 0);
+        assert!(k.search.tfidf.is_none());
+        assert!(k.search.trigram.is_none());
+    }
+
+    /// Contract (plan §4.2): an assets dir carrying an optional `orb_security.json`
+    /// loads both the knowledge and the password policy, and the policy actually
+    /// gates — a wrong password is rejected, the right one unlocks.
+    #[test]
+    fn loads_assets_dir_with_security_json() {
+        use std::io::Write as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+
+        // Materialize a minimal plaintext assets dir.
+        let manifest = OrbManifest {
+            name: "guarded-orb".to_string(),
+            version: "0.1.0".to_string(),
+            description: "secured".to_string(),
+            orb_format_version: "0.2".to_string(),
+            mcp_protocol_version: "2024-11-05".to_string(),
+            build_time: "2026-06-04T00:00:00Z".to_string(),
+            source_documents: vec!["doc.pdf".to_string()],
+            chunk_count: 1,
+            index_format_version: "0.2".to_string(),
+            binary_size_target_mb: 20,
+            selected_retrieval_plan:
+                mcporb_runtime_core::format::RetrievalPlanKind::Bm25Only,
+            enabled_capabilities: vec![mcporb_runtime_core::format::Capability::Bm25],
+            embedding_dim: None,
+            embedding_model: None,
+            embedding_model_tar_sha256: None,
+            trigram_min_df: None,
+            planning_rationale: vec![],
+        };
+        let documents = vec![Document {
+            id: 0,
+            title: "Doc".to_string(),
+            source_path: "doc.pdf".to_string(),
+            page_count: Some(1),
+            sections: vec![],
+        }];
+        let chunks = vec![Chunk {
+            id: 0,
+            document_id: 0,
+            section_id: None,
+            page: Some(1),
+            text: "guarded content".to_string(),
+            token_count: 2,
+        }];
+        let write = |name: &str, bytes: &[u8]| {
+            let mut f = std::fs::File::create(p.join(name)).unwrap();
+            f.write_all(bytes).unwrap();
+        };
+        write("orb_manifest.json", &serde_json::to_vec(&manifest).unwrap());
+        write("documents.postcard", &postcard::to_allocvec(&documents).unwrap());
+        write("chunks.postcard", &postcard::to_allocvec(&chunks).unwrap());
+        write(
+            "bm25_index.postcard",
+            &postcard::to_allocvec(&Bm25Index::default()).unwrap(),
+        );
+        write(
+            "orb_security.json",
+            security::test_security_json("dir-pw-strong").as_bytes(),
+        );
+
+        let loaded = load_orb_data(p).unwrap();
+        assert_eq!(loaded.knowledge.manifest.name, "guarded-orb");
+
+        // The policy gates: starts locked, wrong password fails, right unlocks.
+        let state = OrbState::new(
+            loaded.security,
+            Some(loaded.knowledge),
+            #[cfg(feature = "vector-embedder")]
+            std::sync::Arc::new(mcporb_embed::ModelManager::with_cache_dir(
+                tempfile::tempdir().unwrap().path().to_path_buf(),
+            )),
+            #[cfg(feature = "vector-embedder")]
+            std::sync::Arc::new(mcporb_embed::empty_slot()),
+            "GuiOnly".to_string(),
+            None,
+            None,
+        );
+        assert!(state.security.password_required());
+        assert!(!state.security.is_unlocked());
+        assert!(state.security.verify_and_unlock("wrong").is_err());
+        assert!(state.security.verify_and_unlock("dir-pw-strong").is_ok());
+        assert!(state.security.is_unlocked());
     }
 }

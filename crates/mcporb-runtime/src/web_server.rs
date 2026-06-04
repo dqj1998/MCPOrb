@@ -56,6 +56,20 @@ async fn validate_host(headers: HeaderMap, request: Request, next: Next) -> Resp
     StatusCode::FORBIDDEN.into_response()
 }
 
+/// Gate for protected API routes: 401 unless the process is unlocked (plan §4.3).
+/// A single unlock (here or via the stdio MCP `unlock_orb`) opens all surfaces.
+async fn require_unlocked(
+    axum::extract::State(state): axum::extract::State<SharedState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if state.security.is_unlocked() {
+        next.run(request).await
+    } else {
+        StatusCode::UNAUTHORIZED.into_response()
+    }
+}
+
 pub async fn serve(
     state: SharedState,
     port: Option<u16>,
@@ -67,7 +81,10 @@ pub async fn serve(
         .map(|f| String::from_utf8_lossy(f.data.as_ref()).to_string())
         .unwrap_or_else(|| "<html><body><h1>MCPOrb</h1></body></html>".to_string());
 
-    let api_router = Router::new()
+    // Protected API: everything that exposes knowledge or config actions. Gated
+    // by the unlock middleware via `route_layer`, so the layer applies only to
+    // these routes — never the auth routes below (plan §4.3).
+    let protected = Router::new()
         .route("/manifest", get(api::get_manifest))
         .route("/documents", get(api::get_documents))
         .route("/metrics", get(api::get_metrics))
@@ -77,7 +94,19 @@ pub async fn serve(
             post(api::post_open_mcp_config_location),
         )
         .route("/search", post(api::post_search))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_unlocked,
+        ))
         .with_state(state.clone());
+
+    // Auth API: unauthenticated so the gate can be queried and lifted.
+    let auth_router = Router::new()
+        .route("/auth/status", get(api::get_auth_status))
+        .route("/auth/unlock", post(api::post_auth_unlock))
+        .with_state(state.clone());
+
+    let api_router = protected.merge(auth_router);
 
     let html_clone = index_html.clone();
     let token_for_redirect = token.clone();
