@@ -103,6 +103,33 @@ MCPOrb/
 | GUI only | `./orb --gui-only --open` | Web UI only, opens browser |
 | Stdio only | `./orb --stdio-only` | MCP stdio, no HTTP server |
 | All GUI | `./orb --all-gui` | MCP stdio + Web UI + Streamable HTTP |
+| Remember unlock | `./orb --unlock` | Prompt once, store the unlock key in the OS keychain, then exit |
+
+## Password Protection
+
+An Orb can be packaged with an optional access password (see the Builder's
+`mcporb package --password`). When enabled:
+
+- The Web UI shows a login screen before the dashboard.
+- MCP clients see only `unlock_orb` and `get_web_ui_url` until unlocked;
+  `search_knowledge` and resources return a locked error.
+- A single successful unlock opens the whole process. Because the default mode
+  when an MCP client launches the Orb is `--all-gui`, unlocking once in the
+  browser (via `get_web_ui_url`) also unlocks the in-process stdio MCP, so
+  **the password never has to be typed into the LLM conversation**.
+- `unlock_orb` (password passed to the tool) and `--unlock` (terminal prompt
+  that remembers the unlock on this device via the OS keychain) are fallbacks,
+  mainly for `--stdio-only` deployments.
+
+Optionally, assets can be encrypted (`--encrypt-assets`): the packaged `.orb`
+then embeds only the ciphertext, so documents, chunks, and indexes cannot be
+extracted by unpacking the file without the password.
+
+**Security limits.** Password gating and asset encryption protect the static
+`.orb` at rest and gate local access; they are not unbreakable DRM. After a
+correct password the runtime necessarily holds the decrypted, searchable data
+in memory — encryption does **not** protect already-decrypted runtime memory.
+Weak passwords remain crackable offline, so the Builder warns on short ones.
 
 ## Binary Size Budget
 
