@@ -49,5 +49,12 @@ chacha20poly1305 = { workspace = true }
 keyring = { workspace = true }
 rpassword = "7"
 
+# macOS single-file `.orb`s embed the bundle as a signed Mach-O segment
+# (`__MCPORB,__assets`) so `codesign --strict` passes and the file can be
+# notarized (plan §3.8.1 / ADR-5). Reading that segment needs a Mach-O parser;
+# linux/windows use the appended footer and never pull this in.
+[target.'cfg(target_os = "macos")'.dependencies]
+object = { version = "0.36", default-features = false, features = ["read_core", "macho", "std"] }
+
 [dev-dependencies]
 tempfile = { workspace = true }

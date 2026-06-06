@@ -29,6 +29,17 @@ use state::{LoadedAssets, LoadedKnowledge, LoadedOrb, OrbState};
 const APPENDED_BUNDLE_MAGIC: &[u8; 16] = b"MCPORB_BUNDLE_V1";
 const APPENDED_BUNDLE_TRAILER_SIZE: u64 = 32;
 
+/// Mach-O segment + section that carry the embedded bundle zip on macOS
+/// single-file `.orb`s. Unlike the appended footer (which sits *past* the code
+/// signature and so fails `codesign --strict` / blocks notarization), a segment
+/// is *inside* the signed region — so the file can be signed AND notarized
+/// (plan §3.8.1 / ADR-5). The section header already records the bundle's
+/// offset+size, so no trailer is needed. Must match the packager's names.
+#[cfg(target_os = "macos")]
+const SEGMENT_BUNDLE_NAME: &str = "__MCPORB";
+#[cfg(target_os = "macos")]
+const SECTION_BUNDLE_NAME: &str = "__assets";
+
 #[derive(Debug, Clone, Copy)]
 struct AppendedBundleFooter {
     offset: u64,
@@ -317,6 +328,13 @@ fn try_load_self_bundle() -> anyhow::Result<Option<LoadedOrb>> {
         Err(_) => return Ok(None),
     };
 
+    // macOS single-file: bundle embedded as a signed Mach-O segment (so the file
+    // can be notarized). Tried first; `None` on non-macOS or older layouts.
+    if let Some(bundle) = read_self_segment_bundle(&exe)? {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bundle))?;
+        return load_orb_from_archive(&mut archive).map(Some);
+    }
+
     if sidecar_bundle_path(&exe).is_file() {
         return load_sidecar_orb_data(&exe).map(Some);
     }
@@ -409,6 +427,39 @@ fn demo_manifest() -> LoadedOrb {
             },
         }),
     }
+}
+
+/// Read the embedded bundle zip from this binary's `__MCPORB,__assets` Mach-O
+/// segment, if present (macOS single-file `.orb`s, plan §3.8.1 / ADR-5). The
+/// section bytes ARE the same bundle zip the appended/sidecar layouts carry, so
+/// the caller can hand them straight to [`load_orb_from_archive`]. Returns
+/// `None` when no such section exists (a bare runtime, or an older
+/// appended/sidecar `.orb`), so callers fall through to the other layouts.
+///
+/// macOS-only: linux/windows runtimes use the appended footer and don't pull in
+/// a Mach-O parser. (Assumes a thin, single-arch Mach-O — the form the Store
+/// packages; a parse failure is treated as "no segment" and falls through.)
+#[cfg(target_os = "macos")]
+fn read_self_segment_bundle(binary_path: &std::path::Path) -> anyhow::Result<Option<Vec<u8>>> {
+    use object::{Object, ObjectSection};
+    let data = std::fs::read(binary_path)?;
+    let file = match object::File::parse(&*data) {
+        Ok(f) => f,
+        Err(_) => return Ok(None),
+    };
+    for section in file.sections() {
+        let seg = section.segment_name().ok().flatten().unwrap_or("");
+        let name = section.name().unwrap_or("");
+        if seg == SEGMENT_BUNDLE_NAME && name == SECTION_BUNDLE_NAME {
+            return Ok(Some(section.data()?.to_vec()));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_self_segment_bundle(_binary_path: &std::path::Path) -> anyhow::Result<Option<Vec<u8>>> {
+    Ok(None)
 }
 
 fn read_appended_bundle_footer(
@@ -516,7 +567,8 @@ fn detect_orb_binary_path(config: &startup::StartupConfig) -> Option<String> {
     }
 
     let exe = std::env::current_exe().ok()?;
-    if sidecar_bundle_path(&exe).is_file()
+    if read_self_segment_bundle(&exe).ok().flatten().is_some()
+        || sidecar_bundle_path(&exe).is_file()
         || read_appended_bundle_footer(&exe).ok().flatten().is_some()
     {
         return Some(exe.canonicalize().unwrap_or(exe).display().to_string());
@@ -737,6 +789,31 @@ mod tests {
             .unwrap();
 
         zip.finish().unwrap().into_inner()
+    }
+
+    /// Contract: `read_self_segment_bundle` returns `None` for a binary with no
+    /// `__MCPORB,__assets` section (a bare runtime, or a non-Mach-O on
+    /// linux/win), so `try_load_self_bundle` falls through to sidecar/footer
+    /// instead of erroring. (The positive path — reading a real signed segment —
+    /// is proven by the macOS spike in plans/orb-content-protection-handoff.md.)
+    #[test]
+    fn segment_bundle_absent_falls_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("plain");
+        std::fs::write(&p, b"not a mach-o, no embedded segment").unwrap();
+        assert!(read_self_segment_bundle(&p).unwrap().is_none());
+    }
+
+    /// Dev helper (ignored): writes a valid bundle zip to `$ORB_BUNDLE_OUT` for
+    /// the manual macOS E2E (LIEF-inject into the runtime → codesign → run).
+    /// Run: `ORB_BUNDLE_OUT=/path cargo test -p mcporb-runtime --no-default-features \
+    ///       dump_test_bundle -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dump_test_bundle() {
+        let out = std::env::var("ORB_BUNDLE_OUT").expect("set ORB_BUNDLE_OUT");
+        std::fs::write(&out, build_test_bundle()).unwrap();
+        eprintln!("wrote test bundle to {out}");
     }
 
     #[test]
