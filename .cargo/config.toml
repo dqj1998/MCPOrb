@@ -1,0 +1,18 @@
+# Reserve Mach-O header padding on Apple targets so the dedicated signing
+# worker can inject the `__MCPORB,__assets` segment (~152 bytes of load command)
+# by *consuming reserved slack* — never by shifting __TEXT and rebasing symbols.
+#
+# Without this, the linker leaves only ~56 bytes of header slack, which forces a
+# full __TEXT page-shift + entry-point/symbol rebase (the LIEF path). Reserving
+# 0x1000 bytes makes injection a provably-correct, no-rebase byte operation. See
+# plans/all-os-orb-signing-plan.md (S2) and MCPOrbEtc/licensing-site/orb-signer.
+#
+# Mach-O-only flag (ld64); MUST stay scoped to apple triples — the GNU/MSVC
+# linkers reject `-headerpad`, so a global rustflag would break linux/windows
+# runtime builds.
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-Wl,-headerpad,0x1000"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-args=-Wl,-headerpad,0x1000"]
