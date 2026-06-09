@@ -1,6 +1,6 @@
 [package]
 name = "mcporb-embed"
-version = "0.1.0"
+version = "1.1.6"
 edition = "2021"
 description = "Embedded ONNX query embedder for MCP Orb (tract backend)"
 license = "Apache-2.0"
