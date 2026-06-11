@@ -287,7 +287,7 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
                         .iter()
                         .filter_map(|hit| {
                             k.chunks.get(hit.chunk_id as usize).map(|chunk| {
-                                let preview = &chunk.text[..chunk.text.len().min(500)];
+                                let preview = &chunk.text[..chunk.text.len().min(2000)];
                                 json!({
                                     "type": "text",
                                     "text": format!("[{} Score: {:.3}] Page {:?}\n{}", hit.method, hit.score, chunk.page, preview)
