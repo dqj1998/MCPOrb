@@ -1560,7 +1560,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-embed"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime-core"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "anyhow",
  "instant-distance",
