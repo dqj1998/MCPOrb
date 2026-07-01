@@ -155,9 +155,11 @@ async fn handle_single_json_rpc_request(
                     .documents
                     .iter()
                     .map(|document| {
+                        let brand = document.source_path.rsplit('/').nth(1).unwrap_or("unknown");
+                        let fname = document.source_path.rsplit('/').next().unwrap_or(&document.title);
                         json!({
                             "uri": format!("orb://documents/{}", document.id),
-                            "name": document.title,
+                            "name": format!("{brand}/{fname}"),
                             "mimeType": "text/plain"
                         })
                     })
@@ -289,9 +291,14 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
                             k.chunks.get(hit.chunk_id as usize).map(|chunk| {
                                 let end = chunk.text.floor_char_boundary(chunk.text.len().min(2000));
                                 let preview = &chunk.text[..end];
+                                let source_prefix = k.documents.iter().find(|d| d.id == chunk.document_id).map(|doc| {
+                                    let brand = doc.source_path.rsplit('/').nth(1).unwrap_or("unknown");
+                                    let fname = doc.source_path.rsplit('/').next().unwrap_or("unknown");
+                                    format!("[Source: {}/{}]\n", brand, fname)
+                                }).unwrap_or_default();
                                 json!({
                                     "type": "text",
-                                    "text": format!("[{} Score: {:.3}] Page {:?}\n{}", hit.method, hit.score, chunk.page, preview)
+                                    "text": format!("{source_prefix}[{} Score: {:.3}] Page {:?}\n{}", hit.method, hit.score, chunk.page, preview)
                                 })
                             })
                         })
