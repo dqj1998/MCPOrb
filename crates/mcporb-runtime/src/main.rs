@@ -128,6 +128,12 @@ fn load_sidecar_orb_data(binary_path: &std::path::Path) -> anyhow::Result<Loaded
     load_orb_from_archive(&mut archive)
 }
 
+fn load_orb_zip_data(zip_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
+    let bundle_bytes = std::fs::read(zip_path)?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
+    load_orb_from_archive(&mut archive)
+}
+
 /// Shared bundle reader for appended and sidecar `.orb` layouts. Reads the
 /// optional `orb_security.json` first (plan §4.2), then the plaintext knowledge
 /// assets. (Asset-encryption — skipping the plaintext reads in favor of
@@ -395,15 +401,21 @@ fn demo_manifest() -> LoadedOrb {
     use mcporb_runtime_core::format::{Capability, RetrievalPlanKind};
     let manifest = OrbManifest {
         name: "demo-orb".to_string(),
+        display_name: None,
         version: "0.1.0".to_string(),
         description: "Demo Orb — no assets loaded".to_string(),
         orb_format_version: "0.2".to_string(),
+        runtime_min_version: None,
+        builder_version: None,
         mcp_protocol_version: "2024-11-05".to_string(),
         build_time: "unknown".to_string(),
+        created_at: None,
         source_documents: vec![],
         chunk_count: 0,
         index_format_version: "0.2".to_string(),
         binary_size_target_mb: 15,
+        assets_sha256: None,
+        encrypted: false,
         selected_retrieval_plan: RetrievalPlanKind::Bm25Only,
         enabled_capabilities: vec![Capability::Bm25],
         embedding_dim: None,
@@ -555,7 +567,7 @@ fn sidecar_bundle_path(binary_path: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn detect_orb_binary_path(config: &startup::StartupConfig) -> Option<String> {
-    if config.assets_path.is_some() {
+    if config.assets_path.is_some() || config.orb_zip_path.is_some() {
         return None;
     }
 
@@ -590,6 +602,8 @@ async fn main() -> anyhow::Result<()> {
 
     let loaded = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
+    } else if let Some(ref p) = config.orb_zip_path {
+        load_orb_zip_data(p)?
     } else if embedded_orb::HAS_EMBEDDED_ORB {
         load_embedded_orb_data()?
     } else if let Some(data) = try_load_self_bundle()? {
@@ -640,7 +654,7 @@ async fn main() -> anyhow::Result<()> {
             mcp_handler::run_stdio_loop(state).await?;
         }
         StartupMode::GuiOnly => {
-            let token = web_server::generate_token();
+            let token = config.token.clone().unwrap_or_else(web_server::generate_token);
             let (addr, server_handle) =
                 web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
@@ -656,7 +670,7 @@ async fn main() -> anyhow::Result<()> {
             server_handle.await?;
         }
         StartupMode::AllGui => {
-            let token = web_server::generate_token();
+            let token = config.token.clone().unwrap_or_else(web_server::generate_token);
             let (addr, server_handle) =
                 web_server::serve(state.clone(), config.port, &token).await?;
             let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
@@ -736,15 +750,21 @@ mod tests {
     fn build_test_bundle() -> Vec<u8> {
         let manifest = OrbManifest {
             name: "test-orb".to_string(),
+            display_name: None,
             version: "0.1.0".to_string(),
             description: "single file test".to_string(),
             orb_format_version: "0.2".to_string(),
+            runtime_min_version: None,
+            builder_version: None,
             mcp_protocol_version: "2024-11-05".to_string(),
             build_time: "2026-06-01T00:00:00Z".to_string(),
+            created_at: None,
             source_documents: vec!["doc.pdf".to_string()],
             chunk_count: 1,
             index_format_version: "0.2".to_string(),
             binary_size_target_mb: 20,
+            assets_sha256: None,
+            encrypted: false,
             selected_retrieval_plan: RetrievalPlanKind::Bm25Only,
             enabled_capabilities: vec![Capability::Bm25],
             embedding_dim: None,
@@ -872,15 +892,21 @@ mod tests {
         // Materialize a minimal plaintext assets dir.
         let manifest = OrbManifest {
             name: "guarded-orb".to_string(),
+            display_name: None,
             version: "0.1.0".to_string(),
             description: "secured".to_string(),
             orb_format_version: "0.2".to_string(),
+            runtime_min_version: None,
+            builder_version: None,
             mcp_protocol_version: "2024-11-05".to_string(),
             build_time: "2026-06-04T00:00:00Z".to_string(),
+            created_at: None,
             source_documents: vec!["doc.pdf".to_string()],
             chunk_count: 1,
             index_format_version: "0.2".to_string(),
             binary_size_target_mb: 20,
+            assets_sha256: None,
+            encrypted: false,
             selected_retrieval_plan:
                 mcporb_runtime_core::format::RetrievalPlanKind::Bm25Only,
             enabled_capabilities: vec![mcporb_runtime_core::format::Capability::Bm25],
