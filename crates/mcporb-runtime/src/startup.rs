@@ -25,8 +25,16 @@ pub struct OrbArgs {
     pub no_open: bool,
     #[arg(long)]
     pub port: Option<u16>,
+    /// Fixed token for the HTTP MCP endpoint. When set, the token is used
+    /// instead of generating a random one (used by the Runtime App).
+    #[arg(long)]
+    pub token: Option<String>,
     #[arg(long)]
     pub assets: Option<std::path::PathBuf>,
+    /// Load an Orb ZIP bundle directly. Intended for the installed Runtime App
+    /// and MCP client STDIO shims; leaves legacy self-contained .orb behavior intact.
+    #[arg(long)]
+    pub orb_zip: Option<std::path::PathBuf>,
     /// Remember this Orb's password on this device (OS keychain), then exit.
     /// Prompts once; future launches unlock without prompting. Only meaningful
     /// for Orbs packaged with --remember-unlock.
@@ -38,7 +46,9 @@ pub struct StartupConfig {
     pub mode: StartupMode,
     pub auto_open: bool,
     pub port: Option<u16>,
+    pub token: Option<String>,
     pub assets_path: Option<std::path::PathBuf>,
+    pub orb_zip_path: Option<std::path::PathBuf>,
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
@@ -68,6 +78,8 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         mode,
         auto_open,
         port: args.port,
+        token: args.token.clone(),
         assets_path: args.assets.clone(),
+        orb_zip_path: args.orb_zip.clone(),
     }
 }
