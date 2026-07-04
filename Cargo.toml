@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/mcporb-runtime",
+    "crates/mcporb-runtime-app",
+    "crates/mcporb-runtime-app-core",
     "crates/mcporb-runtime-core",
     "crates/mcporb-size-spike",
     "crates/mcporb-embed",

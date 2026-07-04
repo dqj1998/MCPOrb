@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCPOrb Runtime</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="app-header">
+    <div class="header-left">
+      <img class="app-logo" src="app-icon.png" alt="MCPOrb Runtime" />
+      <div class="app-brand">
+        <span class="app-title">MCPOrb Runtime</span>
+        <span id="app-version" class="app-version"></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="registry-path" class="registry-path"></span>
+    </div>
+  </header>
+
+  <nav id="tab-nav">
+    <button class="tab-item active" data-tab="search">Search</button>
+    <button class="tab-item" data-tab="library">Library</button>
+    <button class="tab-item" data-tab="import">Import</button>
+    <button class="tab-item" data-tab="mcp">MCP Config</button>
+    <button class="tab-item" data-tab="store">Store</button>
+    <button class="tab-item" data-tab="running">Running</button>
+    <button class="tab-item" data-tab="settings">Settings</button>
+  </nav>
+
+  <main id="main-content">
+    <section id="tab-search" class="tab-panel active">
+      <div class="panel-header">
+        <h1>Search</h1>
+        <select id="search-orb-select" class="select-input"></select>
+      </div>
+      <div class="search-bar">
+        <input id="search-query" class="text-input" placeholder="Search your installed Orb" />
+        <select id="search-method" class="select-input method-select">
+          <option value="auto">Auto</option>
+          <option value="bm25">BM25</option>
+          <option value="tfidf">TF-IDF</option>
+          <option value="trigram">Trigram</option>
+          <option value="hybrid">Hybrid</option>
+        </select>
+        <button id="btn-search" class="btn btn-primary">Search</button>
+      </div>
+      <div id="search-status" class="status-line"></div>
+      <div id="search-results" class="result-list"></div>
+    </section>
+
+    <section id="tab-library" class="tab-panel">
+      <div class="panel-header">
+        <h1>Library</h1>
+        <button id="btn-refresh-library" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="library-list" class="orb-grid"></div>
+    </section>
+
+    <section id="tab-import" class="tab-panel">
+      <div class="panel-header">
+        <h1>Import Orb ZIP</h1>
+      </div>
+      <div class="import-box">
+        <input id="import-path" class="text-input" placeholder="/path/to/orb.zip" />
+        <button id="btn-import" class="btn btn-primary">Import</button>
+      </div>
+      <div id="import-status" class="status-card muted-card"></div>
+    </section>
+
+    <section id="tab-mcp" class="tab-panel">
+      <div class="panel-header">
+        <h1>MCP Config</h1>
+        <select id="mcp-orb-select" class="select-input"></select>
+      </div>
+      <div class="form-group">
+        <label for="runtime-bin-path">Runtime CLI path</label>
+        <input id="runtime-bin-path" class="text-input" placeholder="Leave blank to use bundled mcporb-runtime" />
+      </div>
+      <button id="btn-generate-config" class="btn btn-primary">Generate STDIO Config</button>
+      <div id="mcp-config-list" class="config-list"></div>
+    </section>
+
+    <section id="tab-store" class="tab-panel">
+      <div class="panel-header">
+        <h1>Store</h1>
+      </div>
+      <div class="search-bar">
+        <input id="store-search-query" class="text-input" placeholder="Search Orbs in MCP Store" />
+        <button id="btn-store-search" class="btn btn-primary">Search</button>
+      </div>
+      <div id="store-search-status" class="status-line"></div>
+      <div id="store-search-results" class="orb-grid"></div>
+    </section>
+
+    <section id="tab-running" class="tab-panel">
+      <div class="panel-header">
+        <h1>Running</h1>
+        <button id="btn-refresh-running" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="running-list" class="orb-grid"></div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel">
+      <div class="panel-header">
+        <h1>Settings</h1>
+        <button id="btn-save-settings" class="btn btn-primary">Save</button>
+      </div>
+      <div class="settings-grid">
+        <div class="form-group">
+          <label for="settings-download-dir">Download Directory</label>
+          <input id="settings-download-dir" class="text-input" placeholder="/path/to/downloads" />
+        </div>
+        <div class="form-group">
+          <label for="settings-http-port">HTTP MCP Port</label>
+          <input id="settings-http-port" class="text-input" type="number" placeholder="5599" />
+        </div>
+        <div class="form-group">
+          <label for="settings-network-binding">Network Binding</label>
+          <select id="settings-network-binding" class="select-input">
+            <option value="localhost">Localhost (127.0.0.1) — Recommended</option>
+            <option value="external">External (0.0.0.0) — Requires caution</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="settings-auto-start">Auto-start on Login</label>
+          <select id="settings-auto-start" class="select-input">
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+        <div id="settings-status" class="status-line"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

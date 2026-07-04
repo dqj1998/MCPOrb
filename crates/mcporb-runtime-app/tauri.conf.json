@@ -1,0 +1,66 @@
+{
+  "productName": "MCPOrb Runtime",
+  "identifier": "com.mcporb.runtime",
+  "build": {
+    "frontendDist": "frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "MCPOrb Runtime",
+        "width": 1040,
+        "height": 680,
+        "minWidth": 860,
+        "minHeight": 620,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Run Orb ZIP knowledge bases for MCP clients",
+    "longDescription": "MCPOrb Runtime imports Orb ZIP knowledge bases, provides local search, and generates MCP client configuration for Claude Desktop, Cursor, and VS Code. HTTP MCP and Store download features are isolated behind Runtime App APIs for staged release.",
+    "publisher": "MCPOrb",
+    "homepage": "https://mcporb.com",
+    "copyright": "© 2026 MCPOrb",
+    "license": "Apache-2.0",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "mobile": [],
+      "desktop": {
+        "schemes": ["mcporb"]
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "mcporb-runtime-app-core"
+version = "1.1.8"
+edition = "2021"
+license = "Apache-2.0"
+description = "MCPOrb Runtime App core services: local Orb registry, import validation, and app-facing APIs"
+
+[dependencies]
+mcporb-runtime-core = { path = "../mcporb-runtime-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+postcard = { workspace = true }
+dirs = { workspace = true }
+sha2 = { workspace = true }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
