@@ -44,15 +44,27 @@ pub enum Capability {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbManifest {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub version: String,
     pub description: String,
     pub orb_format_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_min_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_version: Option<String>,
     pub mcp_protocol_version: String,
     pub build_time: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
     pub source_documents: Vec<String>,
     pub chunk_count: usize,
     pub index_format_version: String,
     pub binary_size_target_mb: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets_sha256: Option<String>,
+    #[serde(default)]
+    pub encrypted: bool,
     /// The retrieval plan selected at build time (default: bm25_only).
     #[serde(default)]
     pub selected_retrieval_plan: RetrievalPlanKind,
