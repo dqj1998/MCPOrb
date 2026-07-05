@@ -17,79 +17,78 @@
     </div>
     <div class="header-right">
       <span id="registry-path" class="registry-path"></span>
+      <select id="lang-select" class="lang-select">
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+        <option value="zh">简体中文</option>
+      </select>
     </div>
   </header>
 
   <nav id="tab-nav">
-    <button class="tab-item active" data-tab="search">Search</button>
-    <button class="tab-item" data-tab="library">Library</button>
-    <button class="tab-item" data-tab="import">Import</button>
-    <button class="tab-item" data-tab="mcp">MCP Config</button>
-    <button class="tab-item" data-tab="store">Store</button>
-    <button class="tab-item" data-tab="running">Running</button>
-    <button class="tab-item" data-tab="settings">Settings</button>
+    <button class="tab-item active" data-tab="library" data-i18n="tab.library">Library</button>
+    <button class="tab-item" data-tab="mcp" data-i18n="tab.mcp">MCP Config</button>
+    <button class="tab-item" data-tab="store" data-i18n="tab.store">Store</button>
+    <button class="tab-item" data-tab="running" data-i18n="tab.http">HTTP</button>
+    <button class="tab-item" data-tab="settings" data-i18n="tab.settings">Settings</button>
   </nav>
 
   <main id="main-content">
-    <section id="tab-search" class="tab-panel active">
+    <!-- Merged Library: orb list + inline search + inline import -->
+    <section id="tab-library" class="tab-panel active">
       <div class="panel-header">
-        <h1>Search</h1>
-        <select id="search-orb-select" class="select-input"></select>
+        <h1 data-i18n="library.title">Library</h1>
+        <div class="panel-actions">
+          <button id="btn-show-import" class="btn btn-secondary" data-i18n="library.import">Import</button>
+          <button id="btn-refresh-library" class="btn btn-secondary" data-i18n="library.refresh">Refresh</button>
+        </div>
       </div>
-      <div class="search-bar">
-        <input id="search-query" class="text-input" placeholder="Search your installed Orb" />
-        <select id="search-method" class="select-input method-select">
-          <option value="auto">Auto</option>
-          <option value="bm25">BM25</option>
-          <option value="tfidf">TF-IDF</option>
-          <option value="trigram">Trigram</option>
-          <option value="hybrid">Hybrid</option>
-        </select>
-        <button id="btn-search" class="btn btn-primary">Search</button>
-      </div>
-      <div id="search-status" class="status-line"></div>
-      <div id="search-results" class="result-list"></div>
-    </section>
 
-    <section id="tab-library" class="tab-panel">
-      <div class="panel-header">
-        <h1>Library</h1>
-        <button id="btn-refresh-library" class="btn btn-secondary">Refresh</button>
+      <!-- Filter bar — searches Orb list by name/description -->
+      <div class="search-bar filter-bar">
+        <input id="filter-query" class="text-input" data-i18n-placeholder="library.filter_placeholder" placeholder="Search orbs by name or description…" />
+        <button id="btn-filter-library" class="btn btn-primary" data-i18n="library.filter_btn">Filter</button>
       </div>
+
+      <hr class="section-divider">
+
+      <!-- Orb list -->
       <div id="library-list" class="orb-grid"></div>
-    </section>
 
-    <section id="tab-import" class="tab-panel">
-      <div class="panel-header">
-        <h1>Import Orb ZIP</h1>
-      </div>
-      <div class="import-box">
-        <input id="import-path" class="text-input" placeholder="/path/to/orb.zip" />
-        <button id="btn-import" class="btn btn-primary">Import</button>
-      </div>
-      <div id="import-status" class="status-card muted-card"></div>
     </section>
 
     <section id="tab-mcp" class="tab-panel">
       <div class="panel-header">
-        <h1>MCP Config</h1>
+        <h1 data-i18n="mcp.title">MCP Config</h1>
         <select id="mcp-orb-select" class="select-input"></select>
       </div>
       <div class="form-group">
-        <label for="runtime-bin-path">Runtime CLI path</label>
-        <input id="runtime-bin-path" class="text-input" placeholder="Leave blank to use bundled mcporb-runtime" />
+        <label for="runtime-bin-path" data-i18n="mcp.runtime_path_label">Runtime CLI path</label>
+        <input id="runtime-bin-path" class="text-input" data-i18n-placeholder="mcp.runtime_path_placeholder" placeholder="Leave blank to use bundled mcporb-runtime" />
       </div>
-      <button id="btn-generate-config" class="btn btn-primary">Generate STDIO Config</button>
+      <button id="btn-generate-config" class="btn btn-primary" data-i18n="mcp.generate_btn">Generate STDIO Config</button>
       <div id="mcp-config-list" class="config-list"></div>
+
+      <hr id="mcp-section-divider" class="section-divider" style="display:none">
+
+      <div id="mcp-platform-configs-section" style="display:none">
+        <div class="panel-header">
+          <h1 data-i18n="mcp.platform_config_title">Platform MCP Configs</h1>
+          <button id="btn-discover-configs" class="btn btn-secondary" data-i18n="mcp.discover_btn">Discover</button>
+        </div>
+        <p class="section-desc" data-i18n="mcp.platform_config_desc">Discover and configure MCP servers in LLM platform config files (Claude Desktop, Cursor, VS Code, etc.)</p>
+        <div id="platform-config-status" class="status-line"></div>
+        <div id="platform-config-list" class="config-cards"></div>
+      </div>
     </section>
 
     <section id="tab-store" class="tab-panel">
       <div class="panel-header">
-        <h1>Store</h1>
+        <h1 data-i18n="store.title">Store</h1>
       </div>
       <div class="search-bar">
-        <input id="store-search-query" class="text-input" placeholder="Search Orbs in MCP Store" />
-        <button id="btn-store-search" class="btn btn-primary">Search</button>
+        <input id="store-search-query" class="text-input" data-i18n-placeholder="store.search_placeholder" placeholder="Search Orbs in MCP Store" />
+        <button id="btn-store-search" class="btn btn-primary" data-i18n="store.search_btn">Search</button>
       </div>
       <div id="store-search-status" class="status-line"></div>
       <div id="store-search-results" class="orb-grid"></div>
@@ -97,44 +96,153 @@
 
     <section id="tab-running" class="tab-panel">
       <div class="panel-header">
-        <h1>Running</h1>
-        <button id="btn-refresh-running" class="btn btn-secondary">Refresh</button>
+        <h1 data-i18n="running.title">HTTP</h1>
+        <button id="btn-refresh-running" class="btn btn-secondary" data-i18n="running.refresh">Refresh</button>
       </div>
+      <p class="section-desc" data-i18n="running.section_desc">Orbs running an HTTP server — listed here so you can check the port, PID, or stop the process. STDIO (CLI-mode) usage does not require the HTTP server and is configured under the MCP Config tab.</p>
       <div id="running-list" class="orb-grid"></div>
     </section>
 
     <section id="tab-settings" class="tab-panel">
       <div class="panel-header">
-        <h1>Settings</h1>
-        <button id="btn-save-settings" class="btn btn-primary">Save</button>
+        <h1 data-i18n="settings.title">Settings</h1>
+        <button id="btn-save-settings" class="btn btn-primary" data-i18n="settings.save_btn">Save</button>
       </div>
       <div class="settings-grid">
         <div class="form-group">
-          <label for="settings-download-dir">Download Directory</label>
+          <label for="settings-download-dir" data-i18n="settings.download_dir_label">Download Directory</label>
           <input id="settings-download-dir" class="text-input" placeholder="/path/to/downloads" />
         </div>
         <div class="form-group">
-          <label for="settings-http-port">HTTP MCP Port</label>
+          <label for="settings-http-port" data-i18n="settings.http_port_label">HTTP MCP Port</label>
           <input id="settings-http-port" class="text-input" type="number" placeholder="5599" />
         </div>
         <div class="form-group">
-          <label for="settings-network-binding">Network Binding</label>
+          <label for="settings-network-binding" data-i18n="settings.network_binding_label">Network Binding</label>
           <select id="settings-network-binding" class="select-input">
-            <option value="localhost">Localhost (127.0.0.1) — Recommended</option>
-            <option value="external">External (0.0.0.0) — Requires caution</option>
+            <option value="localhost" data-i18n="settings.localhost_opt">Localhost (127.0.0.1) — Recommended</option>
+            <option value="external" data-i18n="settings.external_opt">External (0.0.0.0) — Requires caution</option>
           </select>
         </div>
         <div class="form-group">
-          <label for="settings-auto-start">Auto-start on Login</label>
+          <label for="settings-auto-start" data-i18n="settings.auto_start_label">Auto-start on Login</label>
           <select id="settings-auto-start" class="select-input">
-            <option value="true">Yes</option>
-            <option value="false">No</option>
+            <option value="true" data-i18n="settings.yes_opt">Yes</option>
+            <option value="false" data-i18n="settings.no_opt">No</option>
           </select>
         </div>
         <div id="settings-status" class="status-line"></div>
       </div>
     </section>
   </main>
+
+  <!-- Import Modal -->
+  <div id="import-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 data-i18n="import.title">Import Orb ZIP</h2>
+        <button id="btn-modal-close" class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-zone-content">
+            <div class="drop-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <p class="drop-text" data-i18n="import.drop_text">Drop Orb ZIP file here</p>
+          </div>
+        </div>
+        <div class="browse-row">
+          <button id="btn-browse" class="btn btn-secondary" data-i18n="import.browse_btn">Browse Files</button>
+          <span class="browse-hint" data-i18n="import.browse_hint">or drag &amp; drop a .zip file above</span>
+        </div>
+        <div id="selected-file" class="selected-file" style="display:none;">
+          <span class="file-icon">&#128196;</span>
+          <span id="selected-file-name" class="file-name"></span>
+          <button id="btn-clear-file" class="btn-small">&times;</button>
+        </div>
+        <div id="modal-import-status" class="status-card muted-card"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-modal-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
+        <button id="btn-modal-import" class="btn btn-primary" disabled data-i18n="import.import_btn">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search in Orb Modal -->
+  <div id="orb-search-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card orb-search-modal-card">
+      <div class="modal-header">
+        <h2 id="orb-search-title" data-i18n="orbsearch.title">Search in Orb</h2>
+        <button id="btn-orb-search-close" class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body orb-search-body">
+        <div class="orb-search-fixed">
+          <div class="search-bar orb-search-bar">
+            <input id="orb-search-query" class="text-input" data-i18n-placeholder="orbsearch.search_placeholder" placeholder="Search inside this Orb…" />
+            <select id="orb-search-method" class="select-input method-select">
+              <option value="auto">Auto</option>
+              <option value="bm25">BM25</option>
+              <option value="tfidf">TF-IDF</option>
+              <option value="trigram">Trigram</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
+            <button id="btn-orb-search-go" class="btn btn-primary" data-i18n="orbsearch.search_btn">Search</button>
+          </div>
+          <div id="orb-search-status" class="status-line"></div>
+        </div>
+        <div id="orb-search-results" class="result-list orb-search-scroll"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-orb-search-cancel" class="btn btn-secondary" data-i18n="orbsearch.close_btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card confirm-modal-card">
+      <div class="modal-header">
+        <h2 id="confirm-modal-title" data-i18n="library.delete_title">Delete Orb</h2>
+        <button id="btn-confirm-close" class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message" class="confirm-message"></p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-confirm-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
+        <button id="btn-confirm-delete" class="btn btn-danger" data-i18n="library.delete_btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Q&A History Modal -->
+  <div id="qa-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card qa-modal-card">
+      <div class="modal-header">
+        <h2 id="qa-modal-title" data-i18n="qa.title">Q&A History</h2>
+        <div class="modal-header-actions">
+          <button id="btn-qa-refresh" class="btn btn-secondary btn-sm" data-i18n="qa.refresh">Refresh</button>
+          <button id="btn-qa-close" class="btn-close" aria-label="Close">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body qa-modal-body">
+        <div class="qa-modal-fixed">
+          <div id="qa-stats-summary" class="qa-stats-summary"></div>
+          <div id="qa-status" class="status-line"></div>
+        </div>
+        <div id="qa-list" class="qa-modal-scroll"></div>
+        <div id="qa-pagination" class="qa-pagination"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-qa-cancel" class="btn btn-secondary" data-i18n="qa.close_btn">Close</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

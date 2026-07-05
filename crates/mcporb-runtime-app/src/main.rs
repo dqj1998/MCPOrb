@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mcporb_runtime_app_core::{
-    mcp_config, search, settings::SettingsStore, store_client::StoreClient, ImportOptions,
-    ImportResult, InstalledOrb, RegistryStore, RuntimeSettings, SearchResponse, StoreOrb,
-    StoreSearchResult,
+    mcp_config, metrics, platform_config, search, settings::SettingsStore, store_client::StoreClient,
+    ImportOptions, ImportResult, InstalledOrb, PlatformConfig, RegistryStore, RuntimeSettings,
+    SearchResponse, StoreOrb, StoreSearchResult, WriteConfigResult,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -23,6 +23,7 @@ struct AppState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RunningOrb {
     orb_id: String,
+    slug: String,
     port: u16,
     token: String,
     pid: u32,
@@ -92,7 +93,7 @@ fn mcp_config_snippets(
         .ok_or_else(|| "Could not resolve mcporb-runtime binary path".to_string())?;
     Ok(mcp_config::stdio_config_snippets(
         &runtime_path,
-        &orb_id,
+        &orb.slug,
         &orb.zip_path,
     ))
 }
@@ -136,7 +137,7 @@ async fn start_orb_http(
     let runtime_path = default_runtime_binary()
         .ok_or_else(|| "Could not resolve mcporb-runtime binary path".to_string())?;
 
-    let token = generate_token();
+    let token = token_from_orb_id(&orb_id);
     let port = settings.http_port;
 
     let mut cmd = tokio::process::Command::new(&runtime_path);
@@ -145,7 +146,12 @@ async fn start_orb_http(
         .arg("--port")
         .arg(port.to_string())
         .arg("--token")
-        .arg(&token);
+        .arg(&token)
+        .arg("--no-open")
+        .arg("--orb-id")
+        .arg(&orb_id)
+        .arg("--metrics-dir")
+        .arg(state.registry.root_dir().join("metrics"));
 
     if settings.network_binding == mcporb_runtime_app_core::settings::NetworkBinding::External {
         cmd.arg("--bind-external");
@@ -155,7 +161,8 @@ async fn start_orb_http(
     let pid = child.id().unwrap_or(0);
 
     let running = RunningOrb {
-        orb_id,
+        orb_id: orb_id.clone(),
+        slug: orb.slug.clone(),
         port,
         token: token.clone(),
         pid,
@@ -192,11 +199,93 @@ async fn list_running_orbs(
 }
 
 #[tauri::command]
+async fn remove_orb(
+    orb_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let mut running_orbs = state.running_orbs.lock().await;
+        if let Some(pos) = running_orbs.iter().position(|r| r.orb_id == orb_id) {
+            let running = running_orbs.remove(pos);
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(running.pid as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+    }
+    state.registry.remove(&orb_id).map_err(to_string)?;
+    let metrics_path = state.registry.root_dir().join("metrics").join(format!("{orb_id}.json"));
+    if metrics_path.is_file() {
+        let _ = std::fs::remove_file(&metrics_path);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_orb_metrics(
+    orb_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<metrics::OrbMetricsSummary, String> {
+    // Try file-based metrics first (works for both STDIO and HTTP)
+    let metrics_dir = state.registry.root_dir().join("metrics");
+    let file_path = metrics_dir.join(format!("{orb_id}.json"));
+    if let Some(m) = metrics::read_metrics_from_file(&file_path) {
+        return Ok(m);
+    }
+    // Fall back to HTTP-based metrics
+    let running_orbs = state.running_orbs.lock().await;
+    if let Some(running) = running_orbs.iter().find(|r| r.orb_id == orb_id) {
+        if let Ok(Some(m)) = metrics::fetch_orb_metrics(running.port, &running.token).await {
+            return Ok(m);
+        }
+    }
+    Ok(metrics::OrbMetricsSummary::default())
+}
+
+#[tauri::command]
+async fn get_orb_qa_history(
+    orb_id: String,
+    page: Option<usize>,
+    page_size: Option<usize>,
+    state: tauri::State<'_, AppState>,
+) -> Result<metrics::QaHistoryResponse, String> {
+    let page = page.unwrap_or(1);
+    let page_size = page_size.unwrap_or(20);
+    // Try file-based metrics first
+    let metrics_dir = state.registry.root_dir().join("metrics");
+    let file_path = metrics_dir.join(format!("{orb_id}.json"));
+    if let Some(history) = metrics::read_qa_history_from_file(&file_path, page, page_size) {
+        return Ok(history);
+    }
+    // Fall back to HTTP
+    let running_orbs = state.running_orbs.lock().await;
+    if let Some(running) = running_orbs.iter().find(|r| r.orb_id == orb_id) {
+        if let Ok(Some(history)) = metrics::fetch_orb_qa_history(
+            running.port,
+            &running.token,
+            page,
+            page_size,
+        )
+        .await
+        {
+            return Ok(history);
+        }
+    }
+    Ok(metrics::QaHistoryResponse {
+        items: vec![],
+        page,
+        page_size,
+        total: 0,
+        total_pages: 1,
+    })
+}
+
+#[tauri::command]
 async fn mcp_config_http_snippets(
     orb_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<mcp_config::McpConfigSnippet>, String> {
-    let _orb = state
+    let orb = state
         .registry
         .get(&orb_id)
         .map_err(to_string)?
@@ -209,34 +298,95 @@ async fn mcp_config_http_snippets(
         .ok_or_else(|| "Orb is not running. Start it first.".to_string())?;
 
     Ok(mcp_config::http_config_snippets(
-        &orb_id,
+        &orb.slug,
         running.port,
         &running.token,
     ))
 }
 
-fn generate_token() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut result = String::with_capacity(43);
-    let mut i = 0;
-    while i < bytes.len() {
-        let b0 = bytes[i] as usize;
-        let b1 = if i + 1 < bytes.len() { bytes[i + 1] as usize } else { 0 };
-        let b2 = if i + 2 < bytes.len() { bytes[i + 2] as usize } else { 0 };
-        result.push(CHARS[b0 >> 2] as char);
-        result.push(CHARS[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        if i + 1 < bytes.len() {
-            result.push(CHARS[((b1 & 15) << 2) | (b2 >> 6)] as char);
-        }
-        if i + 2 < bytes.len() {
-            result.push(CHARS[b2 & 63] as char);
-        }
-        i += 3;
+// ── Platform Config Discovery ──────────────────────────────────────────────
+
+#[tauri::command]
+fn discover_platform_configs(state: tauri::State<AppState>) -> Result<Vec<PlatformConfig>, String> {
+    let mut configs = platform_config::discover_platform_configs();
+    let orbs = state.registry.list().map_err(to_string)?;
+
+    for config in &mut configs {
+        let generated = build_merged_platform_config(&config, &orbs);
+        config.generated_content = Some(generated);
     }
-    result
+
+    Ok(configs)
+}
+
+/// Build the merged JSON content for a platform config.
+///
+/// This injects STDIO MCP entries for all installed orbs into the platform's
+/// existing `mcpServers` (if any), preserving entries for other tools.
+fn build_merged_platform_config(
+    platform: &PlatformConfig,
+    orbs: &[InstalledOrb],
+) -> String {
+    let runtime_binary = default_runtime_binary()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "mcporb-runtime".to_string());
+
+    let mut server_entries = Vec::new();
+    for orb in orbs {
+        let key = format!("mcporb-{}", orb.slug);
+        let server_value = platform_config::make_stdio_server_config(
+            &runtime_binary,
+            &orb.id,
+            &orb.zip_path.display().to_string(),
+        );
+        server_entries.push((key, server_value));
+    }
+
+    let existing = platform.current_content.as_deref();
+    match platform_config::build_merged_config_with_entries(existing, &server_entries) {
+        Ok(json) => json,
+        Err(_) => {
+            let mut map = serde_json::Map::new();
+            let mut servers = serde_json::Map::new();
+            for (key, value) in &server_entries {
+                servers.insert(key.clone(), value.clone());
+            }
+            map.insert(
+                "mcpServers".to_string(),
+                serde_json::Value::Object(servers),
+            );
+            serde_json::to_string_pretty(&serde_json::Value::Object(map))
+                .unwrap_or_else(|_| "{}".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+fn apply_platform_config(
+    config_path: String,
+    new_content: String,
+    platform: String,
+    restart_hint: String,
+) -> Result<WriteConfigResult, String> {
+    let mut result = platform_config::write_platform_config(&config_path, &new_content)
+        .map_err(to_string)?;
+    result.platform = platform;
+    result.restart_hint = Some(restart_hint);
+    Ok(result)
+}
+
+#[tauri::command]
+fn read_platform_config_raw(config_path: String) -> Result<String, String> {
+    platform_config::read_config_raw(&config_path).map_err(to_string)
+}
+
+fn token_from_orb_id(orb_id: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(orb_id.as_bytes());
+    let hash = hasher.finalize();
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)
 }
 
 #[tauri::command]
@@ -350,10 +500,16 @@ fn main() {
             start_orb_http,
             stop_orb_http,
             list_running_orbs,
+            get_orb_metrics,
+            get_orb_qa_history,
             mcp_config_http_snippets,
             store_search,
             store_get_orb,
             store_download_orb,
+            remove_orb,
+            discover_platform_configs,
+            apply_platform_config,
+            read_platform_config_raw,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MCPOrb Runtime App");
