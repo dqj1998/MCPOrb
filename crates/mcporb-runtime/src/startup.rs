@@ -40,6 +40,13 @@ pub struct OrbArgs {
     /// for Orbs packaged with --remember-unlock.
     #[arg(long)]
     pub unlock: bool,
+    /// Orb identifier for metrics persistence. When set, metrics are written
+    /// to {metrics_dir}/{orb_id}.json on each request/search.
+    #[arg(long)]
+    pub orb_id: Option<String>,
+    /// Directory for persisted metrics files. Requires --orb-id.
+    #[arg(long)]
+    pub metrics_dir: Option<std::path::PathBuf>,
 }
 
 pub struct StartupConfig {
@@ -49,6 +56,8 @@ pub struct StartupConfig {
     pub token: Option<String>,
     pub assets_path: Option<std::path::PathBuf>,
     pub orb_zip_path: Option<std::path::PathBuf>,
+    pub orb_id: Option<String>,
+    pub metrics_dir: Option<std::path::PathBuf>,
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
@@ -81,5 +90,7 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         token: args.token.clone(),
         assets_path: args.assets.clone(),
         orb_zip_path: args.orb_zip.clone(),
+        orb_id: args.orb_id.clone(),
+        metrics_dir: args.metrics_dir.clone(),
     }
 }

@@ -1,15 +1,116 @@
 #[cfg(feature = "vector-embedder")]
 use mcporb_embed::{EmbedderSlot, ModelManager};
 use mcporb_runtime_core::{Chunk, Document, OrbManifest, SearchRuntime};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::RwLock;
 
 use crate::security::{SecurityConfig, SecurityState};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QaEntry {
+    pub timestamp: String,
+    pub query: String,
+    pub response_preview: String,
+    pub method: String,
+    pub num_results: usize,
+    pub transport: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsSnapshot {
+    pub total_requests: u64,
+    pub stdio_requests: u64,
+    pub http_requests: u64,
+    pub total_searches: u64,
+    pub qa_history: Vec<QaEntry>,
+    pub startup_mode: String,
+}
+
+impl MetricsSnapshot {
+    pub fn from(metrics: &Metrics, startup_mode: &str) -> Self {
+        Self {
+            total_requests: metrics.total_requests,
+            stdio_requests: metrics.stdio_requests,
+            http_requests: metrics.http_requests,
+            total_searches: metrics.total_searches,
+            qa_history: metrics.qa_history.clone(),
+            startup_mode: startup_mode.to_string(),
+        }
+    }
+}
+
+/// Max Q&A entries kept in memory ring buffer.
+const MAX_QA_ENTRIES: usize = 500;
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Metrics {
-    pub mcp_request_count: u64,
-    pub search_count: u64,
+    pub total_requests: u64,
+    pub stdio_requests: u64,
+    pub http_requests: u64,
+    pub total_searches: u64,
+    pub qa_history: Vec<QaEntry>,
+    #[serde(skip)]
+    file_path: Option<PathBuf>,
+}
+
+impl Default for Metrics {
+    fn default() -> Self {
+        Self {
+            total_requests: 0,
+            stdio_requests: 0,
+            http_requests: 0,
+            total_searches: 0,
+            qa_history: Vec::new(),
+            file_path: None,
+        }
+    }
+}
+
+impl Metrics {
+    pub fn with_file(path: PathBuf) -> Self {
+        let mut m = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Metrics>(&s).ok())
+            .unwrap_or_default();
+        m.file_path = Some(path);
+        m
+    }
+
+    fn sync_to_disk(&self) {
+        if let Some(ref path) = self.file_path {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(json) = serde_json::to_string(self) {
+                let _ = std::fs::write(path, json);
+            }
+        }
+    }
+
+    pub fn record_search(&mut self, qa: QaEntry) {
+        self.total_searches += 1;
+        self.total_requests += 1;
+        match qa.transport.as_str() {
+            "stdio" => self.stdio_requests += 1,
+            "http" => self.http_requests += 1,
+            _ => {}
+        }
+        self.qa_history.push(qa);
+        if self.qa_history.len() > MAX_QA_ENTRIES {
+            self.qa_history.remove(0);
+        }
+        self.sync_to_disk();
+    }
+}
+
+/// Returns an ISO-8601 UTC timestamp string.
+///
+/// Format example: `2026-07-05T13:40:00Z`
+/// The frontend converts to local timezone for display.
+pub fn current_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339()
 }
 
 /// The decrypted, parsed knowledge data plus its search runtime. For plaintext
@@ -76,6 +177,7 @@ impl OrbState {
         startup_mode: String,
         orb_binary_path: Option<String>,
         gui_url: Option<String>,
+        metrics_file: Option<PathBuf>,
     ) -> SharedState {
         let knowledge_slot = OnceLock::new();
         let mut encrypted = None;
@@ -95,7 +197,9 @@ impl OrbState {
             model_manager,
             #[cfg(feature = "vector-embedder")]
             embedder_slot,
-            metrics: RwLock::new(Metrics::default()),
+            metrics: RwLock::new(
+                metrics_file.map(Metrics::with_file).unwrap_or_default(),
+            ),
             startup_mode,
             orb_binary_path,
             gui_url: RwLock::new(gui_url),

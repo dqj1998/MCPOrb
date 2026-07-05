@@ -37,6 +37,7 @@ clap = { workspace = true }
 postcard = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 dirs = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
 # Password access / key derivation (see plans/orb-password-access-plan.md).
 argon2 = { workspace = true }
 hkdf = { workspace = true }

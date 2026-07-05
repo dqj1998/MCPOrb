@@ -88,6 +88,7 @@ pub async fn serve(
         .route("/manifest", get(api::get_manifest))
         .route("/documents", get(api::get_documents))
         .route("/metrics", get(api::get_metrics))
+        .route("/metrics/qa", post(api::get_qa_history))
         .route("/mcp-config-locations", get(api::get_mcp_config_locations))
         .route(
             "/open-mcp-config-location",

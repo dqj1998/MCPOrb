@@ -15,6 +15,7 @@ mod embedded_orb {
 }
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::path::Path;
 
 use clap::Parser;
 use mcporb_runtime_core::format::Capability;
@@ -628,6 +629,31 @@ async fn main() -> anyhow::Result<()> {
         LoadedAssets::Encrypted(_) => embed_startup::prepare_empty()?,
     };
 
+    let metrics_file = config
+        .orb_id
+        .zip(config.metrics_dir.clone())
+        .map(|(id, dir)| dir.join(format!("{id}.json")))
+        .or_else(|| {
+            // STDIO-only mode: persist metrics alongside the Tauri app's
+            // registry metrics so they are readable by get_orb_metrics even
+            // without --orb-id and --metrics-dir (plan §3.2).
+            config.orb_zip_path.as_ref().map(|zip_path| {
+                // Match the 16-character id that the Tauri registry derives
+                // (zip_sha256[..16] → registry.rs:102).
+                let id = zip_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.chars().take(16).collect::<String>())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let base = dirs::data_dir()
+                    .unwrap_or_else(|| Path::new(".").to_path_buf())
+                    .join("MCPOrb")
+                    .join("Runtime")
+                    .join("metrics");
+                base.join(format!("{id}.json"))
+            })
+        });
+
     let state = OrbState::new(
         security,
         assets,
@@ -638,6 +664,7 @@ async fn main() -> anyhow::Result<()> {
         mode_str,
         orb_binary_path,
         None,
+        metrics_file,
     );
 
     // `--unlock`: prompt once, remember on this device, then exit (no server).
@@ -962,6 +989,7 @@ mod tests {
             #[cfg(feature = "vector-embedder")]
             std::sync::Arc::new(mcporb_embed::empty_slot()),
             "GuiOnly".to_string(),
+            None,
             None,
             None,
         );
