@@ -90,9 +90,56 @@ fn document_format(source_path: &str) -> String {
 pub async fn get_metrics(State(state): State<SharedState>) -> Json<Value> {
     let metrics = state.metrics.read().await;
     Json(json!({
-        "mcp_request_count": metrics.mcp_request_count,
-        "search_count": metrics.search_count,
+        "total_requests": metrics.total_requests,
+        "stdio_requests": metrics.stdio_requests,
+        "http_requests": metrics.http_requests,
+        "total_searches": metrics.total_searches,
         "startup_mode": state.startup_mode,
+    }))
+}
+
+/// `POST /api/metrics/qa` — returns paginated Q&A history.
+/// Request body: `{ "page": 1, "page_size": 20 }`
+#[derive(Deserialize)]
+pub struct QaPageRequest {
+    pub page: Option<usize>,
+    pub page_size: Option<usize>,
+}
+
+pub async fn get_qa_history(
+    State(state): State<SharedState>,
+    Json(req): Json<QaPageRequest>,
+) -> Json<Value> {
+    let page = req.page.unwrap_or(1).max(1);
+    let page_size = req.page_size.unwrap_or(20).clamp(1, 200);
+    let metrics = state.metrics.read().await;
+    let total = metrics.qa_history.len();
+    let total_pages = total.div_ceil(page_size).max(1);
+
+    let start = (page - 1) * page_size;
+    let items: Vec<Value> = metrics
+        .qa_history
+        .iter()
+        .skip(start)
+        .take(page_size)
+        .map(|entry| {
+            json!({
+                "timestamp": entry.timestamp,
+                "query": entry.query,
+                "response_preview": entry.response_preview,
+                "method": entry.method,
+                "num_results": entry.num_results,
+                "transport": entry.transport,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
     }))
 }
 
@@ -270,7 +317,7 @@ pub async fn post_search(
     let method_name = req.method.as_deref().unwrap_or("auto");
     {
         let mut metrics = state.metrics.write().await;
-        metrics.search_count += 1;
+        metrics.total_searches += 1;
     }
 
     let k = state.knowledge();
@@ -309,24 +356,42 @@ pub async fn post_search(
         query_vector: prepared.query_vector,
         explain: false,
     }) {
-        Ok(response) => {
-            let hits: Vec<Value> = response
-                .hits
-                .iter()
-                .filter_map(|result| {
-                    k.chunks.get(result.chunk_id as usize).map(|chunk| {
-                        json!({
-                            "chunk_id": chunk.id,
-                            "score": result.score,
-                            "method": result.method.to_string(),
-                            "page": chunk.page,
-                            "section_id": chunk.section_id,
-                            "text": chunk.text,
-                            "token_count": chunk.token_count,
+            Ok(response) => {
+                let hits: Vec<Value> = response
+                    .hits
+                    .iter()
+                    .filter_map(|result| {
+                        k.chunks.get(result.chunk_id as usize).map(|chunk| {
+                            json!({
+                                "chunk_id": chunk.id,
+                                "score": result.score,
+                                "method": result.method.to_string(),
+                                "page": chunk.page,
+                                "section_id": chunk.section_id,
+                                "text": chunk.text,
+                                "token_count": chunk.token_count,
+                            })
                         })
                     })
-                })
-                .collect();
+                    .collect();
+
+                {
+                    let mut metrics = state.metrics.write().await;
+                    metrics.record_search(crate::state::QaEntry {
+                        timestamp: crate::state::current_timestamp(),
+                        query: req.query.clone(),
+                        response_preview: hits.first()
+                            .and_then(|v| v.get("text"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .chars()
+                            .take(500)
+                            .collect(),
+                        method: method_name.to_string(),
+                        num_results: hits.len(),
+                        transport: "http".to_string(),
+                    });
+                }
 
             Json(json!({
                 "query": req.query,
@@ -425,6 +490,7 @@ mod tests {
             std::sync::Arc::new(mcporb_embed::empty_slot()),
             "GuiOnly".to_string(),
             Some("/tmp/test.orb".to_string()),
+            None,
             None,
         )
     }

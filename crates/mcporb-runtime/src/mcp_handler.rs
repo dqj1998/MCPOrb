@@ -48,6 +48,7 @@ fn build_method_description(methods: &[&str]) -> String {
 pub async fn handle_json_rpc_request(
     state: &SharedState,
     request: Value,
+    transport: &str,
 ) -> anyhow::Result<Option<Value>> {
     if let Some(batch) = request.as_array() {
         if batch.is_empty() {
@@ -56,7 +57,7 @@ pub async fn handle_json_rpc_request(
 
         let mut responses = Vec::new();
         for item in batch {
-            if let Some(response) = handle_single_json_rpc_request(state, item.clone()).await? {
+            if let Some(response) = handle_single_json_rpc_request(state, item.clone(), transport).await? {
                 responses.push(response);
             }
         }
@@ -68,12 +69,13 @@ pub async fn handle_json_rpc_request(
         };
     }
 
-    handle_single_json_rpc_request(state, request).await
+    handle_single_json_rpc_request(state, request, transport).await
 }
 
 async fn handle_single_json_rpc_request(
     state: &SharedState,
     request: Value,
+    transport: &str,
 ) -> anyhow::Result<Option<Value>> {
     if !request.is_object() {
         return Ok(Some(json_rpc_error(Value::Null, -32600, "Invalid Request")));
@@ -87,11 +89,6 @@ async fn handle_single_json_rpc_request(
 
     if matches!(method, "notifications/initialized" | "$/cancelRequest") {
         return Ok(None);
-    }
-
-    {
-        let mut metrics = state.metrics.write().await;
-        metrics.mcp_request_count += 1;
     }
 
     let response = match method {
@@ -145,7 +142,7 @@ async fn handle_single_json_rpc_request(
             };
             json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": tools } })
         }
-        "tools/call" => handle_tool_call(state, id, request).await?,
+        "tools/call" => handle_tool_call(state, id, request, transport).await?,
         "resources/list" => {
             if state.security.require_unlocked().is_err() {
                 locked_error(id)
@@ -212,7 +209,7 @@ fn locked_error(id: Value) -> Value {
     )
 }
 
-async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> anyhow::Result<Value> {
+async fn handle_tool_call(state: &SharedState, id: Value, request: Value, transport: &str) -> anyhow::Result<Value> {
     let params = request.get("params").cloned().unwrap_or(json!({}));
     let tool_name = params
         .get("name")
@@ -255,11 +252,6 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
                     .map(|value| value as f32)
                     .collect::<Vec<_>>()
             });
-
-        {
-            let mut metrics = state.metrics.write().await;
-            metrics.search_count += 1;
-        }
 
         let available_methods = k.search.available_method_names();
         if !available_methods.iter().any(|value| *value == method_name) {
@@ -316,6 +308,26 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value) -> any
                         }
                         result_obj.insert("metadata".to_string(), Value::Object(meta_obj));
                     }
+
+                    // Record Q&A entry
+                    {
+                        let mut metrics = state.metrics.write().await;
+                        metrics.record_search(crate::state::QaEntry {
+                            timestamp: crate::state::current_timestamp(),
+                            query: query.clone(),
+                            response_preview: content.first()
+                                .and_then(|v| v.get("text"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .chars()
+                                .take(500)
+                                .collect(),
+                            method: method_name.to_string(),
+                            num_results: content.len(),
+                            transport: transport.to_string(),
+                        });
+                    }
+
                     Ok(json!({
                         "jsonrpc": "2.0",
                         "id": id,
@@ -464,7 +476,7 @@ pub async fn post_streamable_http_mcp(
         })
         .unwrap_or(false);
 
-    match handle_json_rpc_request(&state, request).await {
+    match handle_json_rpc_request(&state, request, "http").await {
         Ok(Some(response)) if wants_sse => match serde_json::to_string(&response) {
             Ok(body) => sse_response(body),
             Err(error) => internal_error_response(error.into()),
@@ -528,7 +540,7 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
             }
         };
 
-        let Some(response) = handle_json_rpc_request(&state, request).await? else {
+        let Some(response) = handle_json_rpc_request(&state, request, "stdio").await? else {
             continue;
         };
 
@@ -741,6 +753,7 @@ mod gate_tests {
             "AllGui".to_string(),
             None,
             Some("http://127.0.0.1:5599/tok/".to_string()),
+            None,
         )
     }
 
@@ -762,7 +775,7 @@ mod gate_tests {
         // Contract (§3.2): a locked Orb hides search_knowledge; shows only the
         // two unlock affordances.
         let state = locked_state();
-        let resp = handle_json_rpc_request(&state, req("tools/list", json!({})))
+        let resp = handle_json_rpc_request(&state, req("tools/list", json!({})), "test")
             .await
             .unwrap()
             .unwrap();
@@ -782,6 +795,7 @@ mod gate_tests {
                 "tools/call",
                 json!({ "name": "search_knowledge", "arguments": { "query": "alpha" } }),
             ),
+            "test",
         )
         .await
         .unwrap()
@@ -806,6 +820,7 @@ mod gate_tests {
                 "tools/call",
                 json!({ "name": "unlock_orb", "arguments": { "password": "nope" } }),
             ),
+            "test",
         )
         .await
         .unwrap()
@@ -819,6 +834,7 @@ mod gate_tests {
                 "tools/call",
                 json!({ "name": "unlock_orb", "arguments": { "password": "open-sesame-123" } }),
             ),
+            "test",
         )
         .await
         .unwrap()
@@ -827,7 +843,7 @@ mod gate_tests {
         assert!(state.security.is_unlocked());
 
         let names = tool_names(
-            &handle_json_rpc_request(&state, req("tools/list", json!({})))
+            &handle_json_rpc_request(&state, req("tools/list", json!({})), "test")
                 .await
                 .unwrap()
                 .unwrap(),
@@ -840,6 +856,7 @@ mod gate_tests {
                 "tools/call",
                 json!({ "name": "search_knowledge", "arguments": { "query": "alpha" } }),
             ),
+            "test",
         )
         .await
         .unwrap()
@@ -851,7 +868,7 @@ mod gate_tests {
     async fn initialize_allowed_while_locked() {
         // Contract: initialize never gates (handshake must work pre-unlock).
         let state = locked_state();
-        let resp = handle_json_rpc_request(&state, req("initialize", json!({})))
+        let resp = handle_json_rpc_request(&state, req("initialize", json!({})), "test")
             .await
             .unwrap()
             .unwrap();
@@ -866,6 +883,7 @@ mod gate_tests {
         let resp = handle_json_rpc_request(
             &state,
             req("tools/call", json!({ "name": "get_web_ui_url" })),
+            "test",
         )
         .await
         .unwrap()
