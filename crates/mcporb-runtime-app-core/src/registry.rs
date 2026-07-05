@@ -89,6 +89,24 @@ impl RegistryStore {
         Ok(self.load()?.orbs.into_iter().find(|orb| orb.id == id))
     }
 
+    /// Remove an installed orb by ID: deletes its ZIP file from disk and
+    /// removes it from the registry. Returns the removed orb info.
+    pub fn remove(&self, id: &str) -> Result<InstalledOrb> {
+        let mut registry = self.load()?;
+        let pos = registry
+            .orbs
+            .iter()
+            .position(|orb| orb.id == id)
+            .ok_or_else(|| anyhow::anyhow!("Orb `{id}` is not installed"))?;
+        let orb = registry.orbs.remove(pos);
+        if orb.zip_path.exists() {
+            fs::remove_file(&orb.zip_path)
+                .with_context(|| format!("delete orb ZIP `{}`", orb.zip_path.display()))?;
+        }
+        self.save(&registry)?;
+        Ok(orb)
+    }
+
     pub fn import_zip(&self, source_zip: &Path, options: ImportOptions) -> Result<ImportResult> {
         let report = validate_zip_path(source_zip)?;
         let stored_zip_path = if options.copy_into_registry {

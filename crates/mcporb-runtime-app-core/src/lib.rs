@@ -1,10 +1,15 @@
 pub mod mcp_config;
+pub mod metrics;
+pub mod platform_config;
 pub mod registry;
 pub mod search;
 pub mod settings;
 pub mod store_client;
 pub mod zip_import;
 
+pub use mcp_config::McpConfigSnippet;
+pub use metrics::{fetch_orb_metrics, fetch_orb_qa_history, OrbMetricsSummary, QaEntry, QaHistoryResponse};
+pub use platform_config::{PlatformConfig, WriteConfigResult};
 pub use registry::{InstalledOrb, OrbRegistry, RegistryStore};
 pub use search::{SearchHit, SearchResponse};
 pub use settings::{NetworkBinding, RuntimeSettings, SettingsStore};
