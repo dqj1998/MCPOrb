@@ -816,7 +816,7 @@ async function fetchAndRenderStats(orbId) {
 }
 
 function syncOrbSelects() {
-  const options = state.orbs.map((orb) => `<option value="${escapeHtml(orb.id)}">${escapeHtml(orb.display_name)} ${escapeHtml(orb.version)}</option>`).join('');
+  const options = state.orbs.map((orb) => `<option value="${escapeHtml(orb.id)}">${escapeHtml(orb.display_name)}</option>`).join('');
   const mcpSelect = $('mcp-orb-select');
   const previous = mcpSelect.value;
   mcpSelect.innerHTML = options || `<option value="">${t('library.no_orbs')}</option>`;
