@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,8 +10,6 @@ use mcporb_runtime_app_core::{
     SearchResponse, StoreOrb, StoreSearchResult, WriteConfigResult,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
-use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -18,6 +17,7 @@ struct AppState {
     registry: RegistryStore,
     settings: Arc<Mutex<SettingsStore>>,
     running_orbs: Arc<Mutex<Vec<RunningOrb>>>,
+    running_children: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,8 +168,8 @@ async fn start_orb_http(
         pid,
     };
 
-    let mut running_orbs = state.running_orbs.lock().await;
-    running_orbs.push(running.clone());
+    state.running_children.lock().await.insert(orb_id.clone(), child);
+    state.running_orbs.lock().await.push(running.clone());
 
     Ok(running)
 }
@@ -179,13 +179,10 @@ async fn stop_orb_http(
     orb_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut running_orbs = state.running_orbs.lock().await;
-    if let Some(pos) = running_orbs.iter().position(|r| r.orb_id == orb_id) {
-        let running = running_orbs.remove(pos);
-        let _ = nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(running.pid as i32),
-            nix::sys::signal::Signal::SIGTERM,
-        );
+    state.running_orbs.lock().await.retain(|r| r.orb_id != orb_id);
+    if let Some(mut child) = state.running_children.lock().await.remove(&orb_id) {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
     }
     Ok(())
 }
@@ -203,15 +200,10 @@ async fn remove_orb(
     orb_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    {
-        let mut running_orbs = state.running_orbs.lock().await;
-        if let Some(pos) = running_orbs.iter().position(|r| r.orb_id == orb_id) {
-            let running = running_orbs.remove(pos);
-            let _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(running.pid as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            );
-        }
+    state.running_orbs.lock().await.retain(|r| r.orb_id != orb_id);
+    if let Some(mut child) = state.running_children.lock().await.remove(&orb_id) {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
     }
     state.registry.remove(&orb_id).map_err(to_string)?;
     let metrics_path = state.registry.root_dir().join("metrics").join(format!("{orb_id}.json"));
@@ -471,23 +463,14 @@ fn main() {
         registry,
         settings: Arc::new(Mutex::new(settings)),
         running_orbs: Arc::new(Mutex::new(Vec::new())),
+        running_children: Arc::new(Mutex::new(HashMap::new())),
     };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
-        .setup(|app| {
-            let handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    handle_deep_link(&handle, url.as_str());
-                }
-            });
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             list_orbs,
@@ -512,74 +495,7 @@ fn main() {
             read_platform_config_raw,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running MCPOrb Runtime App");
-}
-
-fn handle_deep_link(handle: &tauri::AppHandle, url: &str) {
-    tracing::info!(url, "received Runtime deep link");
-
-    if let Some(window) = handle.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-
-    match parse_deep_link(url) {
-        Ok(DeepLinkAction::ImportZip { path }) => {
-            let _ = handle.emit("runtime:deep-link-import", path);
-        }
-        Ok(DeepLinkAction::InstallFromStore { slug, version }) => {
-            let _ = handle.emit(
-                "runtime:deep-link-install",
-                serde_json::json!({ "slug": slug, "version": version }),
-            );
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to parse deep link URL");
-        }
-    }
-}
-
-enum DeepLinkAction {
-    ImportZip { path: String },
-    InstallFromStore { slug: String, version: Option<String> },
-}
-
-fn parse_deep_link(url: &str) -> Result<DeepLinkAction, String> {
-    let url = url
-        .strip_prefix("mcporb://")
-        .ok_or_else(|| format!("not a mcporb:// URL: {url}"))?;
-
-    let (action, query) = url
-        .split_once('?')
-        .unwrap_or((url, ""));
-
-    let params: std::collections::HashMap<String, String> = query
-        .split('&')
-        .filter(|s| !s.is_empty())
-        .filter_map(|pair| {
-            let (k, v) = pair.split_once('=')?;
-            Some((k.to_string(), v.to_string()))
-        })
-        .collect();
-
-    match action {
-        "import" => {
-            let path = params
-                .get("path")
-                .cloned()
-                .ok_or_else(|| "missing 'path' parameter".to_string())?;
-            Ok(DeepLinkAction::ImportZip { path })
-        }
-        "install" => {
-            let slug = params
-                .get("slug")
-                .cloned()
-                .ok_or_else(|| "missing 'slug' parameter".to_string())?;
-            let version = params.get("version").cloned();
-            Ok(DeepLinkAction::InstallFromStore { slug, version })
-        }
-        _ => Err(format!("unknown deep link action: {action}")),
-    }
+        .expect("error while running MCPOrb Runner");
 }
 
 fn default_runtime_binary() -> Option<PathBuf> {

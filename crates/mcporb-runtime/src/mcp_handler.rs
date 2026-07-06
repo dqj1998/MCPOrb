@@ -101,7 +101,7 @@ async fn handle_single_json_rpc_request(
                     k.manifest.version.clone(),
                     k.manifest.description.clone(),
                 ),
-                None => ("MCPOrb".to_string(), String::new(), String::new()),
+                None => ("MCPOrb Runner".to_string(), String::new(), String::new()),
             };
             json!({
                 "jsonrpc": "2.0",

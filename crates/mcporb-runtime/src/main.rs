@@ -599,7 +599,7 @@ async fn main() -> anyhow::Result<()> {
     let args = startup::OrbArgs::parse();
     let config = detect_startup(&args);
 
-    tracing::info!(mode = ?config.mode, "MCPOrb runtime starting");
+    tracing::info!(mode = ?config.mode, "MCPOrb Runner starting");
 
     let loaded = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
@@ -689,7 +689,7 @@ async fn main() -> anyhow::Result<()> {
             let tmp = std::env::temp_dir().join("mcporb");
             let _ = std::fs::create_dir_all(&tmp);
             let _ = std::fs::write(tmp.join("orb.url"), &url);
-            eprintln!("MCPOrb Web UI: {url}");
+            eprintln!("MCPOrb Runner Web UI: {url}");
             tracing::info!(%url, "Web UI available");
             if config.auto_open {
                 let _ = webbrowser::open(&url);
@@ -705,7 +705,7 @@ async fn main() -> anyhow::Result<()> {
             let tmp = std::env::temp_dir().join("mcporb");
             let _ = std::fs::create_dir_all(&tmp);
             let _ = std::fs::write(tmp.join("orb.url"), &url);
-            eprintln!("MCPOrb Web UI: {url}");
+            eprintln!("MCPOrb Runner Web UI: {url}");
             tracing::info!(%url, "Web UI available (all-gui mode)");
             if config.auto_open {
                 let _ = webbrowser::open(&url);

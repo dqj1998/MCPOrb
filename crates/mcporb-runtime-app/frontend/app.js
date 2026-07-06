@@ -25,7 +25,7 @@ const LOCALE_KEY = 'mcporb-runtime-locale';
 const locales = {
   en: {
     /* header */
-    'app.title': 'MCPOrb Runtime',
+    'app.title': 'MCPOrb Runner',
     'tab.library': 'Library',
     'tab.mcp': 'MCP Config',
     'tab.store': 'Store',
@@ -118,13 +118,12 @@ const locales = {
     'import.import_btn': 'Import',
     'import.validating': 'Validating and importing Orb ZIP...',
     'import.select_zip': 'Please select a .zip file.',
-    'import.desktop_only': 'File selection is only available in the MCPOrb Runtime desktop app.',
+    'import.desktop_only': 'File selection is only available in the MCPOrb Runner desktop app.',
     'import.success': 'Imported {name} {version}\nStored at {path}\nZIP {zip_sha256}\nAssets {assets_sha256}',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.http_mcp_label': 'HTTP MCP',
     'status.registry_label': 'Registry',
     /* qa */
     'qa.title': 'Service History',
@@ -163,7 +162,7 @@ const locales = {
     'feedback.filtered': '✓ Filtered!',
   },
   ja: {
-    'app.title': 'MCPOrb ランタイム',
+    'app.title': 'MCPOrb Runner',
     'tab.library': 'ライブラリ',
     'tab.mcp': 'MCP設定',
     'tab.store': 'ストア',
@@ -246,13 +245,12 @@ const locales = {
     'import.import_btn': 'インポート',
     'import.validating': 'Orb ZIPを検証・インポート中...',
     'import.select_zip': '.zipファイルを選択してください。',
-    'import.desktop_only': 'ファイル選択はMCPOrb Runtimeデスクトップアプリでのみ利用可能です。',
+    'import.desktop_only': 'ファイル選択はMCPOrb Runnerデスクトップアプリでのみ利用可能です。',
     'import.success': '{name} {version}をインポートしました\n保存先: {path}\nZIP {zip_sha256}\nAssets {assets_sha256}',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.http_mcp_label': 'HTTP MCP',
     'status.registry_label': 'Registry',
     /* qa */
     'qa.title': 'サービス履歴',
@@ -290,7 +288,7 @@ const locales = {
     'feedback.filtered': '✓ 絞り込みました！',
   },
   zh: {
-    'app.title': 'MCPOrb 运行时',
+    'app.title': 'MCPOrb Runner',
     'tab.library': '库',
     'tab.mcp': 'MCP配置',
     'tab.store': '商店',
@@ -377,13 +375,12 @@ const locales = {
     'import.import_btn': '导入',
     'import.validating': '正在验证并导入Orb ZIP...',
     'import.select_zip': '请选择.zip文件。',
-    'import.desktop_only': '文件选择仅在MCPOrb Runtime桌面应用中可用。',
+    'import.desktop_only': '文件选择仅在MCPOrb Runner桌面应用中可用。',
     'import.success': '已导入{name} {version}\n存储位置: {path}\nZIP {zip_sha256}\n资产 {assets_sha256}',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.http_mcp_label': 'HTTP MCP',
     'status.registry_label': 'Registry',
     /* qa */
     'qa.title': '服务记录',
@@ -499,7 +496,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   await refreshRunning();
   await discoverPlatformConfigs();
-  bindDeepLinkListeners();
 });
 
 function bindTabs() {
@@ -724,8 +720,6 @@ async function loadStatus() {
     $('app-version').textContent = `v${status.version}`;
     $('registry-path').textContent = status.registry_dir;
     $('settings-status').innerHTML = `
-      <div class="status-card"><strong>${t('status.store_label')}</strong><br>${escapeHtml(status.store_status)}</div>
-      <div class="status-card"><strong>${t('status.http_mcp_label')}</strong><br>${escapeHtml(status.http_mcp_status)}</div>
       <div class="status-card"><strong>${t('status.registry_label')}</strong><br>${escapeHtml(status.registry_dir)}</div>
     `;
   } catch (error) {
@@ -1363,28 +1357,6 @@ async function copyHttpConfig(orbId) {
 }
 
 window.copyHttpConfig = copyHttpConfig;
-
-function bindDeepLinkListeners() {
-  if (!window.__TAURI__?.event?.listen) return;
-
-  window.__TAURI__.event.listen('runtime:deep-link-import', async (event) => {
-    const zipPath = event.payload;
-    if (!zipPath) return;
-    showImportModal();
-    handleFileSelected(zipPath);
-    // Auto-start import for deep links
-    await confirmImport();
-  });
-
-  window.__TAURI__.event.listen('runtime:deep-link-install', async (event) => {
-    const { slug, version } = event.payload || {};
-    showTab('store');
-    if (slug) {
-      $('store-search-query').value = slug;
-      await storeSearch();
-    }
-  });
-}
 
 async function storeSearch() {
   const query = $('store-search-query').value.trim();

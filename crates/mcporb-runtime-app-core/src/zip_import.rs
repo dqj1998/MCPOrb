@@ -154,7 +154,7 @@ fn validate_manifest_versions(manifest: &OrbManifest) -> Result<()> {
     if let Some(min_version) = manifest.runtime_min_version.as_deref() {
         if compare_semverish(min_version, RUNTIME_APP_VERSION).is_gt() {
             bail!(
-                "Orb requires MCPOrb Runtime {min_version} or newer; this app is {RUNTIME_APP_VERSION}"
+                "Orb requires MCPOrb Runner {min_version} or newer; this app is {RUNTIME_APP_VERSION}"
             );
         }
     }

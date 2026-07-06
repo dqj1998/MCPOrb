@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MCPOrb Runtime</title>
+  <title>MCPOrb Runner</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header id="app-header">
     <div class="header-left">
-      <img class="app-logo" src="app-icon.png" alt="MCPOrb Runtime" />
+      <img class="app-logo" src="app-icon.png" alt="MCPOrb Runner" />
       <div class="app-brand">
-        <span class="app-title">MCPOrb Runtime</span>
+        <span class="app-title">MCPOrb Runner</span>
         <span id="app-version" class="app-version"></span>
       </div>
     </div>
@@ -28,7 +28,7 @@
   <nav id="tab-nav">
     <button class="tab-item active" data-tab="library" data-i18n="tab.library">Library</button>
     <button class="tab-item" data-tab="mcp" data-i18n="tab.mcp">MCP Config</button>
-    <button class="tab-item" data-tab="store" data-i18n="tab.store">Store</button>
+    <button class="tab-item" data-tab="store" data-i18n="tab.store" style="display:none">Store</button>
     <button class="tab-item" data-tab="running" data-i18n="tab.http">HTTP</button>
     <button class="tab-item" data-tab="settings" data-i18n="tab.settings">Settings</button>
   </nav>
@@ -82,7 +82,7 @@
       </div>
     </section>
 
-    <section id="tab-store" class="tab-panel">
+    <section id="tab-store" class="tab-panel" style="display:none">
       <div class="panel-header">
         <h1 data-i18n="store.title">Store</h1>
       </div>

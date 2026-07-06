@@ -25,6 +25,12 @@ html, body {
   color: var(--color-text);
 }
 
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 button, input, select, textarea { font: inherit; }
 
 #app-header {
@@ -35,6 +41,7 @@ button, input, select, textarea { font: inherit; }
   padding: 10px 20px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .header-left, .header-right, .app-brand { display: flex; align-items: center; gap: 8px; }
@@ -79,6 +86,7 @@ button, input, select, textarea { font: inherit; }
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .tab-item {
@@ -97,6 +105,9 @@ button, input, select, textarea { font: inherit; }
   max-width: 980px;
   margin: 0 auto;
   padding: 24px 20px 40px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .tab-panel { display: none; }

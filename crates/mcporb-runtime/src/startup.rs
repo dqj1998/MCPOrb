@@ -9,7 +9,7 @@ pub enum StartupMode {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "orb", about = "MCPOrb — self-contained knowledge Orb")]
+#[command(name = "orb", about = "MCPOrb Runner — self-contained knowledge Orb")]
 pub struct OrbArgs {
     #[arg(long)]
     pub all_gui: bool,

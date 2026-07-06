@@ -53,7 +53,7 @@ impl RegistryStore {
     pub fn default() -> Result<Self> {
         let base = dirs::data_dir()
             .or_else(dirs::config_dir)
-            .context("could not resolve user data directory for MCPOrb Runtime")?;
+            .context("could not resolve user data directory for MCPOrb Runner")?;
         Ok(Self::new(base.join("MCPOrb").join("Runtime")))
     }
 

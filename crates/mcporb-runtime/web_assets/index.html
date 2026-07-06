@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MCPOrb Dashboard</title>
+  <title>MCPOrb Runner - Dashboard</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -90,7 +90,7 @@
      Title stays "MCPOrb" — the Orb name is not available before unlock. -->
 <div class="auth-overlay hidden" id="auth-overlay">
   <div class="auth-card">
-    <h1>MCPOrb</h1>
+    <h1>MCPOrb Runner</h1>
     <p id="auth-prompt">This Orb is password-protected.</p>
     <input id="auth-password" type="password" autocomplete="current-password"
            placeholder="Password" onkeydown="if(event.key==='Enter')window.__mcporbUnlock()" />
@@ -99,7 +99,7 @@
   </div>
 </div>
 <header>
-  <h1 id="orb-name">MCPOrb</h1>
+  <h1 id="orb-name">MCPOrb Runner</h1>
   <span class="badge" id="mode-badge">loading…</span>
   <span class="badge plan" id="plan-badge" style="display:none"></span>
   <span id="caps-badges"></span>
@@ -287,7 +287,7 @@
   function applyI18n() {
     currentLanguage = resolveLanguage(languageChoice);
     document.documentElement.lang = translations[currentLanguage].lang;
-    document.title = `MCPOrb — ${orbName}`;
+    document.title = `MCPOrb Runner — ${orbName}`;
     document.getElementById('auth-prompt').textContent = tr('unlockPrompt');
     document.getElementById('auth-password').placeholder = tr('unlockPassword');
     document.getElementById('auth-unlock-btn').textContent = tr('unlockButton');
@@ -349,7 +349,7 @@
     document.getElementById('orb-name').textContent = d.name;
     document.getElementById('mode-badge').textContent = d.startup_mode || tr('unknown');
     document.getElementById('stat-chunks').textContent = d.chunk_count;
-    document.title = `MCPOrb — ${d.name}`;
+    document.title = `MCPOrb Runner — ${d.name}`;
 
     // Retrieval plan badge
     if (d.selected_retrieval_plan) {
