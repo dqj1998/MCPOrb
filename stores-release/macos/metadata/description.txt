@@ -1,0 +1,11 @@
+MCPOrb Runner imports Orb ZIP knowledge bases, provides local semantic search, and generates MCP client configuration for Claude Desktop, Cursor, and VS Code.
+
+Orbs are portable, self-contained MCP knowledge packs — one file contains search index, runtime, and structured knowledge. No npm install, no Docker, no cloud dependency.
+
+Key features:
+• Install and manage Orb ZIPs with one click
+• Multi-strategy local search (BM25, TF-IDF, Trigram, Vector, Hybrid)
+• Auto-generate MCP STDIO config for Claude Desktop, Cursor, VS Code
+• Built-in HTTP MCP server for Streamable HTTP transport
+• Deep link support for mcporb:// URLs
+• macOS native sandbox with user-selected file access
