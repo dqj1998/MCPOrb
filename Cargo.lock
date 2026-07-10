@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-embed"
-version = "1.1.8"
+version = "1.1.10"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2970,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime"
-version = "1.1.8"
+version = "1.1.10"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime-app"
-version = "1.1.8"
+version = "1.1.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime-app-core"
-version = "1.1.8"
+version = "1.1.10"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -3042,7 +3042,7 @@ dependencies = [
 
 [[package]]
 name = "mcporb-runtime-core"
-version = "1.1.8"
+version = "1.1.10"
 dependencies = [
  "anyhow",
  "instant-distance",

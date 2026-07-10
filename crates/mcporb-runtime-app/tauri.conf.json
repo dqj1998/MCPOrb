@@ -1,6 +1,6 @@
 {
   "productName": "MCPOrb Runner",
-  "identifier": "com.mcporb.runtime",
+  "identifier": "com.mcporb.runner",
   "build": {
     "frontendDist": "frontend"
   },
@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "../../target/release/mcporb-runtime"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Run Orb ZIP knowledge bases for MCP clients",
     "longDescription": "MCPOrb Runner imports Orb ZIP knowledge bases, provides local search, and generates MCP client configuration for Claude Desktop, Cursor, and VS Code. HTTP MCP and Store download features are isolated behind Runtime App APIs for staged release.",
@@ -41,7 +44,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "12.0",
       "entitlements": "entitlements.plist"
     },
     "windows": {

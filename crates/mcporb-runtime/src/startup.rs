@@ -19,6 +19,10 @@ pub struct OrbArgs {
     pub gui_only: bool,
     #[arg(long)]
     pub stdio_only: bool,
+    /// Alias for --stdio-only, accepted for consistency with the
+    /// mcporb-runner wrapper mode (plan GUI-STDIO-Runner.md).
+    #[arg(long, hide = true)]
+    pub mcp_stdio: bool,
     #[arg(long)]
     pub open: bool,
     #[arg(long)]
@@ -61,7 +65,7 @@ pub struct StartupConfig {
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
-    let mode = if args.stdio_only {
+    let mode = if args.stdio_only || args.mcp_stdio {
         StartupMode::StdioOnly
     } else if args.gui_only {
         StartupMode::GuiOnly

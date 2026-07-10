@@ -32,18 +32,12 @@ struct RunningOrb {
 #[derive(Debug, Serialize)]
 struct RuntimeStatus {
     version: &'static str,
-    registry_dir: String,
-    store_status: &'static str,
-    http_mcp_status: &'static str,
 }
 
 #[tauri::command]
-fn runtime_status(state: tauri::State<AppState>) -> Result<RuntimeStatus, String> {
+fn runtime_status() -> Result<RuntimeStatus, String> {
     Ok(RuntimeStatus {
         version: env!("CARGO_PKG_VERSION"),
-        registry_dir: state.registry.root_dir().display().to_string(),
-        store_status: "planned_mvp_2",
-        http_mcp_status: "planned_mvp_4_pending_mas_network_server_entitlement",
     })
 }
 
@@ -87,14 +81,20 @@ fn mcp_config_snippets(
         .get(&orb_id)
         .map_err(to_string)?
         .ok_or_else(|| format!("Orb `{orb_id}` is not installed"))?;
-    let runtime_path = runtime_binary
-        .map(PathBuf::from)
-        .or_else(default_runtime_binary)
+    let use_wrapper = is_runner_wrapper_mode();
+    let binary = || -> Option<PathBuf> {
+        if let Some(b) = runtime_binary {
+            return Some(PathBuf::from(b));
+        }
+        if use_wrapper { mcp_binary_path() } else { default_runtime_binary() }
+    };
+    let runtime_path = binary()
         .ok_or_else(|| "Could not resolve mcporb-runtime binary path".to_string())?;
     Ok(mcp_config::stdio_config_snippets(
         &runtime_path,
         &orb.slug,
         &orb.zip_path,
+        use_wrapper,
     ))
 }
 
@@ -319,9 +319,11 @@ fn build_merged_platform_config(
     platform: &PlatformConfig,
     orbs: &[InstalledOrb],
 ) -> String {
-    let runtime_binary = default_runtime_binary()
+    let use_wrapper = is_runner_wrapper_mode();
+    let binary = if use_wrapper { mcp_binary_path() } else { default_runtime_binary() };
+    let runtime_binary = binary
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "mcporb-runtime".to_string());
+        .unwrap_or_else(|| "mcporb-runner".to_string());
 
     let mut server_entries = Vec::new();
     for orb in orbs {
@@ -330,6 +332,7 @@ fn build_merged_platform_config(
             &runtime_binary,
             &orb.id,
             &orb.zip_path.display().to_string(),
+            use_wrapper,
         );
         server_entries.push((key, server_value));
     }
@@ -447,6 +450,13 @@ async fn store_download_orb(
 }
 
 fn main() {
+    // --- MCP STDIO proxy mode ---
+    // Intercept before any Tauri/WebKit init to keep stdio clean and avoid
+    // the ~50 MB WebView overhead when launched by an MCP client.
+    if std::env::args().any(|a| a == "--mcp-stdio") {
+        run_mcp_stdio_proxy();
+    }
+
     tracing_subscriber::fmt::init();
 
     let registry = RegistryStore::default().unwrap_or_else(|error| {
@@ -498,17 +508,103 @@ fn main() {
         .expect("error while running MCPOrb Runner");
 }
 
+/// Run as an MCP STDIO proxy: spawn `mcporb-runtime` with cleaned args and
+/// inherit stdin/stdout/stderr so that the MCP client (e.g. Claude Desktop)
+/// communicates directly with the runtime while the sandbox container is
+/// maintained (the child inherits the sandbox of this sandboxed process).
+///
+/// Never returns — exits with the child's exit code.
+fn run_mcp_stdio_proxy() -> ! {
+    let runtime_path = default_runtime_binary().unwrap_or_else(|| {
+        eprintln!("mcporb-runner: mcporb-runtime binary not found");
+        std::process::exit(1);
+    });
+
+    // Resolve the metrics directory so the runtime writes where the GUI reads.
+    // Best-effort: if RegistryStore fails, the runtime's own fallback will use
+    // the same `dirs::data_dir()` path inside the sandbox container.
+    let metrics_dir = RegistryStore::default()
+        .ok()
+        .map(|r| r.root_dir().join("metrics"));
+
+    let mut runtime_args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--mcp-stdio")
+        .collect();
+
+    // The runtime needs --stdio-only for MCP protocol mode
+    if !runtime_args.iter().any(|a| a == "--stdio-only") {
+        runtime_args.push("--stdio-only".to_string());
+    }
+    // Ensure metrics land where get_orb_metrics reads them
+    if let Some(ref dir) = metrics_dir {
+        if !runtime_args.iter().any(|a| a == "--metrics-dir") {
+            runtime_args.push("--metrics-dir".to_string());
+            runtime_args.push(dir.display().to_string());
+        }
+    }
+
+    let mut child = match std::process::Command::new(&runtime_path)
+        .args(&runtime_args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("mcporb-runner: failed to spawn mcporb-runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let status = child.wait().unwrap_or_else(|e| {
+        eprintln!("mcporb-runner: failed to wait for mcporb-runtime: {e}");
+        std::process::exit(1);
+    });
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Whether the generated MCP client config should point to `mcporb-runner`
+/// (the sandboxed wrapper) instead of directly to `mcporb-runtime`.
+///
+/// Returns `true` when `mcp_binary_path()` resolves to the runner binary
+/// (i.e. `mcporb-runner` lives next to itself), which is the case in MAS
+/// builds. In that scenario the MCP client launches the sandboxed Runner,
+/// which in turn spawns the Runtime as a child process.
+fn is_runner_wrapper_mode() -> bool {
+    mcp_binary_path()
+        .and_then(|p| p.file_stem().map(|s| s == "mcporb-runner"))
+        .unwrap_or(false)
+}
+
 fn default_runtime_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     let suffix = std::env::consts::EXE_SUFFIX;
-    for name in ["mcporb-runtime-lite", "mcporb-runtime"] {
+    for name in ["mcporb-runtime", "mcporb-runtime-lite"] {
         let path = dir.join(format!("{name}{suffix}"));
         if path.is_file() {
             return Some(path);
         }
     }
     Some(dir.join(format!("mcporb-runtime{suffix}")))
+}
+
+/// The binary path to use in MCP client config (STDIO command).
+/// In MAS builds this is mcporb-runner (the wrapper) so that Claude Desktop
+/// spawns the sandboxed Tauri app, which in turn spawns mcporb-runtime as a
+/// child process inheriting the sandbox container.
+fn mcp_binary_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let runner = dir.join(format!("mcporb-runner{suffix}"));
+    if runner.is_file() {
+        Some(runner)
+    } else {
+        default_runtime_binary()
+    }
 }
 
 fn to_string(error: impl std::fmt::Display) -> String {

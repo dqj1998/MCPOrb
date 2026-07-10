@@ -38,7 +38,7 @@ stores-release/
 ## App Identity
 
 - **Product Name**: MCPOrb Runner
-- **Bundle ID**: `com.mcporb.runtime`
+- **Bundle ID**: `com.mcporb.runner`
 - **Category**: Developer Tools
 - **Publisher**: MCPOrb
 - **Website**: https://mcporb.ai

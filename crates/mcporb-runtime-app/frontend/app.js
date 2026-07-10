@@ -75,11 +75,8 @@ const locales = {
     'settings.download_dir_label': 'Download Directory',
     'settings.http_port_label': 'HTTP MCP Port',
     'settings.network_binding_label': 'Network Binding',
-    'settings.auto_start_label': 'Auto-start on Login',
     'settings.localhost_opt': 'Localhost (127.0.0.1) — Recommended',
     'settings.external_opt': 'External (0.0.0.0) — Requires caution',
-    'settings.yes_opt': 'Yes',
-    'settings.no_opt': 'No',
     'settings.saved': 'Settings saved.',
     /* mcp config */
     'mcp.title': 'MCP Config',
@@ -124,7 +121,6 @@ const locales = {
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.registry_label': 'Registry',
     /* qa */
     'qa.title': 'Service History',
     'qa.close_btn': 'Close',
@@ -204,7 +200,6 @@ const locales = {
     'settings.download_dir_label': 'ダウンロードディレクトリ',
     'settings.http_port_label': 'HTTP MCPポート',
     'settings.network_binding_label': 'ネットワークバインディング',
-    'settings.auto_start_label': 'ログイン時に自動起動',
     'settings.localhost_opt': 'ローカルホスト (127.0.0.1) — 推奨',
     'settings.external_opt': '外部 (0.0.0.0) — 注意が必要',
     'settings.yes_opt': 'はい',
@@ -251,7 +246,6 @@ const locales = {
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.registry_label': 'Registry',
     /* qa */
     'qa.title': 'サービス履歴',
     'qa.close_btn': '閉じる',
@@ -334,7 +328,6 @@ const locales = {
     'settings.download_dir_label': '下载目录',
     'settings.http_port_label': 'HTTP MCP端口',
     'settings.network_binding_label': '网络绑定',
-    'settings.auto_start_label': '登录时自动启动',
     'settings.localhost_opt': '本地主机 (127.0.0.1) — 推荐',
     'settings.external_opt': '外部 (0.0.0.0) — 需谨慎',
     'settings.yes_opt': '是',
@@ -381,7 +374,6 @@ const locales = {
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
     'status.store_label': 'Store',
-    'status.registry_label': 'Registry',
     /* qa */
     'qa.title': '服务记录',
     'qa.close_btn': '关闭',
@@ -712,18 +704,13 @@ function showTab(name) {
 async function loadStatus() {
   if (!invoke) {
     $('app-version').textContent = t('status.static_preview');
-    $('registry-path').textContent = t('status.runtime_unavailable');
     return;
   }
   try {
     const status = await invoke('runtime_status');
     $('app-version').textContent = `v${status.version}`;
-    $('registry-path').textContent = status.registry_dir;
-    $('settings-status').innerHTML = `
-      <div class="status-card"><strong>${t('status.registry_label')}</strong><br>${escapeHtml(status.registry_dir)}</div>
-    `;
   } catch (error) {
-    $('registry-path').textContent = String(error);
+    console.error(error);
   }
 }
 
@@ -1095,7 +1082,6 @@ async function loadSettings() {
     $('settings-download-dir').value = settings.download_dir || '';
     $('settings-http-port').value = settings.http_port || 5599;
     $('settings-network-binding').value = settings.network_binding || 'localhost';
-    $('settings-auto-start').value = settings.auto_start ? 'true' : 'false';
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -1108,7 +1094,6 @@ async function saveSettings() {
     download_dir: $('settings-download-dir').value,
     http_port: parseInt($('settings-http-port').value, 10) || 5599,
     network_binding: $('settings-network-binding').value,
-    auto_start: $('settings-auto-start').value === 'true',
   };
   try {
     await invoke('save_settings', { settings });

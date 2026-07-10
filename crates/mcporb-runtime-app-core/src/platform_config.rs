@@ -313,14 +313,24 @@ pub fn build_merged_config_with_entries(
 }
 
 /// Generate standard STDIO-based MCPOrb server config value.
-pub fn make_stdio_server_config(runtime_binary: &str, _orb_id: &str, orb_zip_path: &str) -> Value {
+///
+/// When `use_runner_wrapper` is true, the command points to `mcporb-runner`
+/// with `--mcp-stdio` so that MCP clients launch the sandboxed wrapper,
+/// which in turn spawns `mcporb-runtime` as a child process.
+pub fn make_stdio_server_config(
+    runtime_binary: &str,
+    _orb_id: &str,
+    orb_zip_path: &str,
+    use_runner_wrapper: bool,
+) -> Value {
+    let args: Vec<String> = if use_runner_wrapper {
+        vec!["--mcp-stdio".into(), "--orb-zip".into(), orb_zip_path.to_string()]
+    } else {
+        vec!["--orb-zip".into(), orb_zip_path.to_string(), "--stdio-only".into()]
+    };
     serde_json::json!({
         "command": runtime_binary,
-        "args": [
-            "--orb-zip",
-            orb_zip_path,
-            "--stdio-only"
-        ]
+        "args": args
     })
 }
 
@@ -409,6 +419,37 @@ mod tests {
         let parsed: Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["mcpServers"].get("existing-orb").is_some());
         assert!(parsed["mcpServers"].get("mcporb-test").is_some());
+    }
+
+    #[test]
+    fn make_stdio_server_config_direct_mode() {
+        let config = make_stdio_server_config("/usr/bin/mcporb-runtime", "orb-1", "/tmp/test.zip", false);
+        assert_eq!(config["command"], "/usr/bin/mcporb-runtime");
+        assert_eq!(config["args"][0], "--orb-zip");
+        assert_eq!(config["args"][1], "/tmp/test.zip");
+        assert_eq!(config["args"][2], "--stdio-only");
+    }
+
+    #[test]
+    fn make_stdio_server_config_wrapper_mode() {
+        let config = make_stdio_server_config("/App/mcporb-runner", "orb-1", "/tmp/test.zip", true);
+        assert_eq!(config["command"], "/App/mcporb-runner");
+        assert_eq!(config["args"][0], "--mcp-stdio");
+        assert_eq!(config["args"][1], "--orb-zip");
+        assert_eq!(config["args"][2], "/tmp/test.zip");
+        // --stdio-only must NOT appear
+        assert!(!config["args"].as_array().unwrap().iter().any(|a| a == "--stdio-only"));
+    }
+
+    #[test]
+    fn make_stdio_server_config_roundtrip_through_build_merged_config() {
+        // Verify that the wrapper-mode config merges correctly into a platform config.
+        let server = make_stdio_server_config("/App/mcporb-runner", "orb-1", "/tmp/test.zip", true);
+        let result = build_merged_config(None, "mcporb-orb-1", &server).unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        let entry = &parsed["mcpServers"]["mcporb-orb-1"];
+        assert_eq!(entry["command"], "/App/mcporb-runner");
+        assert_eq!(entry["args"][0], "--mcp-stdio");
     }
 
     #[test]

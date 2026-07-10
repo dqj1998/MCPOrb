@@ -14,8 +14,6 @@ pub struct RuntimeSettings {
     pub http_port: u16,
     #[serde(default)]
     pub network_binding: NetworkBinding,
-    #[serde(default = "default_true")]
-    pub auto_start: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -37,7 +35,6 @@ impl Default for RuntimeSettings {
             download_dir: default_download_dir(),
             http_port: default_http_port(),
             network_binding: NetworkBinding::Localhost,
-            auto_start: true,
         }
     }
 }
@@ -50,10 +47,6 @@ fn default_download_dir() -> PathBuf {
 
 fn default_http_port() -> u16 {
     5599
-}
-
-fn default_true() -> bool {
-    true
 }
 
 pub struct SettingsStore {
@@ -102,7 +95,6 @@ mod tests {
         let settings = RuntimeSettings::default();
         assert_eq!(settings.http_port, 5599);
         assert_eq!(settings.network_binding, NetworkBinding::Localhost);
-        assert!(settings.auto_start);
     }
 
     #[test]
@@ -112,11 +104,9 @@ mod tests {
         let mut settings = RuntimeSettings::default();
         settings.http_port = 8080;
         settings.network_binding = NetworkBinding::External;
-        settings.auto_start = false;
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.http_port, 8080);
         assert_eq!(loaded.network_binding, NetworkBinding::External);
-        assert!(!loaded.auto_start);
     }
 }
