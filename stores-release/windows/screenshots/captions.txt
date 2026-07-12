@@ -1,0 +1,32 @@
+MCPOrb Runner - Windows Store Image Captions
+==============================================
+
+1. mcporb-banner-1.png
+   "MCPOrb Runner — Run AI Knowledge Anywhere. Portable MCP knowledge that works completely offline. Open any MCPOrb package, local AI-ready knowledge, no cloud required."
+
+2. mcporb-banner-2.png
+   "Ask. Search. Discover. Instant answers from your private knowledge. Semantic Search, AI Context Retrieval, Citations, Lightning Fast."
+
+3. mcporb-banner-3.png
+   "Built for the MCP Ecosystem. Open any Orb and use it in your favorite AI workflow. Local First, Open Format, Secure, AI Native."
+
+4. mcporb-chat-1.png
+   "MCPOrb integrated with Claude Desktop — Claude discovers and uses MCPOrb knowledge packs as MCP tools to search your private knowledge base with full authorization control."
+
+5. mcporb-chat-2.png
+   "MCPOrb delivers precise answers from your private knowledge at millisecond speed — synthesized responses with source citations powered by local semantic search."
+
+6. screen-lib.png
+   "Library tab — Browse, search, and manage your imported Orb knowledge packs. View metadata, request statistics, and perform actions like Search, HTTP, or Delete."
+
+7. screen-conf.png
+   "MCP Config tab — Generate ready-to-use STDIO configuration snippets for Claude Desktop, Cursor, and other MCP-compatible AI clients with one click."
+
+8. screen-http.png
+   "HTTP tab — Run Orbs as local HTTP MCP servers with port, PID, and endpoint visibility. Copy config or stop the process with a single click."
+
+9. screen-queries.png
+   "Service History — Review past query logs for each Orb, including request type (STDIO/HTTP), chunk counts, timestamps, and source citations with hybrid scores."
+
+10. screen-setting.png
+    "Settings tab — Configure download directory, HTTP MCP port, and network binding (Localhost recommended or External for advanced use)."
