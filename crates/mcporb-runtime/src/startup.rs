@@ -51,6 +51,11 @@ pub struct OrbArgs {
     /// Directory for persisted metrics files. Requires --orb-id.
     #[arg(long)]
     pub metrics_dir: Option<std::path::PathBuf>,
+    /// Bind to 0.0.0.0 instead of 127.0.0.1, allowing external network access
+    /// to the HTTP server. Use with caution — the local Web UI was designed
+    /// for loopback-only access.
+    #[arg(long)]
+    pub bind_external: bool,
 }
 
 pub struct StartupConfig {
@@ -62,6 +67,7 @@ pub struct StartupConfig {
     pub orb_zip_path: Option<std::path::PathBuf>,
     pub orb_id: Option<String>,
     pub metrics_dir: Option<std::path::PathBuf>,
+    pub bind_external: bool,
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
@@ -96,5 +102,6 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         orb_zip_path: args.orb_zip.clone(),
         orb_id: args.orb_id.clone(),
         metrics_dir: args.metrics_dir.clone(),
+        bind_external: args.bind_external,
     }
 }

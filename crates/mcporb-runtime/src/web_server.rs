@@ -74,6 +74,7 @@ pub async fn serve(
     state: SharedState,
     port: Option<u16>,
     token: &str,
+    bind_external: bool,
 ) -> anyhow::Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
     let token = token.to_string();
 
@@ -111,7 +112,8 @@ pub async fn serve(
 
     let html_clone = index_html.clone();
     let token_for_redirect = token.clone();
-    let app = Router::new()
+
+    let mut app = Router::new()
         .nest(&format!("/{token}/api"), api_router)
         .route(
             &format!("/{token}/"),
@@ -132,10 +134,15 @@ pub async fn serve(
             post(mcp_handler::post_streamable_http_mcp),
         )
         .fallback(|| async { StatusCode::NOT_FOUND })
-        .layer(middleware::from_fn(validate_host))
         .with_state(state);
 
-    let bind_addr = format!("127.0.0.1:{}", port.unwrap_or(0));
+    // Restrict to loopback when not in external binding mode.
+    if !bind_external {
+        app = app.layer(middleware::from_fn(validate_host));
+    }
+
+    let bind_ip = if bind_external { "0.0.0.0" } else { "127.0.0.1" };
+    let bind_addr = format!("{bind_ip}:{}", port.unwrap_or(0));
     let listener = TcpListener::bind(&bind_addr).await?;
     let addr = listener.local_addr()?;
 

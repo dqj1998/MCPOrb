@@ -683,8 +683,9 @@ async fn main() -> anyhow::Result<()> {
         StartupMode::GuiOnly => {
             let token = config.token.clone().unwrap_or_else(web_server::generate_token);
             let (addr, server_handle) =
-                web_server::serve(state.clone(), config.port, &token).await?;
-            let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
+                web_server::serve(state.clone(), config.port, &token, config.bind_external).await?;
+            let bind_ip = if config.bind_external { "0.0.0.0" } else { "127.0.0.1" };
+            let url = format!("http://{}:{}/{}/", bind_ip, addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());
             let tmp = std::env::temp_dir().join("mcporb");
             let _ = std::fs::create_dir_all(&tmp);
@@ -699,8 +700,9 @@ async fn main() -> anyhow::Result<()> {
         StartupMode::AllGui => {
             let token = config.token.clone().unwrap_or_else(web_server::generate_token);
             let (addr, server_handle) =
-                web_server::serve(state.clone(), config.port, &token).await?;
-            let url = format!("http://127.0.0.1:{}/{}/", addr.port(), token);
+                web_server::serve(state.clone(), config.port, &token, config.bind_external).await?;
+            let bind_ip = if config.bind_external { "0.0.0.0" } else { "127.0.0.1" };
+            let url = format!("http://{}:{}/{}/", bind_ip, addr.port(), token);
             *state.gui_url.write().await = Some(url.clone());
             let tmp = std::env::temp_dir().join("mcporb");
             let _ = std::fs::create_dir_all(&tmp);
