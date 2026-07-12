@@ -39,6 +39,7 @@ stores-release/
 
 - **Product Name**: MCPOrb Runner
 - **Bundle ID**: `com.mcporb.runner`
+- **Windows Store ID**: `9N7PR6PHJZ80`
 - **Category**: Developer Tools
 - **Publisher**: MCPOrb
 - **Website**: https://mcporb.ai
@@ -54,7 +55,10 @@ cargo tauri build -p mcporb-runtime-app --bundles dmg
 The resulting `.app` bundle will be in `target/release/bundle/macos/`.
 
 ### Windows (Microsoft Store)
-```bash
-cargo tauri build -p mcporb-runtime-app --bundles msi
+```powershell
+# Sync version then build MSIX
+.\stores-release\windows\sync-version.ps1
+.\stores-release\windows\build-msix.ps1 -SkipSign
 ```
-The resulting `.msi` installer will be in `target/release/bundle/msi/`.
+The resulting `.msix` will be in `target\msix\MCPOrbRunner.msix`.
+Upload to Partner Center → **Packages** → upload MSIX file.

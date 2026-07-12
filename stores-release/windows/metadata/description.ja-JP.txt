@@ -1,0 +1,14 @@
+MCPOrb Runner は、Orb ZIP ナレッジベースをインポートし、ローカルセマンティック検索を提供し、Claude Desktop、Cursor、VS Code 向けの MCP クライアント設定を自動生成します。
+
+Orb はポータブルな自己完結型 MCP ナレッジパックです。1 つのファイルに検索インデックス、ランタイム、構造化知識が含まれています。npm install、Docker、クラウド依存は一切不要です。
+
+主な機能：
+• Orb ZIP をワンクリックでインストール・管理
+• マルチストラテジー検索（BM25、TF-IDF、Trigram、Vector、Hybrid）
+• Claude Desktop / Cursor / VS Code 向け MCP STDIO 設定を自動生成
+• Streamable HTTP トランスポート対応の HTTP MCP サーバー内蔵
+• mcporb:// URL のディープリンク対応
+• ユーザー選択によるファイルアクセスをサポートする Windows ネイティブ統合
+
+短説明文（100 文字以内）:
+MCPクライアント向けOrb ZIPナレッジベース実行ツール。ローカル検索、MCP設定生成、HTTPサーバー内蔵。

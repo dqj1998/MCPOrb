@@ -7,3 +7,5 @@ Key features:
 • Multi-strategy local search (BM25, TF-IDF, Trigram, Vector, Hybrid)
 • Auto-generate MCP STDIO config for Claude Desktop, Cursor, VS Code
 • Built-in HTTP MCP server for Streamable HTTP transport
+• Deep link support for mcporb:// URLs
+• Windows native integration with user-selected file access

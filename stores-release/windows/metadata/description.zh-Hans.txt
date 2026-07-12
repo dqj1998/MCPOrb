@@ -1,0 +1,14 @@
+MCPOrb Runner 可以导入 Orb ZIP 知识库，提供本地语义搜索，并自动生成 Claude Desktop、Cursor 和 VS Code 的 MCP 客户端配置。
+
+Orb 是便携式、自包含的 MCP 知识包——一个文件包含搜索索引、运行环境和结构化知识。无需 npm install、Docker 或云端依赖。
+
+主要功能：
+• 一键安装和管理 Orb ZIP
+• 多策略本地搜索（BM25、TF-IDF、Trigram、Vector、Hybrid）
+• 自动生成 Claude Desktop / Cursor / VS Code 的 MCP STDIO 配置
+• 内置 HTTP MCP 服务器，支持 Streamable HTTP 传输
+• 支持 mcporb:// URL 深度链接
+• Windows 原生集成，支持用户选择的文件访问权限
+
+短描述（100 字符以内）:
+为MCP客户端运行Orb ZIP知识库，支持本地语义搜索与MCP配置生成
