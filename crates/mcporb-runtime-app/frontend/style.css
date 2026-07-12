@@ -121,6 +121,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 h1 { font-size: 20px; font-weight: 700; }
+.panel-header h1 { white-space: nowrap; }
 
 .text-input, .select-input, textarea {
   width: 100%;
@@ -208,6 +209,15 @@ h1 { font-size: 20px; font-weight: 700; }
 .orb-desc { color: var(--color-text-dim); line-height: 1.45; }
 .orb-hash { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); margin-top: 8px; word-break: break-all; }
 
+.config-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.config-card-header .config-meta {
+  margin-bottom: 0;
+}
 .config-card textarea {
   min-height: 130px;
   margin-top: 8px;

@@ -99,6 +99,7 @@ const locales = {
     'mcp.apply_success_backup': 'Backup saved to {backup}',
     'mcp.current_label': 'Current',
     'mcp.generated_label': 'MCPOrb Config',
+    'mcp.copy_config_btn': 'Copy Config',
     'mcp.restart_hint.claude_desktop': 'Restart Claude Desktop to load the new MCP servers.',
     'mcp.restart_hint.cursor': 'Restart Cursor to load the new MCP servers.',
     'mcp.restart_hint.cline': 'Restart VS Code or reload the Cline extension to load the new MCP servers.',
@@ -225,6 +226,7 @@ const locales = {
     'mcp.apply_success_backup': 'バックアップを {backup} に保存しました',
     'mcp.current_label': '現在の設定',
     'mcp.generated_label': 'MCPOrb設定',
+    'mcp.copy_config_btn': '設定をコピー',
     'mcp.restart_hint.claude_desktop': 'Claude Desktopを再起動して新しいMCPサーバーを読み込んでください。',
     'mcp.restart_hint.cursor': 'Cursorを再起動して新しいMCPサーバーを読み込んでください。',
     'mcp.restart_hint.cline': 'VS Codeを再起動するか、Cline拡張機能をリロードして新しいMCPサーバーを読み込んでください。',
@@ -353,6 +355,7 @@ const locales = {
     'mcp.apply_success_backup': '备份已保存到 {backup}',
     'mcp.current_label': '当前配置',
     'mcp.generated_label': 'MCPOrb配置',
+    'mcp.copy_config_btn': '复制配置',
     'mcp.restart_hint.claude_desktop': '重启 Claude Desktop 以加载新的 MCP 服务器。',
     'mcp.restart_hint.cursor': '重启 Cursor 以加载新的 MCP 服务器。',
     'mcp.restart_hint.cline': '重启 VS Code 或重新加载 Cline 扩展以加载新的 MCP 服务器。',
@@ -1057,13 +1060,33 @@ async function generateMcpConfig() {
     const snippets = await invoke('mcp_config_snippets', { orbId, runtimeBinary });
     $('mcp-config-list').innerHTML = snippets.map((snippet) => `
       <article class="config-card">
-        <div class="config-meta">${escapeHtml(snippet.label)}</div>
-        <textarea readonly>${escapeHtml(snippet.json)}</textarea>
+        <div class="config-card-header">
+          <div class="config-meta">${escapeHtml(snippet.label)}</div>
+          <button class="btn btn-secondary btn-sm" data-copy-config="${escapeHtml(snippet.client)}">${t('mcp.copy_config_btn')}</button>
+        </div>
+        <textarea readonly id="config-json-${escapeHtml(snippet.client)}">${escapeHtml(snippet.json)}</textarea>
       </article>
     `).join('');
+    // Wire copy buttons
+    document.querySelectorAll('[data-copy-config]').forEach((btn) => {
+      btn.addEventListener('click', () => copyStdioConfig(btn.dataset.copyConfig, btn));
+    });
   } catch (error) {
     $('mcp-config-list').innerHTML = `<div class="status-card error">${escapeHtml(error)}</div>`;
   }
+}
+
+async function copyStdioConfig(client, btn) {
+  const textarea = document.getElementById(`config-json-${client}`);
+  if (!textarea) return;
+  try {
+    await navigator.clipboard.writeText(textarea.value);
+  } catch {
+    // Fallback for non-HTTPS environments
+    textarea.select();
+    document.execCommand('copy');
+  }
+  feedbackBtn(btn, 'feedback.copied');
 }
 
 function escapeHtml(value) {
@@ -1190,7 +1213,7 @@ function renderPlatformConfigs(configs) {
           </div>
         </div>
         <div class="platform-config-actions">
-          <button class="btn btn-primary" data-apply-config="${escapeHtml(cfg.config_path)}" data-platform="${escapeHtml(cfg.platform)}" data-restart-hint-key="${escapeHtml(cfg.restart_hint || '')}" ${isSame || !generatedContent ? 'disabled' : ''}>${t('mcp.apply_btn')}</button>
+          <button class="btn btn-primary" data-apply-config="${escapeHtml(cfg.config_path)}" data-platform="${escapeHtml(cfg.platform)}" data-restart-hint-key="${escapeHtml(cfg.restart_hint || '')}" ${!cfg.exists || isSame || !generatedContent ? 'disabled' : ''}>${t('mcp.apply_btn')}</button>
           ${cfg.restart_hint ? `<span class="platform-config-restart-hint">${escapeHtml(t(cfg.restart_hint))}</span>` : ''}
         </div>
         <div id="apply-status-${escapeHtml(cfg.platform)}" class="status-line"></div>

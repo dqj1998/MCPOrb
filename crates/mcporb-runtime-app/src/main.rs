@@ -95,6 +95,7 @@ fn mcp_config_snippets(
         &orb.slug,
         &orb.zip_path,
         use_wrapper,
+        Some(&orb_id),
     ))
 }
 
