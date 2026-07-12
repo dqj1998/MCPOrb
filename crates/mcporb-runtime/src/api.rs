@@ -218,7 +218,26 @@ fn mcp_config_path(client: &str) -> Option<(&'static str, PathBuf)> {
     let path = {
         let app_data = dirs::config_dir().unwrap_or_else(|| home.join("AppData/Roaming"));
         match client {
-            "claude_desktop" => app_data.join("Claude/claude_desktop_config.json"),
+            "claude_desktop" => {
+                // Standard path for non-MSIX installs (direct installer)
+                let standard_path = app_data.join("Claude/claude_desktop_config.json");
+                if standard_path.is_file() {
+                    standard_path
+                } else {
+                    // MSIX/AppX package path for Microsoft Store installs
+                    // e.g. %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json
+                    let local_data = dirs::data_dir().unwrap_or_else(|| home.join("AppData/Local"));
+                    let packages_dir = local_data.join("Packages");
+                    let msix_path = std::fs::read_dir(&packages_dir)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok())
+                        .find(|e| e.file_name().to_string_lossy().starts_with("Claude_"))
+                        .map(|e| e.path().join("LocalCache/Roaming/Claude/claude_desktop_config.json"));
+                    msix_path.unwrap_or(standard_path)
+                }
+            }
             "cursor" => app_data.join("Cursor/User/settings.json"),
             "vscode" => app_data.join("Code/User/settings.json"),
             "windsurf" => home.join(".codeium/windsurf/mcp_config.json"),

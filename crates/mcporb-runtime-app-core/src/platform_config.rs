@@ -131,12 +131,28 @@ fn platform_config_dir(platform: &str) -> Option<PathBuf> {
     match platform {
         "claude_desktop" => {
             // macOS:   ~/Library/Application Support/Claude
-            // Windows: %APPDATA%/Claude
+            // Windows: %APPDATA%/Claude  (or MSIX package path for Store installs)
             // Linux:   ~/.config/Claude  (or ~/.local/share/Claude)
             if cfg!(target_os = "macos") {
                 Some(config_dir.join("Claude"))
             } else if cfg!(target_os = "windows") {
-                Some(config_dir.join("Claude"))
+                // First try standard %APPDATA%/Claude (non-MSIX installs)
+                let standard = config_dir.join("Claude");
+                if standard.is_dir() {
+                    Some(standard)
+                } else {
+                    // MSIX/AppX package path for Microsoft Store installs
+                    // %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
+                    let packages_dir = data_dir.join("Packages");
+                    let msix_dir = std::fs::read_dir(&packages_dir)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok())
+                        .find(|e| e.file_name().to_string_lossy().starts_with("Claude_"))
+                        .map(|e| e.path().join("LocalCache/Roaming/Claude"));
+                    Some(msix_dir.unwrap_or(standard))
+                }
             } else {
                 // Linux: try ~/.config/Claude first, then ~/.local/share/Claude
                 let p1 = config_dir.join("Claude");
