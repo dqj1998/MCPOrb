@@ -62,13 +62,13 @@ const locales = {
     'store.downloading': 'Downloading {slug}…',
     'store.downloaded': 'Downloaded and imported {name} {version}',
     'store.results': '{count} result(s)',
-    /* running (HTTP server) */
+    /* running (HTTP gateway) */
     'running.title': 'HTTP',
     'running.refresh': 'Refresh',
-    'running.section_desc': 'Orbs running an HTTP server — check port, PID, or stop the process. STDIO (CLI-mode) usage does not require the HTTP server and is configured under the MCP Config tab.',
+    'running.section_desc': 'Gateway HTTP server exposes all installed Orbs as MCP tools through a single endpoint. Copy the config below to connect your MCP client.',
     'running.copy_config_btn': 'Copy Config',
-    'running.stop_btn': 'Stop',
-    'running.no_orbs': 'No Orbs running an HTTP server. Use the Library to start one.',
+    'running.loading': 'Loading gateway configuration…',
+    'running.no_orbs': 'No Orbs installed. The gateway HTTP endpoint is ready — install Orbs from the Library to add tools.',
     /* settings */
     'settings.title': 'Settings',
     'settings.save_btn': 'Save',
@@ -192,10 +192,10 @@ const locales = {
     'store.results': '{count}件の結果',
     'running.title': 'HTTP',
     'running.refresh': '更新',
-    'running.section_desc': 'HTTPサーバーを起動中のOrb — ポート、PIDの確認やプロセスの停止ができます。STDIO（CLIモード）での利用はHTTPサーバーを必要とせず、MCP設定タブで構成します。',
+    'running.section_desc': 'ゲートウェイHTTPサーバーは、インストール済みの全Orbを単一のエンドポイントでMCPツールとして公開します。以下の設定をコピーしてMCPクライアントに接続してください。',
     'running.copy_config_btn': '設定をコピー',
-    'running.stop_btn': '停止',
-    'running.no_orbs': 'HTTPサーバーを起動中のOrbはありません。ライブラリから起動してください。',
+    'running.loading': 'ゲートウェイ設定を読み込み中…',
+    'running.no_orbs': 'Orbがインストールされていません。ライブラリからOrbをインストールすると、ゲートウェイHTTPエンドポイントが利用可能になります。',
     /* settings */
     'settings.save_btn': '保存',
     'settings.download_dir_label': 'ダウンロードディレクトリ',
@@ -321,10 +321,10 @@ const locales = {
     'store.results': '{count}个结果',
     'running.title': 'HTTP',
     'running.refresh': '刷新',
-    'running.section_desc': '正在运行HTTP服务器的Orb — 查看端口、PID或停止进程。使用STDIO（CLI模式）不需要HTTP服务器，请在MCP配置标签页中配置。',
+    'running.section_desc': '网关HTTP服务器将所有已安装的Orb通过单一端点暴露为MCP工具。复制以下配置连接到您的MCP客户端。',
     'running.copy_config_btn': '复制配置',
-    'running.stop_btn': '停止',
-    'running.no_orbs': '没有运行HTTP服务器的Orb。请从库中启动。',
+    'running.loading': '正在加载网关配置…',
+    'running.no_orbs': '尚未安装Orb。从库中安装Orb后，网关HTTP端点即可使用。',
     'settings.title': '设置',
     'settings.save_btn': '保存',
     'settings.download_dir_label': '下载目录',
@@ -746,16 +746,11 @@ function renderLibrary(orbs) {
     $('library-list').innerHTML = msg;
     return;
   }
-  const runningSet = new Set(state.runningOrbIds);
   $('library-list').innerHTML = filtered.map((orb) => {
-    const isRunning = runningSet.has(orb.id);
     return `
-    <article class="orb-card${isRunning ? ' orb-card-running' : ''}">
+    <article class="orb-card">
       <div>
-        <div class="orb-title">
-          ${escapeHtml(orb.display_name)}
-          ${isRunning ? `<span class="orb-running-badge">${t('library.http_badge')}</span>` : ''}
-        </div>
+        <div class="orb-title">${escapeHtml(orb.display_name)}</div>
         <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? 'encrypted' : 'plaintext'}</div>
         <div class="orb-desc">${escapeHtml(orb.description || 'No description')}</div>
         <div class="orb-hash">zip ${escapeHtml(orb.zip_sha256)}<br>assets ${escapeHtml(orb.assets_sha256)}</div>
@@ -763,7 +758,6 @@ function renderLibrary(orbs) {
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" data-search-orb="${escapeHtml(orb.id)}">${t('library.search_btn')}</button>
-        <button class="btn ${isRunning ? 'btn-secondary' : 'btn-primary'}" data-start-orb="${escapeHtml(orb.id)}"${isRunning ? ' disabled' : ''}>${isRunning ? t('library.http_btn') : t('library.start_http_btn')}</button>
         <button class="btn btn-secondary" data-qa-orb="${escapeHtml(orb.id)}">${t('library.qa_btn')}</button>
         <button class="btn btn-danger" data-delete-orb="${escapeHtml(orb.id)}">${t('library.delete_btn')}</button>
       </div>
@@ -771,9 +765,6 @@ function renderLibrary(orbs) {
   }).join('');
   document.querySelectorAll('[data-search-orb]').forEach((button) => {
     button.addEventListener('click', () => showOrbSearchModal(button.dataset.searchOrb));
-  });
-  document.querySelectorAll('[data-start-orb]').forEach((button) => {
-    button.addEventListener('click', () => startOrbHttp(button.dataset.startOrb));
   });
   document.querySelectorAll('[data-qa-orb]').forEach((button) => {
     button.addEventListener('click', () => showQaModal(button.dataset.qaOrb));
@@ -806,11 +797,7 @@ async function fetchAndRenderStats(orbId) {
 }
 
 function syncOrbSelects() {
-  const options = state.orbs.map((orb) => `<option value="${escapeHtml(orb.id)}">${escapeHtml(orb.display_name)}</option>`).join('');
-  const mcpSelect = $('mcp-orb-select');
-  const previous = mcpSelect.value;
-  mcpSelect.innerHTML = options || `<option value="">${t('library.no_orbs')}</option>`;
-  if (previous) mcpSelect.value = previous;
+  // No longer needed — gateway mode uses a single config without orb selection
 }
 
 // ── Orb list filter (searches by name/description) ──────────────────────────
@@ -1052,12 +1039,9 @@ function formatTimestamp(isoStr) {
 }
 
 async function generateMcpConfig() {
-  const orbId = $('mcp-orb-select').value;
-  if (!orbId) return;
   feedbackBtn($('btn-generate-config'), 'feedback.generated');
-  const runtimeBinary = $('runtime-bin-path').value.trim() || null;
   try {
-    const snippets = await invoke('mcp_config_snippets', { orbId, runtimeBinary });
+    const snippets = await invoke('gateway_mcp_config_snippets');
     $('mcp-config-list').innerHTML = snippets.map((snippet) => `
       <article class="config-card">
         <div class="config-card-header">
@@ -1067,7 +1051,6 @@ async function generateMcpConfig() {
         <textarea readonly id="config-json-${escapeHtml(snippet.client)}">${escapeHtml(snippet.json)}</textarea>
       </article>
     `).join('');
-    // Wire copy buttons
     document.querySelectorAll('[data-copy-config]').forEach((btn) => {
       btn.addEventListener('click', () => copyStdioConfig(btn.dataset.copyConfig, btn));
     });
@@ -1142,23 +1125,41 @@ async function refreshRunning() {
 }
 
 function renderRunning(running) {
-  if (!running.length) {
+  if (!state.orbs.length) {
     $('running-list').innerHTML = `<div class="status-card muted-card">${t('running.no_orbs')}</div>`;
     return;
   }
-  $('running-list').innerHTML = running.map((r) => `
-    <article class="orb-card">
-      <div>
-        <div class="orb-title">${escapeHtml(r.slug || r.orb_id)}</div>
-        <div class="orb-meta">Port ${r.port} · PID ${r.pid}</div>
-        <div class="orb-hash">http://127.0.0.1:${r.port}/${escapeHtml(r.token)}/</div>
+  // Show gateway HTTP config
+  $('running-list').innerHTML = `
+    <article class="config-card">
+      <div class="config-card-header">
+        <div class="config-meta">MCPOrb Gateway HTTP</div>
+        <button class="btn btn-secondary btn-sm" id="copy-gateway-http-config">${t('running.copy_config_btn')}</button>
       </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" onclick="feedbackBtn(this,'feedback.copied');copyHttpConfig('${escapeHtml(r.orb_id)}')">${t('running.copy_config_btn')}</button>
-        <button class="btn btn-primary" onclick="feedbackBtn(this,'feedback.stopped');stopOrbHttp('${escapeHtml(r.orb_id)}')">${t('running.stop_btn')}</button>
-      </div>
+      <textarea readonly id="gateway-http-config-json">${t('running.loading')}</textarea>
     </article>
-  `).join('');
+  `;
+  // Fetch and populate the gateway HTTP config
+  (async () => {
+    try {
+      const snippets = await invoke('gateway_http_config_snippets');
+      const area = $('gateway-http-config-json');
+      if (snippets.length > 0) {
+        area.value = snippets[0].json;
+      } else {
+        area.value = '/* Gateway config unavailable */';
+      }
+      const copyBtn = $('copy-gateway-http-config');
+      copyBtn.addEventListener('click', async () => {
+        if (snippets.length > 0) {
+          await navigator.clipboard.writeText(snippets[0].json);
+          feedbackBtn(copyBtn, 'feedback.copied');
+        }
+      });
+    } catch (error) {
+      $('gateway-http-config-json').value = `/* Error: ${error} */`;
+    }
+  })();
 }
 
 // ── Platform Config Discovery ──────────────────────────────────────────────
@@ -1351,10 +1352,10 @@ async function confirmDeleteOrb() {
 
 window.deleteOrb = deleteOrb;
 
-async function copyHttpConfig(orbId) {
+async function copyHttpConfig() {
   if (!invoke) return;
   try {
-    const snippets = await invoke('mcp_config_http_snippets', { orbId });
+    const snippets = await invoke('gateway_http_config_snippets');
     if (snippets.length > 0) {
       await navigator.clipboard.writeText(snippets[0].json);
       alert('HTTP MCP config copied to clipboard.');

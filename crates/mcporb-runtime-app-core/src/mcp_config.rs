@@ -47,6 +47,61 @@ pub fn http_config_snippets(orb_id: &str, port: u16, token: &str) -> Vec<McpConf
     .collect()
 }
 
+/// Generate a single unified STDIO config pointing to the Gateway binary.
+///
+/// Unlike the per-orb `stdio_config_snippets`, this produces one entry —
+/// `mcporb-gateway` — that routes to ALL installed Orbs via namespace prefix.
+pub fn gateway_stdio_config_snippets(
+    gateway_binary: &Path,
+    registry_dir: &Path,
+) -> Vec<McpConfigSnippet> {
+    let value = json!({
+        "mcpServers": {
+            "mcporb-gateway": {
+                "command": gateway_binary.display().to_string(),
+                "args": [
+                    "--registry-dir",
+                    registry_dir.display().to_string(),
+                ]
+            }
+        }
+    });
+    let json_str = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
+
+    // Same JSON for every client — the SDK reads the same format.
+    [
+        ("claude_desktop", "Claude Desktop"),
+        ("cursor", "Cursor"),
+        ("vscode", "VS Code"),
+    ]
+    .into_iter()
+    .map(|(client, label)| McpConfigSnippet {
+        client: client.to_string(),
+        label: label.to_string(),
+        json: json_str.clone(),
+    })
+    .collect()
+}
+
+/// Generate a single unified HTTP config pointing to the Gateway HTTP server.
+pub fn gateway_http_config_snippets(port: u16) -> Vec<McpConfigSnippet> {
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let value = json!({
+        "mcpServers": {
+            "mcporb-gateway": {
+                "url": url
+            }
+        }
+    });
+    let json_str = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
+
+    vec![McpConfigSnippet {
+        client: "http".to_string(),
+        label: "HTTP Gateway".to_string(),
+        json: json_str,
+    }]
+}
+
 fn build_stdio_json(
     runtime_binary: &Path,
     slug: &str,

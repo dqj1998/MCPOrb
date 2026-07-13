@@ -71,6 +71,17 @@ fn search_orb(
 }
 
 #[tauri::command]
+fn gateway_mcp_config_snippets(
+    state: tauri::State<AppState>,
+) -> Result<Vec<mcp_config::McpConfigSnippet>, String> {
+    let gateway_bin = default_gateway_binary()
+        .ok_or_else(|| "Could not resolve mcporb-gateway-stdio binary path".to_string())?;
+    let registry_dir = state.registry.root_dir().to_path_buf();
+    // Keep the old per-orb command so existing callers don't break
+    Ok(mcp_config::gateway_stdio_config_snippets(&gateway_bin, &registry_dir))
+}
+
+#[tauri::command]
 fn mcp_config_snippets(
     orb_id: String,
     runtime_binary: Option<String>,
@@ -274,6 +285,17 @@ async fn get_orb_qa_history(
 }
 
 #[tauri::command]
+async fn gateway_http_config_snippets(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<mcp_config::McpConfigSnippet>, String> {
+    let settings = {
+        let settings_store = state.settings.lock().await;
+        settings_store.load().map_err(to_string)?
+    };
+    Ok(mcp_config::gateway_http_config_snippets(settings.http_port))
+}
+
+#[tauri::command]
 async fn mcp_config_http_snippets(
     orb_id: String,
     state: tauri::State<'_, AppState>,
@@ -314,12 +336,51 @@ fn discover_platform_configs(state: tauri::State<AppState>) -> Result<Vec<Platfo
 
 /// Build the merged JSON content for a platform config.
 ///
-/// This injects STDIO MCP entries for all installed orbs into the platform's
-/// existing `mcpServers` (if any), preserving entries for other tools.
+/// Injects a single `mcporb-gateway` STDIO entry — the gateway routes to all
+/// installed Orbs via namespace prefix — into the platform's existing
+/// `mcpServers` (if any), preserving entries for other tools.
 fn build_merged_platform_config(
     platform: &PlatformConfig,
     orbs: &[InstalledOrb],
 ) -> String {
+    let registry_dir = PathBuf::from(
+        // Best-effort: use the same default as RegistryStore::default().
+        dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("MCPOrb")
+            .join("Runtime"),
+    );
+
+    // Use gateway binary if available, fall back to per-orb for empty registries
+    let use_gateway = default_gateway_binary().is_some() && !orbs.is_empty();
+
+    if use_gateway {
+        let gateway_bin = default_gateway_binary().unwrap();
+        let server_value = platform_config::make_stdio_server_config(
+            &gateway_bin.display().to_string(),
+            "gateway",
+            &registry_dir.display().to_string(),
+            false,
+        );
+        let entry = ("mcporb-gateway".to_string(), server_value);
+        let existing = platform.current_content.as_deref();
+        return match platform_config::build_merged_config_with_entries(existing, &[entry]) {
+            Ok(json) => json,
+            Err(_) => {
+                let mut map = serde_json::Map::new();
+                let mut servers = serde_json::Map::new();
+                servers.insert("mcporb-gateway".to_string(), serde_json::json!({
+                    "command": gateway_bin.display().to_string(),
+                    "args": ["--registry-dir", registry_dir.display().to_string()]
+                }));
+                map.insert("mcpServers".to_string(), serde_json::Value::Object(servers));
+                serde_json::to_string_pretty(&serde_json::Value::Object(map))
+                    .unwrap_or_else(|_| "{}".to_string())
+            }
+        };
+    }
+
+    // Fallback: per-orb entries (no gateway binary found)
     let use_wrapper = is_runner_wrapper_mode();
     let binary = if use_wrapper { mcp_binary_path() } else { default_runtime_binary() };
     let runtime_binary = binary
@@ -347,10 +408,7 @@ fn build_merged_platform_config(
             for (key, value) in &server_entries {
                 servers.insert(key.clone(), value.clone());
             }
-            map.insert(
-                "mcpServers".to_string(),
-                serde_json::Value::Object(servers),
-            );
+            map.insert("mcpServers".to_string(), serde_json::Value::Object(servers));
             serde_json::to_string_pretty(&serde_json::Value::Object(map))
                 .unwrap_or_else(|_| "{}".to_string())
         }
@@ -487,6 +545,7 @@ fn main() {
             list_orbs,
             import_orb_zip,
             search_orb,
+            gateway_mcp_config_snippets,
             mcp_config_snippets,
             open_path,
             get_settings,
@@ -496,6 +555,7 @@ fn main() {
             list_running_orbs,
             get_orb_metrics,
             get_orb_qa_history,
+            gateway_http_config_snippets,
             mcp_config_http_snippets,
             store_search,
             store_get_orb,
@@ -606,6 +666,15 @@ fn mcp_binary_path() -> Option<PathBuf> {
     } else {
         default_runtime_binary()
     }
+}
+
+/// The path to the `mcporb-gateway-stdio` binary.
+fn default_gateway_binary() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let path = dir.join(format!("mcporb-gateway-stdio{suffix}"));
+    if path.is_file() { Some(path) } else { None }
 }
 
 fn to_string(error: impl std::fmt::Display) -> String {
