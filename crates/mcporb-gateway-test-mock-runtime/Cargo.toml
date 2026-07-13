@@ -1,0 +1,10 @@
+[package]
+name = "mcporb-gateway-test-mock-runtime"
+version = "0.1.0"
+edition = "2021"
+# Only used in tests — no point publishing.
+publish = false
+
+[dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "process", "rt", "macros"] }

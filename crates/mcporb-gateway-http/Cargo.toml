@@ -1,0 +1,17 @@
+[package]
+name = "mcporb-gateway-http"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "MCPOrb Gateway HTTP — single HTTP MCP endpoint routing to multiple Orbs"
+
+[dependencies]
+mcporb-gateway-core = { path = "../mcporb-gateway-core" }
+tokio = { workspace = true, features = ["net", "process"] }
+axum = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dirs = { workspace = true }

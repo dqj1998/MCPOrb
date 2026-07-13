@@ -6,6 +6,10 @@ members = [
     "crates/mcporb-runtime-core",
     "crates/mcporb-size-spike",
     "crates/mcporb-embed",
+    "crates/mcporb-gateway-core",
+    "crates/mcporb-gateway-stdio",
+    "crates/mcporb-gateway-http",
+    "crates/mcporb-gateway-test-mock-runtime",
 ]
 resolver = "2"
 

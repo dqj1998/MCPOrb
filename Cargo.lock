@@ -2969,6 +2969,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcporb-gateway-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "mcporb-runtime-app-core",
+ "mcporb-runtime-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mcporb-gateway-http"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "dirs 5.0.1",
+ "mcporb-gateway-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "mcporb-gateway-stdio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs 5.0.1",
+ "mcporb-gateway-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "mcporb-gateway-test-mock-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "mcporb-runtime"
 version = "1.1.10"
 dependencies = [
@@ -3009,6 +3063,7 @@ version = "1.1.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "dirs 5.0.1",
  "mcporb-runtime-app-core",
  "rand 0.8.6",
  "serde",
