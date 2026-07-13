@@ -48,6 +48,7 @@ const locales = {
     'library.delete_btn': 'Delete',
     'library.delete_confirm': 'Are you sure you want to delete "{name}"?',
     'library.delete_success': 'Deleted {name}',
+    'library.restart_hint': 'If you have MCP clients (Claude, Cursor, etc.) running, please restart them to use the updated Orbs.',
     'library.stats_requests': 'Req: {total}',
     'library.stats_searches': 'Search: {n}',
     'library.stats_stdio': 'STDIO: {n}',
@@ -181,6 +182,7 @@ const locales = {
     'library.delete_btn': '削除',
     'library.delete_confirm': '"{name}"を削除してもよろしいですか？',
     'library.delete_success': '{name}を削除しました',
+    'library.restart_hint': 'MCPクライアント（Claude、Cursorなど）が起動中の場合は、再起動してOrbの変更を反映してください。',
     'store.title': 'ストア',
     'store.search_placeholder': 'MCP StoreでOrbを検索',
     'store.search_btn': '検索',
@@ -306,6 +308,7 @@ const locales = {
     'library.delete_btn': '删除',
     'library.delete_confirm': '确定要删除"{name}"吗？',
     'library.delete_success': '已删除{name}',
+    'library.restart_hint': '如有正在运行中的MCP客户端（Claude、Cursor等），请重启该客户端以使用更新后的Orb。',
     'library.stats_requests': '请求: {total}',
     'library.stats_searches': '搜索: {n}',
     'library.stats_stdio': 'STDIO: {n}',
@@ -450,6 +453,11 @@ function applyLocale() {
   if (state.orbs.length) renderLibrary(state.orbs);
   if ($('running-list').children.length) refreshRunning();
   if (state.platformConfigs.length) renderPlatformConfigs(state.platformConfigs);
+  // Update restart hint text if visible
+  const hint = $('library-restart-hint');
+  if (hint && hint.style.display !== 'none') {
+    $('library-restart-hint-text').textContent = t('library.restart_hint');
+  }
 }
 
 function initLocale() {
@@ -558,6 +566,8 @@ function bindActions() {
   $('confirm-modal').addEventListener('click', (e) => {
     if (e.target === $('confirm-modal')) hideConfirmDeleteModal();
   });
+  // Restart hint dismiss
+  $('btn-dismiss-restart-hint').addEventListener('click', hideRestartHint);
 }
 
 function setupDragDrop() {
@@ -680,6 +690,7 @@ async function confirmImport() {
       false
     );
     await refreshLibrary();
+    showRestartHint();
     // Auto-close after short delay on success
     setTimeout(hideImportModal, 2000);
   } catch (error) {
@@ -798,6 +809,20 @@ async function fetchAndRenderStats(orbId) {
 
 function syncOrbSelects() {
   // No longer needed — gateway mode uses a single config without orb selection
+}
+
+// ── Restart hint banner (shown after import/delete) ──────────────────────────
+
+function showRestartHint() {
+  const hint = $('library-restart-hint');
+  if (!hint) return;
+  $('library-restart-hint-text').textContent = t('library.restart_hint');
+  hint.style.display = 'flex';
+}
+
+function hideRestartHint() {
+  const hint = $('library-restart-hint');
+  if (hint) hint.style.display = 'none';
 }
 
 // ── Orb list filter (searches by name/description) ──────────────────────────
@@ -1341,6 +1366,7 @@ async function confirmDeleteOrb() {
     await invoke('remove_orb', { orbId });
     state.orbs = state.orbs.filter((o) => o.id !== orbId);
     renderLibrary(state.orbs);
+    showRestartHint();
     syncOrbSelects();
     refreshRunning();
     hideConfirmDeleteModal();
@@ -1421,6 +1447,7 @@ async function storeDownloadOrb(slug, hasPassword) {
     const version = result.report.manifest.version;
     setStoreSearchStatus(t('store.downloaded', { name, version }), false);
     await refreshLibrary();
+    showRestartHint();
     showTab('library');
   } catch (error) {
     setStoreSearchStatus(String(error), true);
