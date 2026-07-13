@@ -505,7 +505,14 @@ fn internal_error_response(error: anyhow::Error) -> Response {
 }
 
 pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
-    tracing::info!("MCP stdio loop started");
+    run_stdio_loop_with_transport(state, "stdio").await
+}
+
+/// Like [`run_stdio_loop`] but allows overriding the transport label used for
+/// metrics. When the gateway spawns a child via STDIO, the transport is set to
+/// `"http"` so request counts are attributed correctly.
+pub async fn run_stdio_loop_with_transport(state: SharedState, transport: &str) -> anyhow::Result<()> {
+    tracing::info!("MCP stdio loop started (transport={transport})");
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
     tokio::task::spawn_blocking(move || {
@@ -540,7 +547,7 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
             }
         };
 
-        let Some(response) = handle_json_rpc_request(&state, request, "stdio").await? else {
+        let Some(response) = handle_json_rpc_request(&state, request, transport).await? else {
             continue;
         };
 

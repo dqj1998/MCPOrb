@@ -56,6 +56,11 @@ pub struct OrbArgs {
     /// for loopback-only access.
     #[arg(long)]
     pub bind_external: bool,
+    /// Override the transport label recorded for MCP requests (e.g. "http"
+    /// when running under the gateway). When unset, defaults to "stdio" for
+    /// stdio-only mode.
+    #[arg(long)]
+    pub mcp_transport: Option<String>,
 }
 
 pub struct StartupConfig {
@@ -68,6 +73,7 @@ pub struct StartupConfig {
     pub orb_id: Option<String>,
     pub metrics_dir: Option<std::path::PathBuf>,
     pub bind_external: bool,
+    pub mcp_transport: Option<String>,
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
@@ -103,5 +109,6 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         orb_id: args.orb_id.clone(),
         metrics_dir: args.metrics_dir.clone(),
         bind_external: args.bind_external,
+        mcp_transport: args.mcp_transport.clone(),
     }
 }

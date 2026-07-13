@@ -678,7 +678,10 @@ async fn main() -> anyhow::Result<()> {
 
     match config.mode {
         StartupMode::StdioOnly => {
-            mcp_handler::run_stdio_loop(state).await?;
+            match &config.mcp_transport {
+                Some(t) => mcp_handler::run_stdio_loop_with_transport(state, t).await?,
+                None => mcp_handler::run_stdio_loop(state).await?,
+            }
         }
         StartupMode::GuiOnly => {
             let token = config.token.clone().unwrap_or_else(web_server::generate_token);
@@ -713,8 +716,13 @@ async fn main() -> anyhow::Result<()> {
                 let _ = webbrowser::open(&url);
             }
             let stdio_state = state.clone();
+            let mcp_transport = config.mcp_transport.clone();
             let stdio_handle = tokio::spawn(async move {
-                if let Err(e) = mcp_handler::run_stdio_loop(stdio_state).await {
+                let result = match &mcp_transport {
+                    Some(t) => mcp_handler::run_stdio_loop_with_transport(stdio_state, t).await,
+                    None => mcp_handler::run_stdio_loop(stdio_state).await,
+                };
+                if let Err(e) = result {
                     tracing::error!("MCP stdio error: {e}");
                 }
             });
