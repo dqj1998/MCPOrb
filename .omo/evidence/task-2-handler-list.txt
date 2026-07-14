@@ -1,0 +1,6 @@
+Store commands registered in tauri::generate_handler![]:
+store_search
+store_get_orb
+store_list_tags
+store_verify_download_password
+store_download_artifact

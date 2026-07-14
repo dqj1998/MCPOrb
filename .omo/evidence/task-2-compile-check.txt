@@ -1,0 +1,4 @@
+    Checking mcporb-runtime-core v1.1.10 (/Users/qingjie.du/HDD/MCPOrbPrjs/MCPOrb/crates/mcporb-runtime-core)
+   Compiling mcporb-runtime-app v1.1.10 (/Users/qingjie.du/HDD/MCPOrbPrjs/MCPOrb/crates/mcporb-runtime-app)
+    Checking mcporb-runtime-app-core v1.1.10 (/Users/qingjie.du/HDD/MCPOrbPrjs/MCPOrb/crates/mcporb-runtime-app-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.33s
