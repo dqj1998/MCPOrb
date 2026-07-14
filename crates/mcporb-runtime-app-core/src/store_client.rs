@@ -1,45 +1,64 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-const STORE_BASE_URL: &str = "https://mcporb.com/api/client/v1";
+const STORE_BASE_URL: &str = "https://mcporb.store/api";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreOrb {
     pub slug: String,
-    pub name: String,
-    pub display_name: Option<String>,
+    pub display_name: String,
     pub description: String,
     pub version: String,
+    pub published_at: Option<String>,
+    pub methods: Vec<String>,
+    pub is_private: bool,
+    pub password_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResponse {
+    pub items: Vec<StoreOrb>,
+    pub page: i64,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrbDetail {
+    pub slug: String,
+    pub display_name: String,
+    pub description: String,
+    pub is_private: bool,
+    pub latest_version: String,
+    pub latest_version_id: String,
+    pub methods: Vec<String>,
     pub tags: Vec<String>,
-    pub author: Option<String>,
-    pub size_bytes: u64,
+    pub artifacts: Vec<ArtifactInfo>,
+    pub versions: Vec<VersionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactInfo {
+    pub id: String,
+    pub kind: String,
+    pub size_bytes: i64,
     pub sha256: String,
-    pub has_password: bool,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoreSearchResult {
-    pub orbs: Vec<StoreOrb>,
-    pub total: usize,
-    pub page: usize,
-    pub per_page: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoreOrbVersion {
+pub struct VersionInfo {
+    pub id: String,
     pub version: String,
-    pub sha256: String,
-    pub size_bytes: u64,
-    pub created_at: String,
+    pub published_at: Option<String>,
+    pub artifacts: Vec<ArtifactInfo>,
+    pub has_password: bool,
+    pub has_custom_password: Option<bool>,
+    pub is_latest: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoreDownloadToken {
+pub struct DownloadToken {
     pub token: String,
-    pub expires_at: String,
-    pub download_url: String,
+    pub expires_in_seconds: i64,
 }
 
 pub struct StoreClient {
@@ -64,26 +83,37 @@ impl StoreClient {
         query: &str,
         page: usize,
         per_page: usize,
-    ) -> Result<StoreSearchResult> {
-        let url = format!("{}/catalog", self.base_url);
+    ) -> Result<ListResponse> {
+        let _ = per_page;
+
+        self.search_orbs_filtered(query, None, None, page as i64).await
+    }
+
+    pub async fn search_orbs_filtered(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        method: Option<&str>,
+        page: i64,
+    ) -> Result<ListResponse> {
+        let url = format!("{}/orbs", self.base_url);
+        let page = page.max(1).to_string();
         let resp = self
             .client
             .get(&url)
-            .query(&[
-                ("q", query),
-                ("page", &page.to_string()),
-                ("per_page", &per_page.to_string()),
-            ])
+            .query(&[("q", query), ("page", page.as_str())])
+            .query(&tag.map(|tag| [("tag", tag)]))
+            .query(&method.map(|method| [("method", method)]))
             .send()
             .await
             .context("failed to send search request")?;
 
-        resp.json::<StoreSearchResult>()
+        resp.json::<ListResponse>()
             .await
             .context("failed to parse search response")
     }
 
-    pub async fn get_orb(&self, slug: &str) -> Result<StoreOrb> {
+    pub async fn get_orb(&self, slug: &str) -> Result<OrbDetail> {
         let url = format!("{}/orbs/{}", self.base_url, slug);
         let resp = self
             .client
@@ -92,30 +122,16 @@ impl StoreClient {
             .await
             .context("failed to send get orb request")?;
 
-        resp.json::<StoreOrb>()
+        resp.json::<OrbDetail>()
             .await
             .context("failed to parse orb response")
-    }
-
-    pub async fn get_orb_versions(&self, slug: &str) -> Result<Vec<StoreOrbVersion>> {
-        let url = format!("{}/catalog/{}/versions", self.base_url, slug);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("failed to send versions request")?;
-
-        resp.json::<Vec<StoreOrbVersion>>()
-            .await
-            .context("failed to parse versions response")
     }
 
     pub async fn verify_download_password(
         &self,
         artifact_id: &str,
         password: &str,
-    ) -> Result<StoreDownloadToken> {
+    ) -> Result<DownloadToken> {
         let url = format!("{}/downloads/{}/verify-password", self.base_url, artifact_id);
         let resp = self
             .client
@@ -125,7 +141,7 @@ impl StoreClient {
             .await
             .context("failed to send verify password request")?;
 
-        resp.json::<StoreDownloadToken>()
+        resp.json::<DownloadToken>()
             .await
             .context("failed to parse download token response")
     }
@@ -137,10 +153,13 @@ impl StoreClient {
         dest_path: &std::path::Path,
     ) -> Result<u64> {
         let url = format!("{}/downloads/{}", self.base_url, artifact_id);
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {token}"))
+        let mut request = self.client.get(&url);
+        if !token.is_empty() {
+            request = request
+                .header("x-download-token", token)
+                .query(&[("download_token", token)]);
+        }
+        let resp = request
             .send()
             .await
             .context("failed to send download request")?;

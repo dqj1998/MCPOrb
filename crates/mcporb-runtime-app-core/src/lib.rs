@@ -13,5 +13,7 @@ pub use platform_config::{PlatformConfig, WriteConfigResult};
 pub use registry::{InstalledOrb, OrbRegistry, RegistryStore};
 pub use search::{SearchHit, SearchResponse};
 pub use settings::{NetworkBinding, RuntimeSettings, SettingsStore};
-pub use store_client::{StoreClient, StoreOrb, StoreSearchResult};
+pub use store_client::{
+    ArtifactInfo, DownloadToken, ListResponse, OrbDetail, StoreClient, StoreOrb, VersionInfo,
+};
 pub use zip_import::{ImportOptions, ImportResult, ZipValidationReport};
