@@ -14,6 +14,7 @@ pub use registry::{InstalledOrb, OrbRegistry, RegistryStore};
 pub use search::{SearchHit, SearchResponse};
 pub use settings::{NetworkBinding, RuntimeSettings, SettingsStore};
 pub use store_client::{
-    ArtifactInfo, DownloadToken, ListResponse, OrbDetail, StoreClient, StoreOrb, VersionInfo,
+    ArtifactInfo, DownloadToken, ListResponse, OrbDetail, StoreClient, StoreOrb, TagInfo,
+    VersionInfo,
 };
 pub use zip_import::{ImportOptions, ImportResult, ZipValidationReport};

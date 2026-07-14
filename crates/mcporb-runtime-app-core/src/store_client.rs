@@ -23,6 +23,13 @@ pub struct ListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagInfo {
+    pub name: String,
+    #[serde(default)]
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrbDetail {
     pub slug: String,
     pub display_name: String,
@@ -59,6 +66,13 @@ pub struct VersionInfo {
 pub struct DownloadToken {
     pub token: String,
     pub expires_in_seconds: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TagsResponse {
+    List(Vec<TagInfo>),
+    Object { tags: Vec<TagInfo> },
 }
 
 pub struct StoreClient {
@@ -125,6 +139,26 @@ impl StoreClient {
         resp.json::<OrbDetail>()
             .await
             .context("failed to parse orb response")
+    }
+
+    pub async fn list_tags(&self) -> Result<Vec<TagInfo>> {
+        let url = format!("{}/tags", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("failed to send list tags request")?;
+
+        let tags = resp
+            .json::<TagsResponse>()
+            .await
+            .context("failed to parse tags response")?;
+
+        Ok(match tags {
+            TagsResponse::List(tags) => tags,
+            TagsResponse::Object { tags } => tags,
+        })
     }
 
     pub async fn verify_download_password(

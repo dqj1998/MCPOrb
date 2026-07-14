@@ -7,7 +7,7 @@ use std::sync::Arc;
 use mcporb_runtime_app_core::{
     mcp_config, metrics, platform_config, search, settings::SettingsStore, store_client::StoreClient,
     ImportOptions, ImportResult, InstalledOrb, PlatformConfig, RegistryStore, RuntimeSettings,
-    SearchResponse, StoreOrb, StoreSearchResult, WriteConfigResult,
+    DownloadToken, ListResponse, OrbDetail, SearchResponse, TagInfo, WriteConfigResult,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -446,26 +446,45 @@ fn token_from_orb_id(orb_id: &str) -> String {
 #[tauri::command]
 async fn store_search(
     query: String,
-    page: Option<usize>,
-    per_page: Option<usize>,
-) -> Result<StoreSearchResult, String> {
+    tag: Option<String>,
+    method: Option<String>,
+    page: Option<i64>,
+) -> Result<ListResponse, String> {
     let client = StoreClient::new().map_err(to_string)?;
     client
-        .search_orbs(&query, page.unwrap_or(1), per_page.unwrap_or(20))
+        .search_orbs_filtered(&query, tag.as_deref(), method.as_deref(), page.unwrap_or(1))
         .await
         .map_err(to_string)
 }
 
 #[tauri::command]
-async fn store_get_orb(slug: String) -> Result<StoreOrb, String> {
+async fn store_get_orb(slug: String) -> Result<OrbDetail, String> {
     let client = StoreClient::new().map_err(to_string)?;
     client.get_orb(&slug).await.map_err(to_string)
 }
 
 #[tauri::command]
-async fn store_download_orb(
-    slug: String,
-    password: Option<String>,
+async fn store_list_tags() -> Result<Vec<TagInfo>, String> {
+    let client = StoreClient::new().map_err(to_string)?;
+    client.list_tags().await.map_err(to_string)
+}
+
+#[tauri::command]
+async fn store_verify_download_password(
+    artifact_id: String,
+    password: String,
+) -> Result<DownloadToken, String> {
+    let client = StoreClient::new().map_err(to_string)?;
+    client
+        .verify_download_password(&artifact_id, &password)
+        .await
+        .map_err(to_string)
+}
+
+#[tauri::command]
+async fn store_download_artifact(
+    artifact_id: String,
+    token: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<ImportResult, String> {
     let settings = {
@@ -474,33 +493,14 @@ async fn store_download_orb(
     };
 
     let client = StoreClient::new().map_err(to_string)?;
-    let orb = client.get_orb(&slug).await.map_err(to_string)?;
 
     let dest_dir = settings.download_dir.join("store");
     std::fs::create_dir_all(&dest_dir).map_err(to_string)?;
-
-    let dest_path = dest_dir.join(format!("{}.orb.zip", slug));
-
-    if orb.has_password {
-        let password = password.ok_or_else(|| "Password required for this Orb".to_string())?;
-        let token = client
-            .verify_download_password(&orb.slug, &password)
-            .await
-            .map_err(to_string)?;
-        client
-            .download_orb(&orb.slug, &token.token, &dest_path)
-            .await
-            .map_err(to_string)?;
-    } else {
-        let token = client
-            .verify_download_password(&orb.slug, "")
-            .await
-            .map_err(to_string)?;
-        client
-            .download_orb(&orb.slug, &token.token, &dest_path)
-            .await
-            .map_err(to_string)?;
-    }
+    let dest_path = dest_dir.join(format!("{artifact_id}.orb.zip"));
+    client
+        .download_orb(&artifact_id, &token, &dest_path)
+        .await
+        .map_err(to_string)?;
 
     state
         .registry
@@ -559,7 +559,9 @@ fn main() {
             mcp_config_http_snippets,
             store_search,
             store_get_orb,
-            store_download_orb,
+            store_list_tags,
+            store_verify_download_password,
+            store_download_artifact,
             remove_orb,
             discover_platform_configs,
             apply_platform_config,
