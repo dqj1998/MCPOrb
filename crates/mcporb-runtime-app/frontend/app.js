@@ -10,6 +10,12 @@ const state = {
   qaPage: 1,
   qaTotalPages: 1,
   pendingDeleteOrbId: null,
+  pendingDownloadArtifactId: null,
+  storeSearchState: { query: '', tag: null, method: null, page: 1 },
+  storeView: 'browse',
+  libraryPage: 1,
+  libraryPageSize: 20,
+  libraryTotalPages: 1,
 };
 
 const importState = {
@@ -53,16 +59,45 @@ const locales = {
     'library.stats_searches': 'Search: {n}',
     'library.stats_stdio': 'STDIO: {n}',
     'library.stats_http': 'HTTP: {n}',
+    'library.page_info': 'Page {page} of {total}',
     /* store */
     'store.title': 'Store',
     'store.search_placeholder': 'Search Orbs in MCP Store',
     'store.search_btn': 'Search',
+    'store.detail_title': 'Orb Details',
+    'store.detail_back_btn': 'Back',
+    'store.version_label': 'Version',
+    'store.versions_title': 'Versions',
+    'store.artifacts_title': 'Artifacts',
+    'store.download_zip_btn': 'Download ZIP',
+    'store.password_label': 'Password',
+    'store.password_placeholder': 'Enter password',
+    'store.password_submit': 'Submit',
+    'store.password_required_title': 'Password Required',
+    'store.password_required_label': 'Enter password for this artifact:',
+    'store.password_verifying': 'Verifying...',
+    'store.download_error': 'Download error: {error}',
+    'store.artifact_downloaded': 'Downloaded: {result}',
+    'store.tags_filter': 'Tag',
+    'store.tag_all': 'All tags',
+    'store.method_filter': 'Method',
+    'store.method_all': 'All methods',
+    'store.no_detail': 'No detail available.',
+    'store.artifact_kind_canonical': 'Canonical',
+    'store.artifact_kind_derived': 'Derived',
+    'store.password_status_all': 'All',
+    'store.password_status_partial': 'Partial',
+    'store.password_status_none': 'None',
     'store.no_results': 'No Orbs found.',
     'store.enter_query': 'Enter a search query.',
     'store.download_btn': 'Download',
     'store.downloading': 'Downloading {slug}…',
     'store.downloaded': 'Downloaded and imported {name} {version}',
     'store.results': '{count} result(s)',
+    'store.import_btn': 'Import',
+    'store.import_btn_downloading': 'Downloading…',
+    'store.import_btn_installing': 'Installing…',
+    'store.import_btn_done': 'Imported ✓',
     /* running (HTTP gateway) */
     'running.title': 'HTTP',
     'running.refresh': 'Refresh',
@@ -183,13 +218,42 @@ const locales = {
     'library.delete_confirm': '"{name}"を削除してもよろしいですか？',
     'library.delete_success': '{name}を削除しました',
     'library.restart_hint': 'MCPクライアント（Claude、Cursorなど）が起動中の場合は、再起動してOrbの変更を反映してください。',
+    'library.page_info': '{page}/{total} ページ',
     'store.title': 'ストア',
     'store.search_placeholder': 'MCP StoreでOrbを検索',
     'store.search_btn': '検索',
+    'store.detail_title': 'Orbの詳細',
+    'store.detail_back_btn': '戻る',
+    'store.version_label': 'バージョン',
+    'store.versions_title': 'バージョン',
+    'store.artifacts_title': 'アーティファクト',
+    'store.download_zip_btn': 'ZIPをダウンロード',
+    'store.password_label': 'パスワード',
+    'store.password_placeholder': 'パスワードを入力',
+    'store.password_submit': '送信',
+    'store.password_required_title': 'パスワードが必要です',
+    'store.password_required_label': 'このアーティファクトのパスワードを入力してください:',
+    'store.password_verifying': '確認中...',
+    'store.download_error': 'ダウンロードエラー: {error}',
+    'store.artifact_downloaded': 'ダウンロードしました: {result}',
+    'store.tags_filter': 'タグ',
+    'store.tag_all': 'すべてのタグ',
+    'store.method_filter': '方法',
+    'store.method_all': 'すべての方法',
+    'store.no_detail': '詳細はありません。',
+    'store.artifact_kind_canonical': '正規',
+    'store.artifact_kind_derived': '派生',
+    'store.password_status_all': 'すべて',
+    'store.password_status_partial': '一部',
+    'store.password_status_none': 'なし',
     'store.no_results': 'Orbが見つかりません。',
     'store.enter_query': '検索クエリを入力してください。',
     'store.download_btn': 'ダウンロード',
     'store.downloading': '{slug}をダウンロード中…',
+    'store.import_btn': 'Import',
+    'store.import_btn_downloading': 'ダウンロード中…',
+    'store.import_btn_installing': 'インストール中…',
+    'store.import_btn_done': '✓ 完了',
     'store.downloaded': '{name} {version}をダウンロードしてインポートしました',
     'store.results': '{count}件の結果',
     'running.title': 'HTTP',
@@ -313,13 +377,42 @@ const locales = {
     'library.stats_searches': '搜索: {n}',
     'library.stats_stdio': 'STDIO: {n}',
     'library.stats_http': 'HTTP: {n}',
+    'library.page_info': '第{page}/{total}页',
     'store.title': '商店',
     'store.search_placeholder': '在MCP商店中搜索Orb',
     'store.search_btn': '搜索',
+    'store.detail_title': 'Orb 详情',
+    'store.detail_back_btn': '返回',
+    'store.version_label': '版本',
+    'store.versions_title': '版本',
+    'store.artifacts_title': '构件',
+    'store.download_zip_btn': '下载 ZIP',
+    'store.password_label': '密码',
+    'store.password_placeholder': '请输入密码',
+    'store.password_submit': '提交',
+    'store.password_required_title': '需要密码',
+    'store.password_required_label': '请输入此构件的密码:',
+    'store.password_verifying': '正在验证...',
+    'store.download_error': '下载错误: {error}',
+    'store.artifact_downloaded': '已下载: {result}',
+    'store.tags_filter': '标签',
+    'store.tag_all': '全部标签',
+    'store.method_filter': '方法',
+    'store.method_all': '全部方法',
+    'store.no_detail': '暂无详情。',
+    'store.artifact_kind_canonical': '标准',
+    'store.artifact_kind_derived': '派生',
+    'store.password_status_all': '全部',
+    'store.password_status_partial': '部分',
+    'store.password_status_none': '无',
     'store.no_results': '未找到Orb。',
     'store.enter_query': '请输入搜索查询。',
     'store.download_btn': '下载',
     'store.downloading': '正在下载{slug}…',
+    'store.import_btn': '导入',
+    'store.import_btn_downloading': '正在下载…',
+    'store.import_btn_installing': '正在安装…',
+    'store.import_btn_done': '已导入 ✓',
     'store.downloaded': '已下载并导入{name} {version}',
     'store.results': '{count}个结果',
     'running.title': 'HTTP',
@@ -488,6 +581,21 @@ function feedbackBtn(el, feedbackKey, duration) {
   }, duration || 1200);
 }
 
+// ── Auto-refresh library (30s interval, only when tab is active) ──────────
+
+const LIBRARY_AUTO_REFRESH_MS = 30000;
+
+async function refreshLibrarySilent() {
+  if (!invoke) return;
+  try {
+    state.orbs = await invoke('list_orbs');
+    renderLibrary(state.orbs);
+    syncOrbSelects();
+  } catch (error) {
+    // silent — don't spam the UI on transient errors
+  }
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
   initLocale();
   $('lang-select').addEventListener('change', (e) => setLocale(e.target.value));
@@ -499,6 +607,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   await refreshRunning();
   await discoverPlatformConfigs();
+
+  // Start auto-refresh timer — checks active tab each cycle
+  setInterval(() => {
+    if (state.activeTab === 'library') {
+      refreshLibrarySilent();
+    }
+  }, LIBRARY_AUTO_REFRESH_MS);
 });
 
 function bindTabs() {
@@ -519,9 +634,52 @@ function bindActions() {
   $('btn-save-settings').addEventListener('click', saveSettings);
   $('btn-refresh-running').addEventListener('click', refreshRunning);
   $('btn-discover-configs').addEventListener('click', discoverPlatformConfigs);
-  $('btn-store-search').addEventListener('click', storeSearch);
+  $('store-search-query').addEventListener('input', debounce(() => {
+    state.storeSearchState.query = $('store-search-query').value.trim();
+    state.storeSearchState.page = 1;
+    storeSearch();
+  }, 300));
   $('store-search-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') storeSearch();
+  });
+  // Tag filter dropdown: trigger toggle
+  $('store-tag-filter-trigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleTagDropdown();
+  });
+  // Tag filter dropdown: item selection via delegation
+  $('store-tag-filter-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.tag-filter-item');
+    if (item) onTagFilterItemClick(item.dataset.tagSlug);
+  });
+  // Tag filter dropdown: filter input
+  $('store-tag-filter-input').addEventListener('input', () => {
+    renderTagFilterList(storeTags, $('store-tag-filter-input').value);
+  });
+  // Tag filter dropdown: clear filter button
+  $('store-tag-filter-clear').addEventListener('click', () => {
+    const input = $('store-tag-filter-input');
+    input.value = '';
+    setStoreTag(null);
+    renderTagFilterList(storeTags, '');
+    input.focus();
+    storeSearch();
+  });
+  // Close tag dropdown on outside click
+  document.addEventListener('click', (e) => {
+    const wrapper = $('store-tag-filter-trigger')?.closest('.tag-filter-wrapper');
+    if (wrapper && !wrapper.contains(e.target)) {
+      toggleTagDropdown(false);
+    }
+  });
+  $('store-method-filter').addEventListener('change', storeSearch);
+  $('btn-store-password-submit').addEventListener('click', storeSubmitPassword);
+  $('btn-store-password-cancel').addEventListener('click', storeCancelPassword);
+  $('store-password-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') storeSubmitPassword();
+  });
+  $('store-password-dialog').addEventListener('click', (event) => {
+    if (event.target === $('store-password-dialog')) storeCancelPassword();
   });
   // Modal actions
   $('btn-modal-close').addEventListener('click', hideImportModal);
@@ -540,6 +698,16 @@ function bindActions() {
     if (e.key === 'Escape' && orbSearchModalVisible()) hideOrbSearchModal();
     if (e.key === 'Escape' && qaModalVisible()) hideQaModal();
     if (e.key === 'Escape' && confirmModalVisible()) hideConfirmDeleteModal();
+    if (e.key === 'Escape' && storePasswordDialogVisible()) storeCancelPassword();
+    if (e.key === 'Escape' && state.activeTab === 'store' && state.storeView === 'detail') showStoreBrowse();
+    if (e.key === 'Escape') toggleTagDropdown(false);
+    // Cmd/Ctrl+K to focus store search
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (state.activeTab === 'store') {
+        $('store-search-query').focus();
+      }
+    }
   });
   // Orb search modal
   $('btn-orb-search-go').addEventListener('click', runOrbSearch);
@@ -705,6 +873,8 @@ function setModalStatus(message, isError) {
   el.className = 'status-card' + (isError ? ' error' : '');
 }
 
+let storeLoaded = false;
+
 function showTab(name) {
   state.activeTab = name;
   document.querySelectorAll('.tab-item').forEach((button) => {
@@ -713,6 +883,13 @@ function showTab(name) {
   document.querySelectorAll('.tab-panel').forEach((panel) => {
     panel.classList.toggle('active', panel.id === `tab-${name}`);
   });
+  
+  if (name === 'store' && !storeLoaded) {
+    storeLoaded = true;
+    storeListTags().then(() => {
+      storeSearch("", null, null, 1);
+    });
+  }
 }
 
 async function loadStatus() {
@@ -733,6 +910,7 @@ async function refreshLibrary() {
   feedbackBtn($('btn-refresh-library'), 'feedback.refreshed');
   try {
     state.orbs = await invoke('list_orbs');
+    state.libraryPage = 1;
     renderLibrary(state.orbs);
     syncOrbSelects();
   } catch (error) {
@@ -755,9 +933,20 @@ function renderLibrary(orbs) {
       ? `<div class="status-card muted-card">${t('library.no_match', { query: escapeHtml(filterText) })}</div>`
       : `<div class="status-card muted-card">${t('library.no_orbs')}</div>`;
     $('library-list').innerHTML = msg;
+    $('library-pagination').innerHTML = '';
     return;
   }
-  $('library-list').innerHTML = filtered.map((orb) => {
+
+  // Paginate filtered results
+  const pageSize = state.libraryPageSize;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  state.libraryTotalPages = totalPages;
+  // Clamp current page
+  if (state.libraryPage > totalPages) state.libraryPage = totalPages;
+  const start = (state.libraryPage - 1) * pageSize;
+  const pageOrbs = filtered.slice(start, start + pageSize);
+
+  $('library-list').innerHTML = pageOrbs.map((orb) => {
     return `
     <article class="orb-card">
       <div>
@@ -783,10 +972,35 @@ function renderLibrary(orbs) {
   document.querySelectorAll('[data-delete-orb]').forEach((button) => {
     button.addEventListener('click', () => deleteOrb(button.dataset.deleteOrb));
   });
-  filtered.forEach((orb) => {
+  pageOrbs.forEach((orb) => {
     fetchAndRenderStats(orb.id);
   });
+  renderLibraryPagination(filtered.length);
   togglePlatformConfigsSection();
+}
+
+function renderLibraryPagination(totalCount) {
+  const p = state.libraryPage;
+  const total = state.libraryTotalPages;
+  if (total <= 1) {
+    $('library-pagination').innerHTML = '';
+    return;
+  }
+  $('library-pagination').innerHTML = `
+    <button class="btn btn-secondary library-page-btn" data-library-page="${p - 1}" ${p <= 1 ? 'disabled' : ''}>${t('qa.prev')}</button>
+    <span class="library-page-info">${t('library.page_info', { page: p, total })}</span>
+    <button class="btn btn-secondary library-page-btn" data-library-page="${p + 1}" ${p >= total ? 'disabled' : ''}>${t('qa.next')}</button>
+  `;
+  document.querySelectorAll('[data-library-page]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const newPage = parseInt(btn.dataset.libraryPage, 10);
+      if (newPage >= 1 && newPage <= state.libraryTotalPages) {
+        state.libraryPage = newPage;
+        renderLibrary(state.orbs);
+      }
+    });
+  });
 }
 
 async function fetchAndRenderStats(orbId) {
@@ -829,6 +1043,7 @@ function hideRestartHint() {
 
 function filterLibrary() {
   feedbackBtn($('btn-filter-library'), 'feedback.filtered');
+  state.libraryPage = 1;
   renderLibrary(state.orbs);
 }
 
@@ -1040,25 +1255,26 @@ function renderQaPagination() {
 }
 
 function formatTimestamp(isoStr) {
-  // Accept both ISO 8601 UTC strings and epoch-seconds strings
   if (!isoStr) return '—';
+  let d;
   if (isoStr.includes('T')) {
-    // Parse ISO UTC string and render in the user's local timezone
-    const d = new Date(isoStr);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleString(undefined, {
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit',
-      });
+    d = new Date(isoStr);
+  } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(isoStr)) {
+    d = new Date(isoStr + 'Z');
+  } else {
+    const secs = parseInt(isoStr, 10);
+    if (!isNaN(secs) && secs > 1000000000) {
+      d = new Date(secs * 1000);
     }
-    // Fallback: strip fractional seconds and replace T with space
-    return isoStr.replace(/\.\d+Z$/, 'Z').replace(/T/, ' ');
   }
-  // Try as epoch seconds
-  const secs = parseInt(isoStr, 10);
-  if (!isNaN(secs) && secs > 1000000000) {
-    const d = new Date(secs * 1000);
-    return d.toLocaleString();
+  if (d && !isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
   }
   return isoStr;
 }
@@ -1393,19 +1609,107 @@ async function copyHttpConfig() {
 
 window.copyHttpConfig = copyHttpConfig;
 
-async function storeSearch() {
-  const query = $('store-search-query').value.trim();
-  if (!query) {
-    setStoreSearchStatus(t('store.enter_query'), true);
+let storeTagsLoaded = false;
+let storeSelectedTag = null; // null = "All tags"
+let storeTags = [];
+
+function renderTagFilterList(tags, filterText) {
+  const list = $('store-tag-filter-list');
+  if (!list) return;
+
+  const lowerFilter = (filterText || '').toLowerCase().trim();
+  let filtered = tags;
+  if (lowerFilter) {
+    filtered = tags.filter(t => t.name.toLowerCase().includes(lowerFilter));
+  }
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="tag-filter-empty">No matching tags</div>`;
     return;
   }
-  feedbackBtn($('btn-store-search'), 'feedback.filtered');
+
+  list.innerHTML = filtered.map(t => `
+    <div class="tag-filter-item${storeSelectedTag === t.slug ? ' selected' : ''}" data-tag-slug="${escapeHtml(t.slug)}">
+      <span class="tag-filter-item-name">${escapeHtml(t.name)}</span>
+      <span class="tag-filter-item-count">${t.count}</span>
+    </div>
+  `).join('');
+}
+
+function setStoreTag(slug) {
+  const label = $('store-tag-filter-label');
+  if (!slug) {
+    storeSelectedTag = null;
+    label.textContent = t('store.tag_all');
+  } else {
+    storeSelectedTag = slug;
+    const tag = storeTags.find(t => t.slug === slug);
+    label.textContent = tag ? `${tag.name} (${tag.count})` : slug;
+  }
+  renderTagFilterList(storeTags, $('store-tag-filter-input')?.value || '');
+}
+
+function toggleTagDropdown(show) {
+  const dropdown = $('store-tag-filter-dropdown');
+  const arrow = document.querySelector('.tag-filter-arrow');
+  if (!dropdown) return;
+  const visible = show !== undefined ? show : dropdown.style.display === 'none';
+  dropdown.style.display = visible ? 'flex' : 'none';
+  if (arrow) arrow.classList.toggle('open', visible);
+  if (visible) {
+    const input = $('store-tag-filter-input');
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    renderTagFilterList(storeTags, '');
+  }
+}
+
+function onTagFilterItemClick(slug) {
+  if (storeSelectedTag === slug) {
+    setStoreTag(null); // deselect = "All tags"
+  } else {
+    setStoreTag(slug);
+  }
+  toggleTagDropdown(false);
+  storeSearch();
+}
+
+async function storeListTags() {
+  if (storeTagsLoaded || !invoke) return;
+  try {
+    storeTags = await invoke('store_list_tags');
+    setStoreTag(null);
+    storeTagsLoaded = true;
+  } catch (error) {
+    console.error('Failed to load store tags:', error);
+  }
+}
+
+async function storeSearch(queryOverride, tagOverride, methodOverride, pageOverride) {
+  if (queryOverride instanceof Event) {
+    queryOverride = undefined;
+  }
+  const query = queryOverride !== undefined ? queryOverride : $('store-search-query').value.trim();
+  const tag = tagOverride !== undefined ? tagOverride : storeSelectedTag;
+  const method = methodOverride !== undefined ? methodOverride : ($('store-method-filter').value || null);
+  const page = pageOverride !== undefined ? pageOverride : 1;
+
+  state.storeSearchState = { query, tag, method, page };
+
+  if (queryOverride !== undefined) $('store-search-query').value = query;
+  if (tagOverride !== undefined) setStoreTag(tag || null);
+  if (methodOverride !== undefined) $('store-method-filter').value = method || '';
+
   setStoreSearchStatus(`${t('orbsearch.searching')}...`, false);
   $('store-search-results').innerHTML = '';
+  $('store-pagination').innerHTML = '';
+  
   try {
-    const result = await invoke('store_search', { query });
-    setStoreSearchStatus(t('store.results', { count: result.orbs.length }), false);
-    renderStoreResults(result.orbs);
+    const result = await invoke('store_search', { query, tag, method, page });
+    setStoreSearchStatus(t('store.results', { count: result.items.length }), false);
+    renderStoreResults(result);
   } catch (error) {
     setStoreSearchStatus(String(error), true);
   }
@@ -1416,42 +1720,299 @@ function setStoreSearchStatus(message, isError) {
   $('store-search-status').classList.toggle('error', Boolean(isError));
 }
 
-function renderStoreResults(orbs) {
-  if (!orbs.length) {
+function renderStoreResults(response) {
+  const orbs = response.items;
+  if (!orbs || !orbs.length) {
     $('store-search-results').innerHTML = `<div class="status-card muted-card">${t('store.no_results')}</div>`;
+    $('store-pagination').innerHTML = '';
     return;
   }
-  $('store-search-results').innerHTML = orbs.map((orb) => `
-    <article class="orb-card">
+  $('store-search-results').innerHTML = orbs.map((orb) => {
+    const methodsHtml = (orb.methods || []).map(m => `<span class="store-pill">${escapeHtml(m)}</span>`).join('');
+    const pwdStatus = orb.password_status === 'all' ? t('store.password_status_all') :
+                      orb.password_status === 'partial' ? t('store.password_status_partial') :
+                      t('store.password_status_none');
+    return `
+    <article class="orb-card" style="cursor:pointer;" onclick="showStoreDetail('${escapeHtml(orb.slug)}')">
       <div>
-        <div class="orb-title">${escapeHtml(orb.display_name || orb.name)}</div>
-        <div class="orb-meta">${escapeHtml(orb.version)} · ${escapeHtml(orb.tags.join(', '))} · ${orb.has_password ? 'password-protected' : 'public'}</div>
-        <div class="orb-desc">${escapeHtml(orb.description || 'No description')}</div>
-        <div class="orb-hash">sha256 ${escapeHtml(orb.sha256)}</div>
+        <h3 class="orb-title" style="margin:0 0 4px 0;">${escapeHtml(orb.display_name || orb.slug)}</h3>
+        <div class="orb-meta" style="margin-bottom:8px;">
+          <span class="store-pill">${escapeHtml(orb.version)}</span>
+          <span class="store-pill">Pwd: ${pwdStatus}</span>
+          ${methodsHtml}
+        </div>
+        <p class="orb-desc" style="margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(orb.description || 'No description')}</p>
       </div>
-      <button class="btn btn-primary" onclick="feedbackBtn(this,'feedback.started');storeDownloadOrb('${escapeHtml(orb.slug)}', ${orb.has_password})">${t('store.download_btn')}</button>
     </article>
-  `).join('');
+  `}).join('');
+  
+  renderStorePagination(response);
 }
 
-async function storeDownloadOrb(slug, hasPassword) {
-  let password = null;
-  if (hasPassword) {
-    password = prompt(`Enter download password for "${slug}":`);
-    if (password === null) return;
+function renderStorePagination(response) {
+  const p = response.page;
+  const hasMore = response.has_more;
+  
+  if (p <= 1 && !hasMore) {
+    $('store-pagination').innerHTML = '';
+    return;
   }
-  setStoreSearchStatus(t('store.downloading', { slug }), false);
+  
+  $('store-pagination').innerHTML = `
+    <button class="btn btn-secondary store-page-btn" data-store-page="${p - 1}" ${p <= 1 ? 'disabled' : ''}>${t('qa.prev')}</button>
+    <span class="store-page-info">Page ${p}</span>
+    <button class="btn btn-secondary store-page-btn" data-store-page="${p + 1}" ${!hasMore ? 'disabled' : ''}>${t('qa.next')}</button>
+  `;
+  
+  document.querySelectorAll('[data-store-page]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const newPage = parseInt(btn.dataset.storePage, 10);
+      storeSearch(undefined, undefined, undefined, newPage);
+    });
+  });
+}
+
+// Deprecated — use storeDownloadArtifact instead
+async function storeDownloadOrb(slug, hasPassword) {
+  console.warn('storeDownloadOrb is deprecated, use storeDownloadArtifact');
+  storeDownloadArtifact(slug, hasPassword);
+}
+
+window.storeDownloadOrb = storeDownloadOrb;
+
+async function showStoreDetail(slug) {
+  state.storeSearchState.query = $('store-search-query').value;
+  state.storeSearchState.tag = storeSelectedTag;
+  state.storeSearchState.method = $('store-method-filter').value;
+  state.storeView = 'detail';
+  
+  $('store-browse-view').style.display = 'none';
+  
+  const detailView = $('store-detail-view');
+  detailView.style.display = 'block';
+  detailView.innerHTML = `<div class="status-card muted-card">${t('orbsearch.searching')}</div>`;
+  
   try {
-    const result = await invoke('store_download_orb', { slug, password });
-    const name = result.report.manifest.display_name || result.report.manifest.name;
-    const version = result.report.manifest.version;
-    setStoreSearchStatus(t('store.downloaded', { name, version }), false);
-    await refreshLibrary();
-    showRestartHint();
-    showTab('library');
+    const orb = await invoke('store_get_orb', { slug });
+    if (!orb) {
+      detailView.innerHTML = `<div class="status-card error">${t('store.no_detail')}</div>`;
+      return;
+    }
+    renderStoreDetail(orb);
   } catch (error) {
+    detailView.innerHTML = `<div class="status-card error">${escapeHtml(String(error))}</div>`;
+  }
+}
+
+window.showStoreDetail = showStoreDetail;
+
+function renderStoreDetail(orb) {
+  const detailView = $('store-detail-view');
+  
+  const methodsHtml = (orb.methods || []).map(m => `<span class="store-pill">${escapeHtml(m)}</span>`).join('');
+  const tagsHtml = (orb.tags || []).map(t => `<span class="store-pill">${escapeHtml(typeof t === 'string' ? t : t.name || t)}</span>`).join('');
+  
+  const versionsHtml = (orb.versions || []).map(v => {
+    const firstArtifact = (v.artifacts && v.artifacts.length > 0) ? v.artifacts[0] : null;
+    const artifactId = firstArtifact ? escapeHtml(firstArtifact.id) : '';
+    const hasPwd = v.has_password;
+    
+    return `
+      <div class="store-version-item">
+        <div class="version-info">
+          <strong>${escapeHtml(v.version)}</strong>
+          <span class="muted" style="margin-left:8px;">${formatTimestamp(v.published_at)}</span>
+          ${v.is_latest ? `<span class="store-pill" style="margin-left:8px;">Latest</span>` : ''}
+          ${hasPwd ? `<span class="store-pill" style="margin-left:8px;">Password</span>` : ''}
+        </div>
+        <button class="btn btn-primary store-import-btn" data-artifact-id="${artifactId}" data-version="${escapeHtml(v.version)}" data-has-password="${hasPwd}" ${!artifactId ? 'disabled' : ''}>
+          Import
+        </button>
+      </div>
+    `;
+  }).join('');
+  
+  detailView.innerHTML = `
+    <div class="store-detail-header">
+      <button class="btn btn-secondary" onclick="showStoreBrowse()">&larr; ${t('store.detail_back_btn')}</button>
+      <h2>${escapeHtml(orb.display_name || orb.slug)}</h2>
+      <div class="store-detail-meta">
+        <span class="store-pill">v${escapeHtml(orb.latest_version)}</span>
+        ${orb.is_private ? `<span class="store-pill">Private</span>` : ''}
+      </div>
+    </div>
+    <p class="store-detail-desc">${escapeHtml(orb.description || '')}</p>
+    
+    ${methodsHtml ? `<div class="store-detail-section"><strong>Methods:</strong> ${methodsHtml}</div>` : ''}
+    ${tagsHtml ? `<div class="store-detail-section"><strong>Tags:</strong> ${tagsHtml}</div>` : ''}
+    
+    <div class="store-detail-section">
+      <h3 style="margin-bottom: 8px;">${t('store.versions_title')}</h3>
+      <div class="store-version-list">
+        ${versionsHtml || '<div class="muted">No versions</div>'}
+      </div>
+    </div>
+  `;
+  
+  detailView.querySelectorAll('.store-import-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const artifactId = button.dataset.artifactId;
+      const version = button.dataset.version;
+      const hasPassword = button.dataset.hasPassword === 'true';
+      storeImportOrb(artifactId, hasPassword, version);
+    });
+  });
+}
+
+window.renderStoreDetail = renderStoreDetail;
+
+function showStoreBrowse() {
+  state.storeView = 'browse';
+  
+  $('store-detail-view').style.display = 'none';
+  $('store-detail-view').innerHTML = '';
+  
+  $('store-browse-view').style.display = 'block';
+  
+  $('store-search-query').value = state.storeSearchState.query || '';
+  setStoreTag(state.storeSearchState.tag || null);
+  $('store-method-filter').value = state.storeSearchState.method || '';
+  
+  storeSearch(state.storeSearchState.query, state.storeSearchState.tag, state.storeSearchState.method, state.storeSearchState.page);
+}
+
+window.showStoreBrowse = showStoreBrowse;
+
+function storeDownloadArtifact(artifactId, hasPassword) {
+  if (hasPassword === true || hasPassword === 'true') {
+    $('store-password-dialog').style.display = 'flex';
+    $('store-password-input').value = '';
+    $('store-password-status').textContent = '';
+    $('store-password-status').classList.remove('error');
+    $('store-password-input').focus();
+    state.pendingDownloadArtifactId = artifactId;
+    return;
+  }
+
+  setStoreSearchStatus(t('store.downloading', { slug: artifactId }) || 'Downloading...', false);
+  invoke('store_download_artifact', { artifactId, token: null })
+    .then((result) => {
+      setStoreSearchStatus(t('store.artifact_downloaded', { result: result || artifactId }) || `Downloaded: ${result || artifactId}`, false);
+    })
+    .catch((error) => {
+      setStoreSearchStatus(t('store.download_error', { error }), true);
+    });
+}
+
+window.storeDownloadArtifact = storeDownloadArtifact;
+
+/** Find the import button element for a given artifact ID. */
+function getImportBtn(artifactId) {
+  return document.querySelector(`.store-import-btn[data-artifact-id="${CSS.escape(artifactId)}"]`);
+}
+
+/** Set an import button's text and state. */
+function setImportBtnState(btn, textKey, importing) {
+  if (!btn) return;
+  btn.textContent = t(textKey);
+  btn.disabled = !!importing;
+  btn.classList.toggle('btn-importing', !!importing);
+}
+
+async function storeImportOrb(artifactId, hasPassword, versionLabel) {
+  if (!artifactId) return;
+  
+  const btn = getImportBtn(artifactId);
+  
+  if (hasPassword === true || hasPassword === 'true') {
+    state.pendingDownloadArtifactId = artifactId;
+    state.pendingImportMode = true;
+    $('store-password-dialog').style.display = 'flex';
+    $('store-password-input').value = '';
+    $('store-password-status').textContent = '';
+    $('store-password-input').focus();
+    return;
+  }
+  
+  setImportBtnState(btn, 'store.import_btn_downloading', true);
+  setStoreSearchStatus(`Downloading ${versionLabel}...`, false);
+  try {
+    const path = await invoke('store_download_artifact', { artifactId, token: null });
+    setImportBtnState(btn, 'store.import_btn_installing', true);
+    setStoreSearchStatus(`Importing ${versionLabel}...`, false);
+    const result = await invoke('import_orb_zip', { path });
+    const name = result.report.manifest.display_name || result.report.manifest.name;
+    const ver = result.report.manifest.version;
+    setImportBtnState(btn, 'store.import_btn_done', false);
+    setStoreSearchStatus(`✅ Imported ${name} v${ver}`, false);
+    await refreshLibrary();
+    setTimeout(() => showTab('library'), 800);
+  } catch (error) {
+    setImportBtnState(btn, 'store.import_btn', false);
     setStoreSearchStatus(String(error), true);
   }
 }
 
-window.storeDownloadOrb = storeDownloadOrb;
+window.storeImportOrb = storeImportOrb;
+
+function storeSubmitPassword() {
+  const pwd = $('store-password-input').value;
+  const artifactId = state.pendingDownloadArtifactId;
+  if (!pwd || !artifactId) return;
+
+  const btn = getImportBtn(artifactId);
+  $('store-password-status').textContent = t('store.password_verifying');
+  $('store-password-status').classList.remove('error');
+
+  invoke('store_verify_download_password', { artifactId, password: pwd })
+    .then((tokenResult) => {
+      $('store-password-dialog').style.display = 'none';
+      state.pendingDownloadArtifactId = null;
+      const isImport = state.pendingImportMode;
+      state.pendingImportMode = false;
+      const token = tokenResult && typeof tokenResult === 'object' ? tokenResult.token : tokenResult;
+      
+      if (isImport) {
+        setImportBtnState(btn, 'store.import_btn_downloading', true);
+        setStoreSearchStatus('Downloading...', false);
+        return invoke('store_download_artifact', { artifactId, token })
+          .then((path) => {
+            setImportBtnState(btn, 'store.import_btn_installing', true);
+            setStoreSearchStatus('Importing...', false);
+            return invoke('import_orb_zip', { path });
+          })
+          .then((result) => {
+            const name = result.report.manifest.display_name || result.report.manifest.name;
+            const ver = result.report.manifest.version;
+            setImportBtnState(btn, 'store.import_btn_done', false);
+            setStoreSearchStatus(`✅ Imported ${name} v${ver}`, false);
+            refreshLibrary();
+            setTimeout(() => showTab('library'), 800);
+          });
+      } else {
+        setImportBtnState(btn, 'store.import_btn_downloading', true);
+        setStoreSearchStatus('Downloading...', false);
+        return invoke('store_download_artifact', { artifactId, token })
+          .then(() => {
+            setImportBtnState(btn, 'store.import_btn', false);
+            setStoreSearchStatus('✅ Download complete', false);
+          });
+      }
+    })
+    .catch((error) => {
+      setImportBtnState(btn, 'store.import_btn', false);
+      $('store-password-status').textContent = String(error);
+      $('store-password-status').classList.add('error');
+      setStoreSearchStatus(String(error), true);
+    });
+}
+
+function storeCancelPassword() {
+  $('store-password-dialog').style.display = 'none';
+  state.pendingDownloadArtifactId = null;
+}
+
+function storePasswordDialogVisible() {
+  return $('store-password-dialog').style.display !== 'none';
+}

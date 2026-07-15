@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use mcporb_runtime_app_core::{InstalledOrb, RegistryStore};
+use tracing;
 
 use crate::router;
 use crate::GatewayTool;
@@ -36,6 +37,9 @@ pub struct GatewayConfig {
     pub check_interval_secs: u64,
     /// TCP port for the HTTP gateway (if applicable).
     pub http_port: u16,
+    /// Transport label recorded in child process metrics ("stdio" or "http").
+    /// Set to "stdio" for the STDIO gateway and "http" for the HTTP gateway.
+    pub mcp_transport: String,
 }
 
 impl Default for GatewayConfig {
@@ -59,6 +63,7 @@ impl Default for GatewayConfig {
             idle_timeout_secs: 300,    // 5 minutes
             check_interval_secs: 30,
             http_port: 5600,
+            mcp_transport: "stdio".to_string(),
         }
     }
 }
@@ -104,6 +109,10 @@ fn build_gateway_orb(installed: &InstalledOrb) -> Result<GatewayOrb> {
     })
 }
 
+/// Claude Desktop enforces tool names ≤ 64 chars; truncate slug to ensure
+/// `{slug}__search_knowledge` fits.
+const MAX_MCP_TOOL_NAME_LEN: usize = 64;
+
 /// Build the `GatewayTool` list from the installed orb's manifest.
 ///
 /// All Orbs expose a `search_knowledge` tool (with appropriate description
@@ -111,6 +120,20 @@ fn build_gateway_orb(installed: &InstalledOrb) -> Result<GatewayOrb> {
 fn build_tools_from_manifest(installed: &InstalledOrb) -> Vec<GatewayTool> {
     let slug = &installed.slug;
     let manifest = &installed.manifest;
+
+    let namespaced_suffix_len = crate::router::NAMESPACE_SEP.len() + "search_knowledge".len();
+    let max_slug_for_mcp = MAX_MCP_TOOL_NAME_LEN.saturating_sub(namespaced_suffix_len);
+    let truncated_slug: &str = if slug.len() > max_slug_for_mcp {
+        tracing::warn!(
+            orb = %slug,
+            slug_len = slug.len(),
+            max_slug_len = max_slug_for_mcp,
+            "Orb slug too long for MCP tool name (max {max_slug_for_mcp} chars), truncating"
+        );
+        &slug[..max_slug_for_mcp]
+    } else {
+        slug
+    };
 
     // Build the search method enum from enabled capabilities
     let method_enum: Vec<&str> = {
@@ -152,7 +175,7 @@ fn build_tools_from_manifest(installed: &InstalledOrb) -> Vec<GatewayTool> {
 
     let method_description = build_method_description(&method_enum);
 
-    let namespaced_tool_name = router::build_namespaced_tool_name(slug, "search_knowledge");
+    let namespaced_tool_name = router::build_namespaced_tool_name(truncated_slug, "search_knowledge");
 
     vec![GatewayTool {
         original_name: "search_knowledge".to_string(),
@@ -392,5 +415,33 @@ mod tests {
         let gateway_orb = build_gateway_orb(&installed).unwrap();
 
         assert!(gateway_orb.tools[0].description.contains("My Orb"));
+    }
+
+    #[test]
+    fn long_slug_is_truncated_to_fit_tool_name_limit() {
+        // Slug long enough that {slug}__search_knowledge exceeds 64 chars
+        let long_slug = "a".repeat(50);
+        let installed = make_installed_orb("id1", &long_slug, "Long Slug Orb", vec![Capability::Bm25]);
+        let gateway_orb = build_gateway_orb(&installed).unwrap();
+
+        let namespaced = &gateway_orb.tools[0].namespaced_name;
+        // Must not exceed 64 chars
+        assert!(namespaced.len() <= 64, "namespaced name length {} exceeds 64: {namespaced}", namespaced.len());
+        // Must still end with __search_knowledge
+        assert!(namespaced.ends_with("__search_knowledge"), "namespaced name does not end with __search_knowledge: {namespaced}");
+        // Slug portion must be 46 chars (64 - 2 for __ - 16 for search_knowledge = 46)
+        let slug_part = namespaced.trim_end_matches("__search_knowledge");
+        assert_eq!(slug_part.len(), 46, "slug part should be truncated to 46 chars, got {}: {slug_part}", slug_part.len());
+    }
+
+    #[test]
+    fn short_slug_is_not_truncated() {
+        let installed =
+            make_installed_orb("id1", "short-slug", "Short Slug", vec![Capability::Bm25]);
+        let gateway_orb = build_gateway_orb(&installed).unwrap();
+        assert_eq!(
+            gateway_orb.tools[0].namespaced_name,
+            "short-slug__search_knowledge"
+        );
     }
 }

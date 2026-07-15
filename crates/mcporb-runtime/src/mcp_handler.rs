@@ -509,8 +509,9 @@ pub async fn run_stdio_loop(state: SharedState) -> anyhow::Result<()> {
 }
 
 /// Like [`run_stdio_loop`] but allows overriding the transport label used for
-/// metrics. When the gateway spawns a child via STDIO, the transport is set to
-/// `"http"` so request counts are attributed correctly.
+/// metrics. The gateway spawns the child with `--mcp-transport stdio` so
+/// gateway-forwarded requests are counted as STDIO, matching the actual pipe
+/// transport between gateway and child runtime.
 pub async fn run_stdio_loop_with_transport(state: SharedState, transport: &str) -> anyhow::Result<()> {
     tracing::info!("MCP stdio loop started (transport={transport})");
 

@@ -167,7 +167,7 @@ impl RuntimeManager {
             .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
 
         // Spawn the child process
-        match spawn_orb_process(&self.config.runtime_binary, orb).await {
+        match spawn_orb_process(&self.config.runtime_binary, orb, &self.config).await {
             Ok(proc) => {
                 tracing::info!(orb = %slug, "Orb process started");
                 processes.insert(slug.to_string(), OrbStatus::Running(proc));
@@ -382,15 +382,19 @@ impl Drop for RuntimeManager {
 async fn spawn_orb_process(
     runtime_binary: &PathBuf,
     orb: &GatewayOrb,
+    config: &crate::registry_reader::GatewayConfig,
 ) -> Result<OrbProcess> {
+    let metrics_dir = config.registry_dir.join("metrics");
     let mut child = tokio::process::Command::new(runtime_binary)
         .arg("--orb-zip")
         .arg(&orb.zip_path)
         .arg("--stdio-only")
         .arg("--orb-id")
         .arg(&orb.id)
+        .arg("--metrics-dir")
+        .arg(&metrics_dir)
         .arg("--mcp-transport")
-        .arg("http")
+        .arg(&config.mcp_transport)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

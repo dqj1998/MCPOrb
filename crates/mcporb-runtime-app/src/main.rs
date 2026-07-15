@@ -484,9 +484,9 @@ async fn store_verify_download_password(
 #[tauri::command]
 async fn store_download_artifact(
     artifact_id: String,
-    token: String,
+    token: Option<String>,
     state: tauri::State<'_, AppState>,
-) -> Result<ImportResult, String> {
+) -> Result<String, String> {
     let settings = {
         let settings_store = state.settings.lock().await;
         settings_store.load().map_err(to_string)?
@@ -496,16 +496,14 @@ async fn store_download_artifact(
 
     let dest_dir = settings.download_dir.join("store");
     std::fs::create_dir_all(&dest_dir).map_err(to_string)?;
-    let dest_path = dest_dir.join(format!("{artifact_id}.orb.zip"));
-    client
+    let dest_path = dest_dir.join(format!("{artifact_id}.zip"));
+    let token = token.unwrap_or_default();
+    let _size = client
         .download_orb(&artifact_id, &token, &dest_path)
         .await
         .map_err(to_string)?;
 
-    state
-        .registry
-        .import_zip(&dest_path, ImportOptions::default())
-        .map_err(to_string)
+    Ok(dest_path.to_string_lossy().to_string())
 }
 
 fn main() {

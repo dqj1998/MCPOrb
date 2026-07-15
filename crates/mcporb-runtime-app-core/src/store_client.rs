@@ -24,6 +24,7 @@ pub struct ListResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagInfo {
+    pub slug: String,
     pub name: String,
     #[serde(default)]
     pub count: i64,

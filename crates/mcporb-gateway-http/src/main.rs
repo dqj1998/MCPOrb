@@ -57,6 +57,7 @@ fn resolve_config(args: &Args) -> GatewayConfig {
     config.idle_timeout_secs = args.idle_timeout;
     config.check_interval_secs = args.check_interval;
     config.http_port = args.port;
+    config.mcp_transport = "http".to_string();
     config
 }
 
