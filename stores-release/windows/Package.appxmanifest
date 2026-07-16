@@ -6,7 +6,7 @@
 
   <Identity Name="amiProLLC.MCPOrbRunner"
             Publisher="CN=37E1746E-16D3-4C02-B914-708AB0B41EBF"
-            Version="1.1.10.0" />
+            Version="1.2.0.0" />
 
   <Properties>
     <DisplayName>MCPOrb Runner</DisplayName>
