@@ -15,6 +15,9 @@
 .idea/
 .vscode/
 .roo/
+.claude/
+.mimocode/
+.omo/
 
 # Environment files
 .env

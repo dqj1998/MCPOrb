@@ -76,9 +76,9 @@ Write-Host "  Icons: OK" -ForegroundColor Green
 # ── Step 1: Build ───────────────────────────────────────────────────────────
 if (-not $SkipBuild) {
     Write-Host "`n[1/3] Building MCPOrb Runner..." -ForegroundColor Yellow
-    $flag = if ($Configuration -eq "Release") { "--release" } else { "" }
-    Push-Location $RepoRoot
-    try { & cargo tauri build -p mcporb-runtime-app $flag; if ($LASTEXITCODE -ne 0) { throw "Build failed" } }
+    $flag = if ($Configuration -eq "Debug") { "--debug" } else { "" }
+    Push-Location $AppCrate
+    try { & cargo tauri build $flag; if ($LASTEXITCODE -ne 0) { throw "Build failed" } }
     finally { Pop-Location }
     Write-Host "  Build OK" -ForegroundColor Green
 } else {
