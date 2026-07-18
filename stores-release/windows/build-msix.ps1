@@ -3,31 +3,38 @@
     Build MCPOrb Runner MSIX package for Windows Store submission.
 
 .DESCRIPTION
-    Builds MCPOrb Runner and packages into MSIX using Windows SDK makeappx.exe.
-    Output: target\msix\MCPOrbRunner.msix
+    Builds the mcporb-runtime sidecar, the Tauri app, and packages into MSIX
+    using Windows SDK makeappx.exe.  Output: target\msix\MCPOrbRunner.msix
 
 .PARAMETER Configuration
     Build configuration: Release (default) or Debug.
 
 .PARAMETER SkipBuild
-    Skip cargo tauri build step (use existing target/release/mcporb-runner.exe).
+    Skip all build steps (use existing binaries under target/).
 
 .PARAMETER SkipSign
     Skip code signing (Microsoft signs Store submissions automatically).
 
+.PARAMETER SkipSidecar
+    Skip building sidecar binaries (mcporb-runtime, mcporb-gateway-stdio).
+    Has no effect when -SkipBuild is set.
+
 .EXAMPLE
     .\stores-release\windows\build-msix.ps1
     .\stores-release\windows\build-msix.ps1 -SkipBuild -SkipSign
+    .\stores-release\windows\build-msix.ps1 -SkipSidecar
 #>
 
 param(
     [ValidateSet("Release","Debug")]
     [string]$Configuration = "Release",
     [switch]$SkipBuild = $false,
-    [switch]$SkipSign = $false
+    [switch]$SkipSign = $false,
+    [switch]$SkipSidecar = $false
 )
 
 $ErrorActionPreference = "Stop"
+$configDir  = if ($Configuration -eq "Release") { "release" } else { "debug" }
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -38,8 +45,15 @@ $IconDir    = [System.IO.Path]::Combine($ScriptDir, "icons")
 $StageDir   = [System.IO.Path]::Combine($RepoRoot, "target", "msix-stage")
 $OutputDir  = [System.IO.Path]::Combine($RepoRoot, "target", "msix")
 $MsixPath   = [System.IO.Path]::Combine($OutputDir, "MCPOrbRunner.msix")
-$configDir  = if ($Configuration -eq "Release") { "release" } else { "debug" }
-$ExePath    = [System.IO.Path]::Combine($RepoRoot, "target", $configDir, "mcporb-runner.exe")
+
+$TargetDir   = [System.IO.Path]::Combine($RepoRoot, "target", $configDir)
+$ExePath     = [System.IO.Path]::Combine($TargetDir, "mcporb-runner.exe")
+$RuntimePath = [System.IO.Path]::Combine($TargetDir, "mcporb-runtime.exe")
+$GatewayPath = [System.IO.Path]::Combine($TargetDir, "mcporb-gateway-stdio.exe")
+
+# Sidecar crates
+$RuntimeCrate   = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-runtime")
+$GatewayCrate   = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-gateway-stdio")
 
 # ── SDK tool finder ─────────────────────────────────────────────────────────
 function Find-SdkTool {
@@ -59,7 +73,23 @@ function Find-SdkTool {
     return $null
 }
 
+# ── Rust build helper ───────────────────────────────────────────────────────
+function Invoke-CargoBuild {
+    param([string]$CrateDir, [string]$PackageName)
+    $crateName = Split-Path -Leaf $CrateDir
+    Write-Host "  Building $crateName ($PackageName, $Configuration)..." -ForegroundColor White
+    $flag = if ($Configuration -eq "Debug") { "" } else { "--release" }
+    Push-Location $RepoRoot
+    try {
+        & cargo build $flag --package $PackageName
+        if ($LASTEXITCODE -ne 0) { throw "Build failed for $PackageName" }
+    }
+    finally { Pop-Location }
+    Write-Host "    $PackageName OK" -ForegroundColor Green
+}
+
 Write-Host "=== MCPOrb Runner MSIX Build ===" -ForegroundColor Cyan
+Write-Host "  Configuration: $Configuration" -ForegroundColor White
 Write-Host ""
 
 # ── Check prerequisites ─────────────────────────────────────────────────────
@@ -73,20 +103,45 @@ $missing = $icons | Where-Object { -not (Test-Path ([System.IO.Path]::Combine($I
 if ($missing) { throw "Missing icons: $($missing -join ', ')" }
 Write-Host "  Icons: OK" -ForegroundColor Green
 
-# ── Step 1: Build ───────────────────────────────────────────────────────────
+# ── Step 0: Build sidecar binaries (mcporb-runtime + mcporb-gateway-stdio) ──
+if (-not $SkipBuild -and -not $SkipSidecar) {
+    Write-Host "`n[0/4] Building sidecar binaries..." -ForegroundColor Yellow
+
+    # mcporb-runtime (full / default features = vector-embedder)
+    Invoke-CargoBuild -CrateDir $RuntimeCrate -PackageName "mcporb-runtime"
+
+    # mcporb-gateway-stdio (if the crate directory exists)
+    if (Test-Path $GatewayCrate) {
+        Invoke-CargoBuild -CrateDir $GatewayCrate -PackageName "mcporb-gateway-stdio"
+    } else {
+        Write-Host "    mcporb-gateway-stdio crate not found, skipping" -ForegroundColor Yellow
+    }
+
+    Write-Host "  Sidecar build OK" -ForegroundColor Green
+} else {
+    Write-Host "`n[0/4] Skipping sidecar build" -ForegroundColor Yellow
+}
+
+# ── Step 1: Build Tauri app ─────────────────────────────────────────────────
 if (-not $SkipBuild) {
-    Write-Host "`n[1/3] Building MCPOrb Runner..." -ForegroundColor Yellow
+    Write-Host "`n[1/4] Building MCPOrb Runner (Tauri)..." -ForegroundColor Yellow
     $flag = if ($Configuration -eq "Debug") { "--debug" } else { "" }
     Push-Location $AppCrate
-    try { & cargo tauri build $flag; if ($LASTEXITCODE -ne 0) { throw "Build failed" } }
+    try {
+        # ── Tauri v2: build sidecar binary paths listed in externalBin
+        #    must exist *before* cargo tauri build runs, otherwise Tauri's
+        #    bundler cannot discover them.  We build them in step 0 above.
+        & cargo tauri build $flag
+        if ($LASTEXITCODE -ne 0) { throw "cargo tauri build failed" }
+    }
     finally { Pop-Location }
     Write-Host "  Build OK" -ForegroundColor Green
 } else {
-    Write-Host "`n[1/3] Skipping build" -ForegroundColor Yellow
+    Write-Host "`n[1/4] Skipping Tauri build" -ForegroundColor Yellow
 }
 
 # ── Step 2: Stage ───────────────────────────────────────────────────────────
-Write-Host "`n[2/3] Staging MSIX content..." -ForegroundColor Yellow
+Write-Host "`n[2/4] Staging MSIX content..." -ForegroundColor Yellow
 
 if (-not (Test-Path $ExePath)) { throw "Executable not found: $ExePath" }
 if (Test-Path $StageDir) { Remove-Item -Path $StageDir -Recurse -Force }
@@ -100,14 +155,30 @@ foreach ($i in $icons) {
     Copy-Item -Path ([System.IO.Path]::Combine($IconDir, $i)) -Destination ([System.IO.Path]::Combine($StageDir, "Assets", $i)) -Force
 }
 
-# Executable
+# Main executable
 Copy-Item -Path $ExePath -Destination ([System.IO.Path]::Combine($StageDir, "mcporb-runner.exe")) -Force
+
+# Sidecar: mcporb-runtime.exe (required at runtime via default_runtime_binary())
+if (Test-Path $RuntimePath) {
+    Copy-Item -Path $RuntimePath -Destination ([System.IO.Path]::Combine($StageDir, "mcporb-runtime.exe")) -Force
+    Write-Host "  Staged mcporb-runtime.exe" -ForegroundColor Gray
+} else {
+    Write-Host "  WARNING: mcporb-runtime.exe not found at $RuntimePath" -ForegroundColor Red
+}
+
+# Sidecar: mcporb-gateway-stdio.exe (optional, for gateway config snippets)
+if (Test-Path $GatewayPath) {
+    Copy-Item -Path $GatewayPath -Destination ([System.IO.Path]::Combine($StageDir, "mcporb-gateway-stdio.exe")) -Force
+    Write-Host "  Staged mcporb-gateway-stdio.exe" -ForegroundColor Gray
+} else {
+    Write-Host "  (mcporb-gateway-stdio.exe not found, gateway disabled in build)" -ForegroundColor Yellow
+}
 
 $count = (Get-ChildItem -Path $StageDir -Recurse -File).Count
 Write-Host "  Staged $count files" -ForegroundColor Green
 
 # ── Step 3: Pack ────────────────────────────────────────────────────────────
-Write-Host "`n[3/3] Creating MSIX package..." -ForegroundColor Yellow
+Write-Host "`n[3/4] Creating MSIX package..." -ForegroundColor Yellow
 
 if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
 
@@ -118,27 +189,45 @@ if (-not (Test-Path $MsixPath)) { throw "MSIX not created" }
 $size = [math]::Round((Get-Item $MsixPath).Length / 1MB, 2)
 Write-Host "  MSIX created: $MsixPath ($size MB)" -ForegroundColor Green
 
-# ── Sign (optional) ─────────────────────────────────────────────────────────
+# ── Step 4: Sign (optional) ─────────────────────────────────────────────────
 if (-not $SkipSign) {
+    Write-Host "`n[4/4] Signing MSIX..." -ForegroundColor Yellow
     $signtool = Find-SdkTool "signtool"
     if ($signtool) {
         $cert = Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.Subject -eq "CN=MCPOrb" } | Select-Object -First 1
         if (-not $cert) {
+            Write-Host "  Creating self-signed certificate (CN=MCPOrb)..." -ForegroundColor Yellow
             $cert = New-SelfSignedCertificate -Subject "CN=MCPOrb" -CertStoreLocation Cert:\LocalMachine\My -Type CodeSigningCert -KeyUsage DigitalSignature
         }
         if ($cert) {
             & $signtool sign /fd SHA256 /a /s My /n "CN=MCPOrb" /v $MsixPath
             if ($LASTEXITCODE -eq 0) { Write-Host "  Signed OK" -ForegroundColor Green }
+            else { Write-Host "  Signing FAILED" -ForegroundColor Red }
         }
+    } else {
+        Write-Host "  signtool not found, skipping sign" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  (unsigned - Microsoft signs on Store submission)" -ForegroundColor Yellow
+    Write-Host "`n[4/4] Skipping sign (Microsoft signs on Store submission)" -ForegroundColor Yellow
 }
 
 # ── Done ────────────────────────────────────────────────────────────────────
 Write-Host "`n=== BUILD COMPLETE ===" -ForegroundColor Cyan
 Write-Host "  $MsixPath ($size MB)" -ForegroundColor White
 Write-Host ""
+Write-Host "  MSIX contents:" -ForegroundColor Gray
+Get-ChildItem -Path $StageDir -Recurse -File | ForEach-Object {
+    $name = $_.Name
+    $len = "{0,8:F1} KB" -f ($_.Length / 1KB)
+    if ($_.Name -match "\.(exe|dll)$") {
+        $ver = (Get-Item $_.FullName).VersionInfo.ProductVersion
+        Write-Host "    $len  $name  (v$ver)" -ForegroundColor Gray
+    } else {
+        Write-Host "    $len  $name" -ForegroundColor Gray
+    }
+}
+Write-Host ""
 if (-not $SkipSign) {
-    Write-Host "  Test: Add-AppxPackage -Path `"$MsixPath`"" -ForegroundColor Gray
+    Write-Host "  Test install: Add-AppxPackage -Path `"$MsixPath`"" -ForegroundColor Gray
+    Write-Host "  Uninstall:    Get-AppxPackage *MCPOrb* | Remove-AppxPackage" -ForegroundColor Gray
 }
