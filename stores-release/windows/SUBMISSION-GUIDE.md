@@ -260,7 +260,7 @@ stores-release/windows/
 1. ⬜ 注册 Microsoft Partner Center 开发者账号
 2. ⬜ 在 Partner Center 创建应用记录
 3. ⬜ 运行应用并截取 4 张截图 (参考 `screenshots/README.txt`)
-4. ✅ 运行 `.\stores-release\windows\sync-version.ps1` — 版本已同步 (v1.2.0)
+4. ✅ 运行 `.\stores-release\windows\sync-version.ps1` — 版本已同步 (v1.2.1)
 5. ✅ 运行 `.\stores-release\windows\build-msix.ps1` — MSIX 已构建
 6. ⬜ 本地测试安装 MSIX:
    ```powershell

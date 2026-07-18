@@ -1,7 +1,7 @@
 # MCPOrb Runner — Windows Store Submission Checklist
 
 > **Product**: MCPOrb Runner
-> **Version**: 1.2.0
+> **Version**: 1.2.1
 > **Publisher**: MCPOrb
 > **Category**: Developer Tools
 

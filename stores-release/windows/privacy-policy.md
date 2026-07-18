@@ -73,4 +73,4 @@ If you have questions about this Privacy Policy, please contact us:
 
 ---
 
-This Privacy Policy applies to MCPOrb Runner version 1.2.0 and later.
+This Privacy Policy applies to MCPOrb Runner version 1.2.1 and later.
