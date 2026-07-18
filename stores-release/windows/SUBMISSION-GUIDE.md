@@ -143,33 +143,33 @@ Get-Command makeappx.exe -ErrorAction SilentlyContinue
 # https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/
 ```
 
-#### 3.2 生成图标 (如需重新生成)
-
-```powershell
-.\scripts\generate-store-icons.ps1
-```
-
-#### 3.3 同步版本号
+#### 3.2 同步版本号
 
 ```powershell
 # 确保 Package.appxmanifest 版本与 Cargo.toml 一致
-.\scripts\sync-version.ps1
+.\stores-release\windows\sync-version.ps1
 
 # 查看变更 (不实际修改)
-.\scripts\sync-version.ps1 -DryRun
+.\stores-release\windows\sync-version.ps1 -DryRun
 ```
 
-#### 3.4 构建 MSIX
+#### 3.3 构建 MSIX
 
 ```powershell
-# 完整构建 (包含 cargo tauri build)
-.\packages\windows-store\build-msix.ps1
+# 完整构建 (包含 cargo build 侧车 + cargo tauri build + MSIX 打包)
+.\stores-release\windows\build-msix.ps1
 
-# 仅打包 (跳过构建步骤)
-.\packages\windows-store\build-msix.ps1 -SkipBuild
+# 仅打包 (跳过全部构建步骤，使用现有 target/release/ 下的二进制文件)
+.\stores-release\windows\build-msix.ps1 -SkipBuild
+
+# 仅跳过侧车构建 (已编译好侧车，只重新构建 Tauri 应用)
+.\stores-release\windows\build-msix.ps1 -SkipSidecar
 
 # Debug 构建
-.\packages\windows-store\build-msix.ps1 -Configuration Debug
+.\stores-release\windows\build-msix.ps1 -Configuration Debug
+
+# 构建后验证
+.\stores-release\windows\verify-msix.ps1
 ```
 
 构建产物位置: `target\msix\MCPOrbRunner.msix`
@@ -259,9 +259,12 @@ stores-release/windows/
 
 1. ⬜ 注册 Microsoft Partner Center 开发者账号
 2. ⬜ 在 Partner Center 创建应用记录
-3. ⬜ 运行应用并截取 4 张截图
-4. ⬜ 运行 `.\scripts\sync-version.ps1` 同步版本
-5. ⬜ 运行 `.\packages\windows-store\build-msix.ps1` 构建 MSIX
-6. ⬜ 本地测试安装 MSIX
+3. ⬜ 运行应用并截取 4 张截图 (参考 `screenshots/README.txt`)
+4. ✅ 运行 `.\stores-release\windows\sync-version.ps1` — 版本已同步 (v1.2.0)
+5. ✅ 运行 `.\stores-release\windows\build-msix.ps1` — MSIX 已构建
+6. ⬜ 本地测试安装 MSIX:
+   ```powershell
+   Add-AppxPackage -Path "target\msix\MCPOrbRunner.msix"
+   ```
 7. ⬜ 上传到 Partner Center
 8. ⬜ 提交审核

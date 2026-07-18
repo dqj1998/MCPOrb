@@ -61,15 +61,25 @@
 
 ## Build & Package
 
-- [ ] **Sync version** (if Cargo.toml changed):
+- [x] **Sidecar built** (mcporb-runtime + mcporb-gateway-stdio):
       ```powershell
-      .\stores-release\windows\sync-version.ps1
+      cargo build --release -p mcporb-runtime
+      cargo build --release -p mcporb-gateway-stdio
       ```
-- [ ] **Build MSIX**:
+- [x] **Tauri app built** (mcporb-runner.exe):
+      ```powershell
+      cargo tauri build --release  # or via build-msix.ps1
+      ```
+      Bundles: `.msi` + `.exe` (NSIS) in `target/release/bundle/`
+- [x] **MSIX packaged**:
       ```powershell
       .\stores-release\windows\build-msix.ps1
       ```
-      Output: `target\msix\MCPOrbRunner.msix`
+      Output: `target\msix\MCPOrbRunner.msix` (11.5 MB)
+- [ ] **Verify MSIX contents**:
+      ```powershell
+      .\stores-release\windows\verify-msix.ps1
+      ```
 - [ ] **Test local install**:
       ```powershell
       Add-AppxPackage -Path "target\msix\MCPOrbRunner.msix"
@@ -121,9 +131,11 @@
 | Action | Command |
 |--------|---------|
 | Sync version | `.\stores-release\windows\sync-version.ps1` |
-| Build MSIX | `.\stores-release\windows\build-msix.ps1` |
-| Build (skip build) | `.\stores-release\windows\build-msix.ps1 -SkipBuild` |
-| Build unsigned | `.\stores-release\windows\build-msix.ps1 -SkipSign` |
+| Build MSIX (full) | `.\stores-release\windows\build-msix.ps1` |
+| Build MSIX (skip build) | `.\stores-release\windows\build-msix.ps1 -SkipBuild -SkipSign` |
+| Build MSIX (skip sidecar) | `.\stores-release\windows\build-msix.ps1 -SkipSidecar` |
+| Build MSIX (unsigned) | `.\stores-release\windows\build-msix.ps1 -SkipSign` |
+| Verify MSIX | `.\stores-release\windows\verify-msix.ps1` |
 | Capture screenshot | `.\stores-release\windows\screenshots\capture.ps1 -OutputName <tab>` |
 | Install locally | `Add-AppxPackage -Path "target\msix\MCPOrbRunner.msix"` |
 | Uninstall | `Get-AppxPackage *MCPOrb* \| Remove-AppxPackage` |
