@@ -28,6 +28,19 @@ const OPTIONAL_FILES: &[&str] = &[
     "orb_assets.enc",
 ];
 
+#[derive(Debug, Clone, Deserialize)]
+struct OrbSecurityFile {
+    #[serde(default)]
+    access_password: Option<AccessPasswordFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AccessPasswordFile {
+    enabled: bool,
+    #[serde(default)]
+    unlock_persistence: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportOptions {
     pub copy_into_registry: bool,
@@ -49,6 +62,8 @@ pub struct ZipValidationReport {
     pub file_count: usize,
     pub total_uncompressed_size: u64,
     pub encrypted_assets: bool,
+    pub password_protected: bool,
+    pub password_persistence: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +120,23 @@ fn validate_archive<R: Read + Seek>(
     }
 
     let encrypted_assets = names.iter().any(|name| name == "orb_assets.enc");
+    let (password_protected, password_persistence) = if names.iter().any(|name| name == "orb_security.json") {
+        let security_json = read_file(archive, "orb_security.json")?;
+        let security: OrbSecurityFile = serde_json::from_slice(&security_json)
+            .context("parse orb_security.json from Orb ZIP")?;
+        if let Some(access_password) = security.access_password {
+            if access_password.enabled {
+                (true, access_password.unlock_persistence)
+            } else {
+                (false, None)
+            }
+        } else {
+            (false, None)
+        }
+    } else {
+        (false, None)
+    };
+
     if encrypted_assets {
         ensure_present(&names, "orb_security.json")?;
         ensure_present(&names, "orb_assets.enc")?;
@@ -125,11 +157,13 @@ fn validate_archive<R: Read + Seek>(
     validate_manifest_versions(&manifest)?;
 
     let assets_sha256 = compute_assets_sha256(archive, &names)?;
-    if let Some(expected) = manifest.assets_sha256.as_deref() {
-        if expected != assets_sha256 {
-            bail!(
-                "Orb ZIP assets_sha256 mismatch: manifest has {expected}, calculated {assets_sha256}"
-            );
+    if !encrypted_assets {
+        if let Some(expected) = manifest.assets_sha256.as_deref() {
+            if expected != assets_sha256 {
+                bail!(
+                    "Orb ZIP assets_sha256 mismatch: manifest has {expected}, calculated {assets_sha256}"
+                );
+            }
         }
     }
 
@@ -140,6 +174,8 @@ fn validate_archive<R: Read + Seek>(
         file_count: names.len(),
         total_uncompressed_size: total_size,
         encrypted_assets,
+        password_protected,
+        password_persistence,
     })
 }
 
@@ -334,6 +370,58 @@ mod tests {
         assert_eq!(report.manifest.name, "test-orb");
         assert_eq!(report.file_count, 4);
         assert!(!report.encrypted_assets);
+        assert!(!report.password_protected);
+    }
+
+    #[test]
+    fn detects_password_metadata() {
+        let security_json =
+            br#"{"access_password":{"enabled":true,"unlock_persistence":"every_launch"}}"#;
+        let documents = vec![Document {
+            id: 0,
+            title: "Doc".to_string(),
+            source_path: "doc.md".to_string(),
+            page_count: None,
+            sections: vec![],
+        }];
+        let chunks = vec![Chunk {
+            id: 0,
+            document_id: 0,
+            section_id: None,
+            page: None,
+            text: "hello runtime app".to_string(),
+            token_count: 3,
+        }];
+        let index = Bm25Index::default();
+        let docs = postcard::to_allocvec(&documents).unwrap();
+        let chunk_bytes = postcard::to_allocvec(&chunks).unwrap();
+        let bm25 = postcard::to_allocvec(&index).unwrap();
+        let mut hasher = Sha256::new();
+        for bytes in [&bm25[..], &chunk_bytes[..], &docs[..], &security_json[..]] {
+            hasher.update(bytes);
+        }
+        let expected_assets_sha = format!("{:x}", hasher.finalize());
+        let manifest = test_manifest(Some(expected_assets_sha));
+
+        let cursor = Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(cursor);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("orb_manifest.json", opts).unwrap();
+        zip.write_all(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+        zip.start_file("documents.postcard", opts).unwrap();
+        zip.write_all(&docs).unwrap();
+        zip.start_file("chunks.postcard", opts).unwrap();
+        zip.write_all(&chunk_bytes).unwrap();
+        zip.start_file("bm25_index.postcard", opts).unwrap();
+        zip.write_all(&bm25).unwrap();
+        zip.start_file("orb_security.json", opts).unwrap();
+        zip.write_all(security_json).unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+
+        let report = validate_zip_bytes(&bytes).unwrap();
+        assert!(report.password_protected);
+        assert_eq!(report.password_persistence.as_deref(), Some("every_launch"));
     }
 
     #[test]

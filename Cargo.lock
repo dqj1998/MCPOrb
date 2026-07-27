@@ -3074,6 +3074,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3084,7 +3085,13 @@ name = "mcporb-runtime-app-core"
 version = "1.2.1"
 dependencies = [
  "anyhow",
+ "argon2",
+ "base64 0.22.1",
+ "chacha20poly1305",
  "dirs 5.0.1",
+ "hkdf",
+ "hmac",
+ "keyring",
  "mcporb-runtime-core",
  "postcard",
  "reqwest 0.12.28",
@@ -3092,6 +3099,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "zeroize",
  "zip",
 ]
 

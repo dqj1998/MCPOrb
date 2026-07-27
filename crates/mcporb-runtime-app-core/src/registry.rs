@@ -24,6 +24,9 @@ pub struct InstalledOrb {
     pub install_source: InstallSource,
     pub store_artifact_id: Option<String>,
     pub encrypted_assets: bool,
+    #[serde(default)]
+    pub password_protected: bool,
+    pub password_persistence: Option<String>,
     pub last_used_at: Option<String>,
 }
 
@@ -133,6 +136,8 @@ impl RegistryStore {
             install_source: InstallSource::LocalImport,
             store_artifact_id: None,
             encrypted_assets: report.encrypted_assets,
+            password_protected: report.password_protected,
+            password_persistence: report.password_persistence.clone(),
             last_used_at: None,
         };
         upsert_orb(&mut registry, installed);
