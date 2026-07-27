@@ -1,16 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use mcporb_runtime_app_core::{
     mcp_config, metrics, platform_config, search, settings::SettingsStore, store_client::StoreClient,
-    ImportOptions, ImportResult, InstalledOrb, PlatformConfig, RegistryStore, RuntimeSettings,
+    validate_zip_path, ImportOptions, InstalledOrb, PlatformConfig, RegistryStore, RuntimeSettings,
     DownloadToken, ListResponse, OrbDetail, SearchResponse, TagInfo, WriteConfigResult,
+    inspect_orb_security, remember_orb_password as remember_orb_password_impl,
+    verify_orb_password as verify_orb_password_impl, OrbSecurityInfo,
 };
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tokio::sync::Mutex;
+
+const ORB_UNLOCK_PASSWORD_ENV: &str = "MCPORB_UNLOCK_PASSWORD";
 
 #[derive(Clone)]
 struct AppState {
@@ -27,6 +33,19 @@ struct RunningOrb {
     port: u16,
     token: String,
     pid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrbStartRequest {
+    orb_id: String,
+    password: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ZipInspectResult {
+    password_protected: bool,
+    manifest_name: String,
+    manifest_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,18 +65,64 @@ fn list_orbs(state: tauri::State<AppState>) -> Result<Vec<InstalledOrb>, String>
     state.registry.list().map_err(to_string)
 }
 
+#[derive(Debug, Serialize)]
+struct ImportWithSecurity {
+    report: mcporb_runtime_app_core::ZipValidationReport,
+    stored_zip_path: PathBuf,
+    security: Option<OrbSecurityInfo>,
+}
+
 #[tauri::command]
-fn import_orb_zip(path: String, state: tauri::State<AppState>) -> Result<ImportResult, String> {
-    state
+fn inspect_zip(path: String) -> Result<ZipInspectResult, String> {
+    let report = validate_zip_path(&PathBuf::from(&path)).map_err(to_string)?;
+    Ok(ZipInspectResult {
+        password_protected: report.password_protected,
+        manifest_name: report.manifest.display_name.unwrap_or(report.manifest.name),
+        manifest_version: report.manifest.version,
+    })
+}
+
+#[tauri::command]
+fn import_orb_zip(path: String, password: Option<String>, state: tauri::State<AppState>) -> Result<ImportWithSecurity, String> {
+    let src = PathBuf::from(&path);
+
+    let pre_check = validate_zip_path(&src).map_err(to_string)?;
+    if pre_check.password_protected {
+        let pwd = password.as_deref().unwrap_or("");
+        if pwd.is_empty() {
+            return Err("This Orb is password-protected. Please provide the password to import it.".to_string());
+        }
+        if !verify_orb_password_impl(&src, pwd).map_err(to_string)? {
+            return Err("Incorrect password for this Orb.".to_string());
+        }
+    }
+
+    let result = state
         .registry
-        .import_zip(&PathBuf::from(path), ImportOptions::default())
-        .map_err(to_string)
+        .import_zip(&src, ImportOptions::default())
+        .map_err(to_string)?;
+    let security = inspect_orb_security(&result.stored_zip_path).ok();
+
+    if let Some(ref pwd) = password {
+        if pre_check.password_protected && !pwd.is_empty() {
+            if let Err(e) = remember_orb_password_impl(&result.stored_zip_path, pwd) {
+                eprintln!("[MCPOrb] warning: failed to remember password in keychain: {e}");
+            }
+        }
+    }
+
+    Ok(ImportWithSecurity {
+        report: result.report,
+        stored_zip_path: result.stored_zip_path,
+        security,
+    })
 }
 
 #[tauri::command]
 fn search_orb(
     orb_id: String,
     query: String,
+    password: Option<String>,
     method: Option<String>,
     top_k: Option<usize>,
     state: tauri::State<AppState>,
@@ -67,7 +132,12 @@ fn search_orb(
         .get(&orb_id)
         .map_err(to_string)?
         .ok_or_else(|| format!("Orb `{orb_id}` is not installed"))?;
-    search::search_zip(&orb.zip_path, &query, method.as_deref(), top_k).map_err(to_string)
+    if let Some(ref pwd) = password {
+        search::search_zip_with_password(&orb.zip_path, &query, method.as_deref(), top_k, pwd)
+            .map_err(to_string)
+    } else {
+        search::search_zip(&orb.zip_path, &query, method.as_deref(), top_k).map_err(to_string)
+    }
 }
 
 #[tauri::command]
@@ -131,8 +201,22 @@ async fn save_settings(
 }
 
 #[tauri::command]
+async fn get_orb_security(
+    orb_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<OrbSecurityInfo, String> {
+    let orb = state
+        .registry
+        .get(&orb_id)
+        .map_err(to_string)?
+        .ok_or_else(|| format!("Orb `{orb_id}` is not installed"))?;
+    inspect_orb_security(&orb.zip_path).map_err(to_string)
+}
+
+#[tauri::command]
 async fn start_orb_http(
     orb_id: String,
+    password: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<RunningOrb, String> {
     let orb = state
@@ -169,6 +253,10 @@ async fn start_orb_http(
         cmd.arg("--bind-external");
     }
 
+    if let Some(password) = password.filter(|value| !value.is_empty()) {
+        cmd.env(ORB_UNLOCK_PASSWORD_ENV, OsString::from(password));
+    }
+
     let child = cmd.spawn().map_err(|e| format!("Failed to start Orb: {e}"))?;
     let pid = child.id().unwrap_or(0);
 
@@ -184,6 +272,105 @@ async fn start_orb_http(
     state.running_orbs.lock().await.push(running.clone());
 
     Ok(running)
+}
+
+#[tauri::command]
+async fn batch_start_orbs(
+    orbs: Vec<OrbStartRequest>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RunningOrb>, String> {
+    let settings = {
+        let settings_store = state.settings.lock().await;
+        settings_store.load().map_err(to_string)?
+    };
+
+    let runtime_path = default_runtime_binary()
+        .ok_or_else(|| "Could not resolve mcporb-runtime binary path".to_string())?;
+    let token_base = |orb_id: &str| -> String {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(orb_id.as_bytes());
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize())
+    };
+
+    let mut results = Vec::new();
+    let mut errors = Vec::new();
+    let mut children_lock = state.running_children.lock().await;
+    let mut running_lock = state.running_orbs.lock().await;
+
+    for req in orbs {
+            if children_lock.contains_key(&req.orb_id) {
+            if let Some(r) = running_lock.iter().find(|r| r.orb_id == req.orb_id) {
+                results.push(r.clone());
+            }
+            continue;
+        }
+
+        let orb = match state.registry.get(&req.orb_id) {
+            Ok(Some(orb)) => orb,
+            Ok(None) => {
+                errors.push(format!("{}: not installed", req.orb_id));
+                continue;
+            }
+            Err(e) => {
+                errors.push(format!("{}: {e}", req.orb_id));
+                continue;
+            }
+        };
+
+        let token = token_base(&req.orb_id);
+        let port = settings.http_port + results.len() as u16;
+
+        let mut cmd = tokio::process::Command::new(&runtime_path);
+        cmd.arg("--orb-zip")
+            .arg(&orb.zip_path)
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--token")
+            .arg(&token)
+            .arg("--no-open")
+            .arg("--orb-id")
+            .arg(&req.orb_id)
+            .arg("--metrics-dir")
+            .arg(state.registry.root_dir().join("metrics"));
+
+        if settings.network_binding == mcporb_runtime_app_core::settings::NetworkBinding::External {
+            cmd.arg("--bind-external");
+        }
+
+        if let Some(password) = req.password.filter(|value| !value.is_empty()) {
+            cmd.env(ORB_UNLOCK_PASSWORD_ENV, std::ffi::OsString::from(password));
+        }
+
+        match cmd.spawn() {
+            Ok(child) => {
+                let pid = child.id().unwrap_or(0);
+                let running = RunningOrb {
+                    orb_id: req.orb_id.clone(),
+                    slug: orb.slug.clone(),
+                    port,
+                    token: token.clone(),
+                    pid,
+                };
+                children_lock.insert(req.orb_id.clone(), child);
+                running_lock.push(running.clone());
+                results.push(running);
+            }
+            Err(e) => {
+                errors.push(format!("{}: failed to spawn: {e}", req.orb_id));
+            }
+        }
+    }
+
+    drop(children_lock);
+    drop(running_lock);
+
+    if !errors.is_empty() {
+        tracing::warn!("batch_start_orbs partial errors: {:?}", errors);
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]
@@ -284,6 +471,19 @@ async fn get_orb_qa_history(
     })
 }
 
+async fn shutdown_running_orbs(state: &AppState) {
+    state.running_orbs.lock().await.clear();
+
+    let mut children = state.running_children.lock().await;
+    let mut drained: Vec<(String, tokio::process::Child)> = children.drain().collect();
+    drop(children);
+
+    for (_, child) in drained.iter_mut() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+}
+
 #[tauri::command]
 async fn gateway_http_config_snippets(
     state: tauri::State<'_, AppState>,
@@ -352,6 +552,7 @@ fn build_merged_platform_config(
     );
 
     // Use gateway binary if available, fall back to per-orb for empty registries
+
     let use_gateway = default_gateway_binary().is_some() && !orbs.is_empty();
 
     if use_gateway {
@@ -537,12 +738,22 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let state = window.app_handle().state::<AppState>().inner().clone();
+                tauri::async_runtime::block_on(async move {
+                    shutdown_running_orbs(&state).await;
+                });
+            }
+        })
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             list_orbs,
+            inspect_zip,
             import_orb_zip,
             search_orb,
+            get_orb_security,
             gateway_mcp_config_snippets,
             mcp_config_snippets,
             open_path,
@@ -564,6 +775,7 @@ fn main() {
             discover_platform_configs,
             apply_platform_config,
             read_platform_config_raw,
+            batch_start_orbs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MCPOrb Runner");
@@ -639,9 +851,11 @@ fn is_runner_wrapper_mode() -> bool {
         .unwrap_or(false)
 }
 
-fn default_runtime_binary() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
+/// Look for `mcporb-runtime` (or `mcporb-runtime-lite`) in `dir`.
+/// Returns `Some(dir / "mcporb-runtime{EXE_SUFFIX}")` even if the file does not
+/// exist (caller should handle the missing case at spawn time), matching the
+/// original behaviour of returning a default path as a last resort.
+fn resolve_runtime_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
     let suffix = std::env::consts::EXE_SUFFIX;
     for name in ["mcporb-runtime", "mcporb-runtime-lite"] {
         let path = dir.join(format!("{name}{suffix}"));
@@ -652,31 +866,187 @@ fn default_runtime_binary() -> Option<PathBuf> {
     Some(dir.join(format!("mcporb-runtime{suffix}")))
 }
 
+fn default_runtime_binary() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    resolve_runtime_binary_in(&dir)
+}
+
 /// The binary path to use in MCP client config (STDIO command).
 /// In MAS builds this is mcporb-runner (the wrapper) so that Claude Desktop
 /// spawns the sandboxed Tauri app, which in turn spawns mcporb-runtime as a
 /// child process inheriting the sandbox container.
-fn mcp_binary_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
+fn resolve_mcp_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
     let suffix = std::env::consts::EXE_SUFFIX;
     let runner = dir.join(format!("mcporb-runner{suffix}"));
     if runner.is_file() {
         Some(runner)
     } else {
-        default_runtime_binary()
+        resolve_runtime_binary_in(dir)
     }
 }
 
-/// The path to the `mcporb-gateway-stdio` binary.
-fn default_gateway_binary() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
+fn mcp_binary_path() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    resolve_mcp_binary_in(&dir)
+}
+
+fn resolve_gateway_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
     let suffix = std::env::consts::EXE_SUFFIX;
     let path = dir.join(format!("mcporb-gateway-stdio{suffix}"));
     if path.is_file() { Some(path) } else { None }
 }
 
+/// The path to the `mcporb-gateway-stdio` binary, resolved relative to the
+/// current executable.
+fn default_gateway_binary() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    resolve_gateway_binary_in(&dir)
+}
+
 fn to_string(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    // ── binary resolution tests ──────────────────────────────────────────────
+
+    #[test]
+    fn resolve_gateway_binary_returns_none_in_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(resolve_gateway_binary_in(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_gateway_binary_finds_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let bin = dir.path().join(format!("mcporb-gateway-stdio{suffix}"));
+        fs::write(&bin, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(resolve_gateway_binary_in(dir.path()), Some(bin));
+    }
+
+    #[test]
+    fn resolve_gateway_binary_ignores_wrong_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let bin = dir.path().join(format!("mcporb-runtime{suffix}"));
+        fs::write(&bin, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        // gateway binary is absent, should not find runtime
+        assert_eq!(resolve_gateway_binary_in(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_runtime_binary_finds_exact_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let bin = dir.path().join(format!("mcporb-runtime{suffix}"));
+        fs::write(&bin, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(resolve_runtime_binary_in(dir.path()), Some(bin));
+    }
+
+    #[test]
+    fn resolve_runtime_binary_prefers_exact_over_lite() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let full = dir.path().join(format!("mcporb-runtime{suffix}"));
+        let lite = dir.path().join(format!("mcporb-runtime-lite{suffix}"));
+        fs::write(&full, "").unwrap();
+        fs::write(&lite, "").unwrap();
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&full, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(&lite, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(resolve_runtime_binary_in(dir.path()), Some(full));
+    }
+
+    #[test]
+    fn resolve_runtime_binary_falls_back_to_default_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        // No file exists, but the function returns a default path anyway
+        let expected = dir.path().join(format!("mcporb-runtime{suffix}"));
+        assert_eq!(resolve_runtime_binary_in(dir.path()), Some(expected));
+    }
+
+    #[test]
+    fn resolve_mcp_binary_prefers_runner_over_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let runner = dir.path().join(format!("mcporb-runner{suffix}"));
+        let runtime = dir.path().join(format!("mcporb-runtime{suffix}"));
+        fs::write(&runner, "").unwrap();
+        fs::write(&runtime, "").unwrap();
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&runner, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // runner takes precedence
+        assert_eq!(resolve_mcp_binary_in(dir.path()), Some(runner));
+    }
+
+    #[test]
+    fn resolve_mcp_binary_falls_back_to_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let runtime = dir.path().join(format!("mcporb-runtime{suffix}"));
+        fs::write(&runtime, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        // no runner, should find runtime
+        assert_eq!(resolve_mcp_binary_in(dir.path()), Some(runtime));
+    }
+
+    // ── existing tests ───────────────────────────────────────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_running_orbs_clears_state_and_kills_children() {
+        tauri::async_runtime::block_on(async {
+            let child = tokio::process::Command::new("sleep")
+                .arg("30")
+                .spawn()
+                .expect("spawn sleep child");
+            let pid = child.id().unwrap_or(0);
+
+            let app_state = AppState {
+                registry: RegistryStore::new(PathBuf::from(".mcporb-runtime-test")),
+                settings: Arc::new(Mutex::new(SettingsStore::new(PathBuf::from(
+                    ".mcporb-runtime-test",
+                )))),
+                running_orbs: Arc::new(Mutex::new(vec![RunningOrb {
+                    orb_id: "orb-1".to_string(),
+                    slug: "orb-1".to_string(),
+                    port: 7777,
+                    token: "token".to_string(),
+                    pid,
+                }])),
+                running_children: Arc::new(Mutex::new(HashMap::new())),
+            };
+
+            app_state
+                .running_children
+                .lock()
+                .await
+                .insert("orb-1".to_string(), child);
+
+            shutdown_running_orbs(&app_state).await;
+
+            assert!(app_state.running_orbs.lock().await.is_empty());
+            assert!(app_state.running_children.lock().await.is_empty());
+        });
+    }
 }
