@@ -2,14 +2,18 @@ const invoke = window.__TAURI__?.core?.invoke;
 
 const state = {
   orbs: [],
+  orbSecurityById: {},
   activeTab: 'library',
   orbSearchTargetId: null,
+  orbSearchPassword: null,
   platformConfigs: [],
   runningOrbIds: [],
   qaOrbId: null,
   qaPage: 1,
   qaTotalPages: 1,
+
   pendingDeleteOrbId: null,
+  pendingImportOrbId: null,
   pendingDownloadArtifactId: null,
   storeSearchState: { query: '', tag: null, method: null, page: 1 },
   storeView: 'browse',
@@ -24,6 +28,40 @@ const importState = {
 
 const $ = (id) => document.getElementById(id);
 
+// ── Theme (Light / Dark / System) ─────────────────────────────────────────
+
+const THEME_KEY = 'mcporb-runner-theme';
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  const html = document.documentElement;
+  if (theme === 'system') {
+    html.setAttribute('data-theme', getSystemTheme());
+  } else {
+    html.setAttribute('data-theme', theme);
+  }
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const theme = saved || 'system';
+  const sel = document.getElementById('theme-select');
+  if (sel) sel.value = theme;
+  applyTheme(theme);
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    const current = document.getElementById('theme-select')?.value || 'system';
+    if (current === 'system') applyTheme('system');
+  });
+}
+
+function setTheme(theme) {
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme(theme);
+}
+
 // ── i18n ──────────────────────────────────────────────────────────────────
 
 const LOCALE_KEY = 'mcporb-runtime-locale';
@@ -32,6 +70,9 @@ const locales = {
   en: {
     /* header */
     'app.title': 'MCPOrb Runner',
+    'theme.system': 'System',
+    'theme.light': 'Light',
+    'theme.dark': 'Dark',
     'tab.library': 'Library',
     'tab.mcp': 'MCP Config',
     'tab.store': 'Store',
@@ -44,7 +85,6 @@ const locales = {
     'library.filter_placeholder': 'Search orbs by name or description…',
     'library.filter_btn': 'Filter',
     'library.search_btn': 'Search',
-    'library.start_http_btn': 'Start HTTP',
     'library.http_badge': 'HTTP',
     'library.http_btn': 'HTTP',
     'library.no_orbs': 'No Orbs installed yet. Click Import to add an Orb ZIP.',
@@ -54,8 +94,9 @@ const locales = {
     'library.delete_btn': 'Delete',
     'library.delete_confirm': 'Are you sure you want to delete "{name}"?',
     'library.delete_success': 'Deleted {name}',
-    'library.restart_hint': 'If you have MCP clients (Claude, Cursor, etc.) running, please restart them to use the updated Orbs.',
-    'library.stats_requests': 'Req: {total}',
+    'library.password_badge': 'Password',
+    'library.password_every_launch': 'Every launch',
+    'library.password_remembered': 'Remembered',
     'library.stats_searches': 'Search: {n}',
     'library.stats_stdio': 'STDIO: {n}',
     'library.stats_http': 'HTTP: {n}',
@@ -154,7 +195,13 @@ const locales = {
     'import.validating': 'Validating and importing Orb ZIP...',
     'import.select_zip': 'Please select a .zip file.',
     'import.desktop_only': 'File selection is only available in the MCPOrb Runner desktop app.',
-    'import.success': 'Imported {name} {version}\nStored at {path}\nZIP {zip_sha256}\nAssets {assets_sha256}',
+    'import.success': 'Imported {name} {version}\nStored at {path}',
+    'import.password_title': 'Remember Orb Password',
+    'import.password_desc': 'Enter the password for "{name}" to remember it on this device.',
+    'import.password_submit': 'Save & Remember',
+    'import.password_skip': 'Skip',
+    'import.password_verifying': 'Verifying password…',
+    'import.password_keychain_hint': 'Password is saved to and accessed from your OS credential store (e.g. macOS Keychain, Windows Credential Manager). Stays on this device only.',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
@@ -181,6 +228,7 @@ const locales = {
     /* orb search modal */
     'orbsearch.search_placeholder': 'Search inside this Orb…',
     'orbsearch.search_btn': 'Search',
+    'orbsearch.encrypted_prompt': 'This orb is encrypted. Enter the password above to search.',
     'orbsearch.close_btn': 'Close',
     'orbsearch.no_matches': 'No matches.',
     'orbsearch.enter_query': 'Enter a query to search this Orb.',
@@ -197,6 +245,9 @@ const locales = {
   },
   ja: {
     'app.title': 'MCPOrb Runner',
+    'theme.system': 'システム',
+    'theme.light': 'ライト',
+    'theme.dark': 'ダーク',
     'tab.library': 'ライブラリ',
     'tab.mcp': 'MCP設定',
     'tab.store': 'ストア',
@@ -208,7 +259,6 @@ const locales = {
     'library.filter_placeholder': 'Orbを名前または説明で検索…',
     'library.filter_btn': '絞り込み',
     'library.search_btn': '検索',
-    'library.start_http_btn': 'HTTP開始',
     'library.http_badge': 'HTTP',
     'library.http_btn': 'HTTP',
     'library.no_orbs': 'インストールされたOrbはありません。「インポート」をクリックしてOrb ZIPを追加してください。',
@@ -218,6 +268,9 @@ const locales = {
     'library.delete_btn': '削除',
     'library.delete_confirm': '"{name}"を削除してもよろしいですか？',
     'library.delete_success': '{name}を削除しました',
+    'library.password_badge': 'パスワード',
+    'library.password_every_launch': '起動のたびに',
+    'library.password_remembered': '記憶済み',
     'library.restart_hint': 'MCPクライアント（Claude、Cursorなど）が起動中の場合は、再起動してOrbの変更を反映してください。',
     'library.page_info': '{page}/{total} ページ',
     'store.title': 'ストア',
@@ -311,7 +364,13 @@ const locales = {
     'import.validating': 'Orb ZIPを検証・インポート中...',
     'import.select_zip': '.zipファイルを選択してください。',
     'import.desktop_only': 'ファイル選択はMCPOrb Runnerデスクトップアプリでのみ利用可能です。',
-    'import.success': '{name} {version}をインポートしました\n保存先: {path}\nZIP {zip_sha256}\nAssets {assets_sha256}',
+    'import.success': '{name} {version}をインポートしました\n保存先: {path}',
+    'import.password_title': 'Orbパスワードを保存',
+    'import.password_desc': '「{name}」のパスワードをこのデバイスに保存します。',
+    'import.password_submit': '保存する',
+    'import.password_skip': 'スキップ',
+    'import.password_verifying': 'パスワードを確認中…',
+    'import.password_keychain_hint': 'パスワードはOSの認証情報ストア（macOSキーチェーン、Windows資格情報マネージャーなど）に保存・アクセスされます。このデバイスでのみ保持されます。',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
@@ -353,6 +412,9 @@ const locales = {
   },
   zh: {
     'app.title': 'MCPOrb Runner',
+    'theme.system': '跟随系统',
+    'theme.light': '浅色',
+    'theme.dark': '深色',
     'tab.library': '库',
     'tab.mcp': 'MCP配置',
     'tab.store': '商店',
@@ -364,7 +426,6 @@ const locales = {
     'library.filter_placeholder': '按名称或描述搜索Orb…',
     'library.filter_btn': '筛选',
     'library.search_btn': '搜索',
-    'library.start_http_btn': '启动HTTP',
     'library.http_badge': 'HTTP',
     'library.http_btn': 'HTTP',
     'library.no_orbs': '尚未安装Orb。点击"导入"添加Orb ZIP。',
@@ -374,6 +435,9 @@ const locales = {
     'library.delete_btn': '删除',
     'library.delete_confirm': '确定要删除"{name}"吗？',
     'library.delete_success': '已删除{name}',
+    'library.password_badge': '密码',
+    'library.password_every_launch': '每次启动',
+    'library.password_remembered': '已记住',
     'library.restart_hint': '如有正在运行中的MCP客户端（Claude、Cursor等），请重启该客户端以使用更新后的Orb。',
     'library.stats_requests': '请求: {total}',
     'library.stats_searches': '搜索: {n}',
@@ -471,7 +535,13 @@ const locales = {
     'import.validating': '正在验证并导入Orb ZIP...',
     'import.select_zip': '请选择.zip文件。',
     'import.desktop_only': '文件选择仅在MCPOrb Runner桌面应用中可用。',
-    'import.success': '已导入{name} {version}\n存储位置: {path}\nZIP {zip_sha256}\n资产 {assets_sha256}',
+    'import.success': '已导入{name} {version}\n存储位置: {path}',
+    'import.password_title': '记住 Orb 密码',
+    'import.password_desc': '输入「{name}」的密码以保存到本设备。',
+    'import.password_submit': '保存并记住',
+    'import.password_skip': '跳过',
+    'import.password_verifying': '验证密码中…',
+    'import.password_keychain_hint': '密码将保存到操作系统凭据存储（如 macOS 钥匙串、Windows 凭据管理器）并从同一存储访问。仅保留在此设备上。',
     /* status */
     'status.static_preview': 'static preview',
     'status.runtime_unavailable': 'Tauri runtime unavailable',
@@ -600,8 +670,11 @@ async function refreshLibrarySilent() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   initLocale();
   $('lang-select').addEventListener('change', (e) => setLocale(e.target.value));
+  const themeSel = $('theme-select');
+  if (themeSel) themeSel.addEventListener('change', (e) => setTheme(e.target.value));
   bindTabs();
   bindActions();
   setupDragDrop();
@@ -684,6 +757,15 @@ function bindActions() {
   $('store-password-dialog').addEventListener('click', (event) => {
     if (event.target === $('store-password-dialog')) storeCancelPassword();
   });
+  $('btn-import-password-submit').addEventListener('click', submitImportPassword);
+  $('btn-import-password-cancel').addEventListener('click', cancelImportPassword);
+  $('btn-import-password-close').addEventListener('click', cancelImportPassword);
+  $('import-password-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submitImportPassword();
+  });
+  $('import-password-dialog').addEventListener('click', (event) => {
+    if (event.target === $('import-password-dialog')) cancelImportPassword();
+  });
   // Modal actions
   $('btn-modal-close').addEventListener('click', hideImportModal);
   $('btn-modal-cancel').addEventListener('click', hideImportModal);
@@ -714,8 +796,12 @@ function bindActions() {
   });
   // Orb search modal
   $('btn-orb-search-go').addEventListener('click', runOrbSearch);
+  $('btn-orb-search-pw-submit').addEventListener('click', submitOrbSearchPassword);
   $('orb-search-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') runOrbSearch();
+  });
+  $('orb-search-pw-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submitOrbSearchPassword();
   });
   $('btn-orb-search-close').addEventListener('click', hideOrbSearchModal);
   $('btn-orb-search-cancel').addEventListener('click', hideOrbSearchModal);
@@ -785,8 +871,7 @@ function importModalVisible() {
 function showImportModal() {
   importState.selectedPath = null;
   $('selected-file').style.display = 'none';
-  $('modal-import-status').textContent = '';
-  $('modal-import-status').className = 'status-card muted-card';
+  setModalStatus('', false);
   $('btn-modal-import').disabled = true;
   $('drop-zone').style.display = '';
   $('import-modal').style.display = '';
@@ -832,8 +917,7 @@ function handleFileSelected(path) {
   $('selected-file-name').textContent = name;
   $('selected-file').style.display = 'flex';
   $('btn-modal-import').disabled = false;
-  $('modal-import-status').textContent = '';
-  $('modal-import-status').className = 'status-card muted-card';
+  setModalStatus('', false);
 }
 
 function clearSelectedFile() {
@@ -843,16 +927,15 @@ function clearSelectedFile() {
   $('btn-modal-import').disabled = true;
 }
 
-async function confirmImport() {
-  const path = importState.selectedPath;
-  if (!path) return;
+async function doImport(path, password) {
   feedbackBtn($('btn-modal-import'), 'feedback.imported');
   setModalStatus(t('import.validating'), false);
   try {
-    const result = await invoke('import_orb_zip', { path });
+    const result = await invoke('import_orb_zip', { path, password });
+    const orbName = result.report.manifest.display_name || result.report.manifest.name;
     setModalStatus(
       t('import.success', {
-        name: result.report.manifest.display_name || result.report.manifest.name,
+        name: orbName,
         version: result.report.manifest.version,
         path: result.stored_zip_path,
         zip_sha256: result.report.zip_sha256,
@@ -862,8 +945,24 @@ async function confirmImport() {
     );
     await refreshLibrary();
     showRestartHint();
-    // Auto-close after short delay on success
     setTimeout(hideImportModal, 2000);
+  } catch (error) {
+    setModalStatus(error, true);
+    $('btn-modal-import').disabled = false;
+  }
+}
+
+async function confirmImport() {
+  const path = importState.selectedPath;
+  if (!path) return;
+  setModalStatus(t('import.validating'), false);
+  try {
+    const inspect = await invoke('inspect_zip', { path });
+    if (inspect.password_protected) {
+      showPreImportPasswordDialog(path, inspect.manifest_name || inspect.manifest_version);
+      return;
+    }
+    await doImport(path, null);
   } catch (error) {
     setModalStatus(error, true);
     $('btn-modal-import').disabled = false;
@@ -873,7 +972,16 @@ async function confirmImport() {
 function setModalStatus(message, isError) {
   const el = $('modal-import-status');
   el.textContent = message;
-  el.className = 'status-card' + (isError ? ' error' : '');
+  if (message) {
+    el.style.display = '';
+    el.className = 'status-card' + (isError ? ' error' : '');
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function normalizeFsPath(value) {
+  return String(value || '').replace(/\\/g, '/');
 }
 
 let storeLoaded = false;
@@ -913,12 +1021,35 @@ async function refreshLibrary() {
   feedbackBtn($('btn-refresh-library'), 'feedback.refreshed');
   try {
     state.orbs = await invoke('list_orbs');
+    state.orbSecurityById = {};
     state.libraryPage = 1;
+    renderLibrary(state.orbs);
+    await refreshOrbSecurityState(state.orbs);
     renderLibrary(state.orbs);
     syncOrbSelects();
   } catch (error) {
     $('library-list').innerHTML = `<div class="status-card error">${escapeHtml(error)}</div>`;
   }
+}
+
+async function refreshOrbSecurityState(orbs) {
+  if (!invoke) return;
+  const rememberable = (orbs || []).filter((orb) => orb.password_protected);
+  if (!rememberable.length) return;
+
+  const entries = await Promise.all(rememberable.map(async (orb) => {
+    try {
+      const security = await invoke('get_orb_security', { orbId: orb.id });
+      return [orb.id, security];
+    } catch {
+      return [orb.id, null];
+    }
+  }));
+
+  state.orbSecurityById = {
+    ...state.orbSecurityById,
+    ...Object.fromEntries(entries),
+  };
 }
 
 function renderLibrary(orbs) {
@@ -950,11 +1081,14 @@ function renderLibrary(orbs) {
   const pageOrbs = filtered.slice(start, start + pageSize);
 
   $('library-list').innerHTML = pageOrbs.map((orb) => {
+    const passwordBadge = orb.password_protected
+      ? `<span class="store-pill">🔒 ${escapeHtml(t('library.password_badge'))}${orb.password_persistence ? ` · ${escapeHtml(orb.password_persistence === 'remember_on_this_device' ? t('library.password_remembered') : t('library.password_every_launch'))}` : ''}</span>`
+      : '';
     return `
     <article class="orb-card">
       <div>
         <div class="orb-title">${escapeHtml(orb.display_name)}</div>
-        <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? 'encrypted' : 'plaintext'}</div>
+        <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? 'encrypted' : 'plaintext'}${passwordBadge ? ` ${passwordBadge}` : ''}</div>
         <div class="orb-desc">${escapeHtml(orb.description || 'No description')}</div>
         <div class="orb-hash">zip ${escapeHtml(orb.zip_sha256)}<br>assets ${escapeHtml(orb.assets_sha256)}</div>
         <div class="orb-stats-row" id="stats-${escapeHtml(orb.id)}"><span class="muted">—</span></div>
@@ -1058,7 +1192,6 @@ function orbSearchModalVisible() {
 
 function showOrbSearchModal(orbId) {
   state.orbSearchTargetId = orbId || null;
-  // Set title to include the orb display name
   const orb = state.orbs.find((o) => o.id === orbId);
   $('orb-search-title').textContent = orb
     ? `${t('orbsearch.title')} — ${orb.display_name}`
@@ -1068,6 +1201,9 @@ function showOrbSearchModal(orbId) {
   $('orb-search-results').scrollTop = 0;
   $('orb-search-status').textContent = '';
   $('orb-search-status').className = 'status-line';
+  $('orb-search-pw-area').style.display = 'none';
+  $('orb-search-pw-input').value = '';
+  state.orbSearchPassword = null;
   $('orb-search-modal').style.display = '';
   $('orb-search-query').focus();
 }
@@ -1083,6 +1219,8 @@ async function runOrbSearch() {
     setOrbSearchStatus(t('orbsearch.enter_query'), true);
     return;
   }
+  // Use stored password from previous prompt
+  const password = state.orbSearchPassword || $('orb-search-pw-input').value || undefined;
   feedbackBtn($('btn-orb-search-go'), 'feedback.filtered');
   setOrbSearchStatus(t('orbsearch.searching'), false);
   $('orb-search-results').innerHTML = '';
@@ -1090,14 +1228,29 @@ async function runOrbSearch() {
     const response = await invoke('search_orb', {
       orbId,
       query,
+      password: password || null,
       method: $('orb-search-method').value,
       topK: 50,
     });
     setOrbSearchStatus(`${response.hits.length} hit(s) · ${response.active_plan}`, false);
     renderOrbSearchResults(response.hits);
   } catch (error) {
-    setOrbSearchStatus(error, true);
+    const msg = String(error);
+    // If the orb is encrypted and needs a password, show inline prompt
+    if (msg.includes('password required')) {
+      $('orb-search-pw-area').style.display = 'flex';
+      $('orb-search-pw-input').focus();
+      setOrbSearchStatus(t('orbsearch.encrypted_prompt'), true);
+    } else {
+      setOrbSearchStatus(msg, true);
+    }
   }
+}
+
+function submitOrbSearchPassword() {
+  state.orbSearchPassword = $('orb-search-pw-input').value;
+  $('orb-search-pw-area').style.display = 'none';
+  runOrbSearch();
 }
 
 function setOrbSearchStatus(message, isError) {
@@ -1142,6 +1295,7 @@ function showQaModal(orbId) {
 function hideQaModal() {
   $('qa-modal').style.display = 'none';
 }
+
 
 async function loadQaModalData(orbId) {
   $('qa-status').textContent = t('qa.loading');
@@ -1536,19 +1690,6 @@ function setPlatformConfigStatus(message, isError) {
   }
 }
 
-async function startOrbHttp(orbId) {
-  if (!invoke) return;
-  try {
-    const result = await invoke('start_orb_http', { orbId });
-    await refreshRunning();
-    showTab('running');
-  } catch (error) {
-    alert(`Failed to start Orb: ${error}`);
-  }
-}
-
-window.startOrbHttp = startOrbHttp;
-
 async function stopOrbHttp(orbId) {
   if (!invoke) return;
   try {
@@ -1596,6 +1737,46 @@ async function confirmDeleteOrb() {
 }
 
 window.deleteOrb = deleteOrb;
+
+// ── Import password dialog ──────────────────────────────────────────────────
+
+function showPreImportPasswordDialog(path, orbName) {
+  if (!invoke) return;
+  state.pendingImportPath = path;
+  $('import-password-desc').textContent = t('import.password_desc', { name: orbName || path });
+  $('btn-import-password-submit').disabled = false;
+  $('btn-import-password-cancel').disabled = false;
+  $('import-password-input').value = '';
+  $('import-password-input').disabled = false;
+  $('import-password-status').textContent = '';
+  $('import-password-status').className = 'status-line import-password-status';
+  $('import-password-dialog').style.display = 'flex';
+  setTimeout(() => $('import-password-input').focus(), 100);
+}
+
+function hideImportPasswordDialog() {
+  $('import-password-dialog').style.display = 'none';
+  state.pendingImportPath = null;
+}
+
+async function submitImportPassword() {
+  const path = state.pendingImportPath;
+  const password = $('import-password-input').value;
+  if (!path || !password) return;
+
+  $('btn-import-password-submit').disabled = true;
+  $('btn-import-password-cancel').disabled = true;
+  $('import-password-input').disabled = true;
+  $('import-password-status').textContent = t('import.password_verifying');
+  $('import-password-status').classList.remove('error');
+
+  await doImport(path, password);
+  hideImportPasswordDialog();
+}
+
+function cancelImportPassword() {
+  hideImportPasswordDialog();
+}
 
 async function copyHttpConfig() {
   if (!invoke) return;
@@ -1923,12 +2104,12 @@ function setImportBtnState(btn, textKey, importing) {
   btn.classList.toggle('btn-importing', !!importing);
 }
 
-async function storeImportOrb(artifactId, hasPassword, versionLabel) {
+async function storeImportOrb(artifactId, hasDownloadPassword, versionLabel) {
   if (!artifactId) return;
   
   const btn = getImportBtn(artifactId);
   
-  if (hasPassword === true || hasPassword === 'true') {
+  if (hasDownloadPassword === true || hasDownloadPassword === 'true') {
     state.pendingDownloadArtifactId = artifactId;
     state.pendingImportMode = true;
     $('store-password-dialog').style.display = 'flex';
@@ -1944,7 +2125,14 @@ async function storeImportOrb(artifactId, hasPassword, versionLabel) {
     const path = await invoke('store_download_artifact', { artifactId, token: null });
     setImportBtnState(btn, 'store.import_btn_installing', true);
     setStoreSearchStatus(`Importing ${versionLabel}...`, false);
-    const result = await invoke('import_orb_zip', { path });
+
+    const inspect = await invoke('inspect_zip', { path });
+    if (inspect.password_protected) {
+      showPreImportPasswordDialog(path, inspect.manifest_name);
+      return;
+    }
+
+    const result = await invoke('import_orb_zip', { path, password: null });
     const name = result.report.manifest.display_name || result.report.manifest.name;
     const ver = result.report.manifest.version;
     setImportBtnState(btn, 'store.import_btn_done', false);
@@ -1980,18 +2168,24 @@ function storeSubmitPassword() {
         setImportBtnState(btn, 'store.import_btn_downloading', true);
         setStoreSearchStatus('Downloading...', false);
         return invoke('store_download_artifact', { artifactId, token })
-          .then((path) => {
+          .then(async (path) => {
             setImportBtnState(btn, 'store.import_btn_installing', true);
             setStoreSearchStatus('Importing...', false);
-            return invoke('import_orb_zip', { path });
-          })
-          .then((result) => {
+
+            const inspect = await invoke('inspect_zip', { path });
+            if (inspect.password_protected) {
+              showPreImportPasswordDialog(path, inspect.manifest_name);
+              return;
+            }
+
+            const result = await invoke('import_orb_zip', { path, password: null });
             const name = result.report.manifest.display_name || result.report.manifest.name;
             const ver = result.report.manifest.version;
             setImportBtnState(btn, 'store.import_btn_done', false);
             setStoreSearchStatus(`✅ Imported ${name} v${ver}`, false);
-            refreshLibrary();
-            setTimeout(() => showTab('library'), 800);
+            return refreshLibrary().then(() => {
+              setTimeout(() => showTab('library'), 800);
+            });
           });
       } else {
         setImportBtnState(btn, 'store.import_btn_downloading', true);
