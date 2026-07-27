@@ -81,7 +81,8 @@ struct AccessPasswordFile {
     salt_b64: String,
     #[serde(default)]
     auth_verifier_b64: Option<String>,
-    unlock_persistence: String,
+    #[serde(default)]
+    unlock_persistence: Option<String>,
     orb_identity_b64: String,
 }
 
@@ -192,10 +193,11 @@ fn parse_password(p: AccessPasswordFile) -> Result<PasswordConfig, AuthError> {
     if p.kdf != "argon2id" {
         return Err(AuthError::Crypto(format!("unsupported kdf: {}", p.kdf)));
     }
-    let unlock_persistence = match p.unlock_persistence.as_str() {
-        "every_launch" => UnlockPersistence::EveryLaunch,
-        "remember_on_this_device" => UnlockPersistence::RememberOnThisDevice,
-        other => {
+    let unlock_persistence = match p.unlock_persistence.as_deref() {
+        Some("every_launch") => UnlockPersistence::EveryLaunch,
+        Some("remember_on_this_device") => UnlockPersistence::RememberOnThisDevice,
+        None => UnlockPersistence::EveryLaunch,
+        Some(other) => {
             return Err(AuthError::Crypto(format!(
                 "unknown unlock_persistence: {other}"
             )))

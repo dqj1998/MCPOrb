@@ -28,6 +28,7 @@ use startup::{detect_startup, StartupMode};
 use state::{LoadedAssets, LoadedKnowledge, LoadedOrb, OrbState};
 
 const APPENDED_BUNDLE_MAGIC: &[u8; 16] = b"MCPORB_BUNDLE_V1";
+const ORB_UNLOCK_PASSWORD_ENV: &str = "MCPORB_UNLOCK_PASSWORD";
 const APPENDED_BUNDLE_TRAILER_SIZE: u64 = 32;
 
 /// Mach-O segment + section that carry the embedded bundle zip on macOS
@@ -273,29 +274,42 @@ fn finish_unlock(
     Ok(())
 }
 
-/// At startup, for a `remember_on_this_device` Orb, try to unlock from a key
-/// stored in the OS keychain — no password prompt. A stale/invalid stored key
-/// is dropped so the normal password flow takes over. For `every_launch` Orbs,
-/// proactively clear any leftover entry (e.g. after a policy change).
-fn try_auto_unlock(state: &OrbState) {
+/// At startup, try to unlock from a key stored in the OS keychain — no password
+/// prompt.  This runs for *any* password-protected Orb regardless of its
+/// `unlock_persistence` setting, because the Tauri app always saves the
+/// `master_key` unconditionally (the old `every_launch` guard was removed).
+/// A stale/invalid stored key is dropped so the normal password flow takes over.
+/// For `every_launch` Orbs, any leftover entry is cleaned up after the recall
+/// attempt.
+pub(crate) fn try_auto_unlock(state: &OrbState) {
     let Some(pc) = state.security.config().password.as_ref() else {
         return;
     };
-    if pc.unlock_persistence != security::UnlockPersistence::RememberOnThisDevice {
-        device_unlock::forget(&pc.orb_identity);
-        return;
-    }
+
     let orb_identity = pc.orb_identity.clone();
-    let Some(master_key) = device_unlock::recall(&orb_identity) else {
-        return;
-    };
-    let keys = security::derive_from_master(master_key);
-    match finish_unlock(state, keys, /* persist = */ false) {
-        Ok(()) => tracing::info!("unlocked from remembered device credential"),
-        Err(_) => {
-            tracing::warn!("remembered device credential invalid; forgetting it");
-            device_unlock::forget(&orb_identity);
+    let should_persist = pc.unlock_persistence == security::UnlockPersistence::RememberOnThisDevice;
+
+    // Always try the keychain first — the Tauri app may have saved the
+    // master_key unconditionally (see remember_orb_password_archive).
+    if let Some(master_key) = device_unlock::recall(&orb_identity) {
+        let keys = security::derive_from_master(master_key);
+        match finish_unlock(state, keys, /* persist = */ false) {
+            Ok(()) => {
+                tracing::info!("unlocked from remembered device credential");
+                return;
+            }
+            Err(_) => {
+                tracing::warn!("remembered device credential invalid; forgetting it");
+                device_unlock::forget(&orb_identity);
+            }
         }
+    }
+
+    // No valid keychain entry found.  Clean up stale entries only when the
+    // Orb isn't configured for remember-on-device (policy change, or leftover
+    // from a previous version that saved unconditionally).
+    if !should_persist {
+        device_unlock::forget(&orb_identity);
     }
 }
 
@@ -325,6 +339,20 @@ fn prime_device_unlock(state: &OrbState) -> anyhow::Result<()> {
             println!("✅ Unlock remembered on this device. Future launches won't prompt.");
             Ok(())
         }
+        Err(_) => anyhow::bail!("Invalid password"),
+    }
+}
+
+fn try_env_unlock(state: &OrbState) -> anyhow::Result<bool> {
+    let Ok(password) = std::env::var(ORB_UNLOCK_PASSWORD_ENV) else {
+        return Ok(false);
+    };
+    if password.is_empty() {
+        return Ok(false);
+    }
+
+    match perform_unlock(state, &password) {
+        Ok(()) => Ok(true),
         Err(_) => anyhow::bail!("Invalid password"),
     }
 }
@@ -675,6 +703,10 @@ async fn main() -> anyhow::Result<()> {
     // For remember-on-device Orbs, try to unlock from the keychain before
     // serving so the user isn't prompted again on this machine (plan §2.5).
     try_auto_unlock(&state);
+
+    if !state.security.is_unlocked() {
+        let _ = try_env_unlock(&state)?;
+    }
 
     match config.mode {
         StartupMode::StdioOnly => {

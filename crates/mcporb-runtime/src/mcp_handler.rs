@@ -225,7 +225,15 @@ async fn handle_tool_call(state: &SharedState, id: Value, request: Value, transp
     if tool_name == "search_knowledge" {
         // Gate: knowledge is only readable once unlocked (plan §4.4).
         if state.security.require_unlocked().is_err() {
-            return Ok(locked_error(id));
+            // Retry the keychain recall — on macOS the permission dialog is
+            // asynchronous (the first `SecItemCopyMatching` call returns an
+            // error before the user has clicked "Always Trust"), so the
+            // startup `try_auto_unlock()` may have missed the credential.
+            // Retrying here catches the case where the user just granted access.
+            crate::try_auto_unlock(state);
+            if state.security.require_unlocked().is_err() {
+                return Ok(locked_error(id));
+            }
         }
         let k = state.knowledge();
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
