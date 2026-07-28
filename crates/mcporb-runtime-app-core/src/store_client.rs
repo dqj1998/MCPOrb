@@ -176,9 +176,31 @@ impl StoreClient {
             .await
             .context("failed to send verify password request")?;
 
+        // Check HTTP status before trying to parse JSON so that server error
+        // responses (wrong password, expired link, etc.) produce a readable
+        // message instead of a cryptic JSON parse failure.
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            // Try to extract a structured error message from the JSON body
+            if let Ok(err) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(msg) = err.get("error").and_then(|v| v.as_str()) {
+                    return Err(anyhow::anyhow!("{}", msg));
+                }
+            }
+            // Fall back to the raw body or status text
+            if !body.is_empty() {
+                return Err(anyhow::anyhow!("{}", body));
+            }
+            return Err(anyhow::anyhow!(
+                "request failed with status {}",
+                status.as_u16()
+            ));
+        }
+
         resp.json::<DownloadToken>()
             .await
-            .context("failed to parse download token response")
+            .context("failed to parse server response")
     }
 
     pub async fn download_orb(
