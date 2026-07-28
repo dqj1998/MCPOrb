@@ -108,12 +108,12 @@
       </div>
       <div id="store-detail-view" class="store-detail-view" style="display:none"></div>
       <div id="store-password-dialog" class="modal-overlay" style="display:none">
-        <div class="modal-card">
-          <h3 data-i18n="store.password_required_title">Password Required</h3>
-          <label for="store-password-input" data-i18n="store.password_required_label">Enter password for this artifact:</label>
+        <div class="store-password-card">
+          <h3 class="store-password-title" data-i18n="store.password_required_title">Password Required</h3>
+          <label class="store-password-text" for="store-password-input" data-i18n="store.password_required_label">Enter password for this artifact:</label>
           <input type="password" id="store-password-input" class="text-input" data-i18n-placeholder="store.password_placeholder" placeholder="Password" />
-          <p id="store-password-status" class="status-line" style="color:var(--accent);margin:4px 0"></p>
-          <div style="display:flex;gap:8px;margin-top:8px">
+          <p id="store-password-status" class="status-line"></p>
+          <div class="store-password-actions">
             <button id="btn-store-password-submit" class="btn btn-primary" data-i18n="store.password_submit">Submit</button>
             <button id="btn-store-password-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
           </div>

@@ -15,6 +15,7 @@ const state = {
   pendingDeleteOrbId: null,
   pendingImportOrbId: null,
   pendingDownloadArtifactId: null,
+  pendingStoreArtifactId: null,
   storeSearchState: { query: '', tag: null, method: null, page: 1 },
   storeView: 'browse',
   libraryPage: 1,
@@ -117,6 +118,8 @@ const locales = {
     'store.password_required_title': 'Password Required',
     'store.password_required_label': 'Enter password for this artifact:',
     'store.password_verifying': 'Verifying...',
+    'store.password_incorrect': 'Incorrect download password. Please try again.',
+    'store.password_network_error': 'Could not connect to the store server. Please check your network and try again.',
     'store.download_error': 'Download error: {error}',
     'store.artifact_downloaded': 'Downloaded: {result}',
     'store.tags_filter': 'Tag',
@@ -201,6 +204,7 @@ const locales = {
     'import.password_submit': 'Save & Remember',
     'import.password_skip': 'Skip',
     'import.password_verifying': 'Verifying password…',
+    'import.password_incorrect': 'Incorrect password. Please try again.',
     'import.password_keychain_hint': 'Password is saved to and accessed from your OS credential store (e.g. macOS Keychain, Windows Credential Manager). Stays on this device only.',
     /* status */
     'status.static_preview': 'static preview',
@@ -288,6 +292,8 @@ const locales = {
     'store.password_required_title': 'パスワードが必要です',
     'store.password_required_label': 'このアーティファクトのパスワードを入力してください:',
     'store.password_verifying': '確認中...',
+    'store.password_incorrect': 'ダウンロードパスワードが間違っています。もう一度お試しください。',
+    'store.password_network_error': 'ストアサーバーに接続できませんでした。ネットワークを確認してもう一度お試しください。',
     'store.download_error': 'ダウンロードエラー: {error}',
     'store.artifact_downloaded': 'ダウンロードしました: {result}',
     'store.tags_filter': 'タグ',
@@ -370,6 +376,7 @@ const locales = {
     'import.password_submit': '保存する',
     'import.password_skip': 'スキップ',
     'import.password_verifying': 'パスワードを確認中…',
+    'import.password_incorrect': 'パスワードが間違っています。もう一度お試しください。',
     'import.password_keychain_hint': 'パスワードはOSの認証情報ストア（macOSキーチェーン、Windows資格情報マネージャーなど）に保存・アクセスされます。このデバイスでのみ保持されます。',
     /* status */
     'status.static_preview': 'static preview',
@@ -459,6 +466,8 @@ const locales = {
     'store.password_required_title': '需要密码',
     'store.password_required_label': '请输入此构件的密码:',
     'store.password_verifying': '正在验证...',
+    'store.password_incorrect': '下载密码错误，请重试。',
+    'store.password_network_error': '无法连接到商店服务器，请检查网络后重试。',
     'store.download_error': '下载错误: {error}',
     'store.artifact_downloaded': '已下载: {result}',
     'store.tags_filter': '标签',
@@ -541,6 +550,7 @@ const locales = {
     'import.password_submit': '保存并记住',
     'import.password_skip': '跳过',
     'import.password_verifying': '验证密码中…',
+    'import.password_incorrect': '密码错误，请重试。',
     'import.password_keychain_hint': '密码将保存到操作系统凭据存储（如 macOS 钥匙串、Windows 凭据管理器）并从同一存储访问。仅保留在此设备上。',
     /* status */
     'status.static_preview': 'static preview',
@@ -946,9 +956,11 @@ async function doImport(path, password) {
     await refreshLibrary();
     showRestartHint();
     setTimeout(hideImportModal, 2000);
+    return true;
   } catch (error) {
     setModalStatus(error, true);
     $('btn-modal-import').disabled = false;
+    return false;
   }
 }
 
@@ -1770,11 +1782,38 @@ async function submitImportPassword() {
   $('import-password-status').textContent = t('import.password_verifying');
   $('import-password-status').classList.remove('error');
 
-  await doImport(path, password);
-  hideImportPasswordDialog();
+  const ok = await doImport(path, password);
+  if (ok) {
+    // On success, update store button to "Imported ✓" if this was a store import
+    if (state.pendingStoreArtifactId) {
+      const btn = getImportBtn(state.pendingStoreArtifactId);
+      setImportBtnState(btn, 'store.import_btn_done', false);
+      state.pendingStoreArtifactId = null;
+    }
+    hideImportPasswordDialog();
+  } else {
+    // Wrong password / import error — keep dialog open for retry
+    if (state.pendingStoreArtifactId) {
+      const btn = getImportBtn(state.pendingStoreArtifactId);
+      setImportBtnState(btn, 'store.import_btn', false);
+    }
+    $('btn-import-password-submit').disabled = false;
+    $('btn-import-password-cancel').disabled = false;
+    $('import-password-input').disabled = false;
+    $('import-password-input').value = '';
+    $('import-password-input').focus();
+    $('import-password-status').textContent = t('import.password_incorrect') || 'Incorrect password. Please try again.';
+    $('import-password-status').classList.add('error');
+  }
 }
 
 function cancelImportPassword() {
+  // Reset stuck store import button before closing
+  if (state.pendingStoreArtifactId) {
+    const btn = getImportBtn(state.pendingStoreArtifactId);
+    setImportBtnState(btn, 'store.import_btn', false);
+    state.pendingStoreArtifactId = null;
+  }
   hideImportPasswordDialog();
 }
 
@@ -2128,6 +2167,7 @@ async function storeImportOrb(artifactId, hasDownloadPassword, versionLabel) {
 
     const inspect = await invoke('inspect_zip', { path });
     if (inspect.password_protected) {
+      state.pendingStoreArtifactId = artifactId;
       showPreImportPasswordDialog(path, inspect.manifest_name);
       return;
     }
@@ -2174,6 +2214,7 @@ function storeSubmitPassword() {
 
             const inspect = await invoke('inspect_zip', { path });
             if (inspect.password_protected) {
+              state.pendingStoreArtifactId = artifactId;
               showPreImportPasswordDialog(path, inspect.manifest_name);
               return;
             }
@@ -2199,9 +2240,18 @@ function storeSubmitPassword() {
     })
     .catch((error) => {
       setImportBtnState(btn, 'store.import_btn', false);
-      $('store-password-status').textContent = String(error);
+      const errMsg = String(error).toLowerCase();
+      let displayMsg;
+      if (errMsg.includes('incorrect password') || errMsg.includes('invalid password') || errMsg.includes('wrong password')) {
+        displayMsg = t('store.password_incorrect');
+      } else if (errMsg.includes('connect') || errMsg.includes('timeout') || errMsg.includes('dns') || errMsg.includes('network')) {
+        displayMsg = t('store.password_network_error');
+      } else {
+        displayMsg = t('store.download_error', { error: String(error) });
+      }
+      $('store-password-status').textContent = displayMsg;
       $('store-password-status').classList.add('error');
-      setStoreSearchStatus(String(error), true);
+      setStoreSearchStatus(displayMsg, true);
     });
 }
 

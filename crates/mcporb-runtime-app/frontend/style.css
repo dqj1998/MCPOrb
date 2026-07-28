@@ -1025,7 +1025,7 @@ h1 { font-size: 20px; font-weight: 700; }
   font-size: 13px;
 }
 
-.store-password-dialog {
+#store-password-dialog {
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -1034,7 +1034,7 @@ h1 { font-size: 20px; font-weight: 700; }
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
 }
-.store-password-dialog .store-password-card {
+#store-password-dialog .store-password-card {
   width: 420px;
   max-width: 90vw;
   background: var(--color-surface);
@@ -1045,18 +1045,26 @@ h1 { font-size: 20px; font-weight: 700; }
   display: grid;
   gap: 12px;
 }
-.store-password-dialog .store-password-title {
+#store-password-dialog .store-password-title {
   font-size: 16px;
   font-weight: 800;
 }
-.store-password-dialog .store-password-text {
+#store-password-dialog .store-password-text {
   color: var(--color-text-dim);
   line-height: 1.5;
 }
-.store-password-dialog .store-password-actions {
+#store-password-dialog .store-password-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+/* Give the password input a contrasting background so it doesn't blend
+   into the card surface (both are --color-surface by default). */
+#store-password-dialog .text-input {
+  background: var(--color-surface2);
+}
+#store-password-dialog .text-input:focus {
+  background: var(--color-surface);
 }
 
 @media (max-width: 720px) {
@@ -1065,7 +1073,7 @@ h1 { font-size: 20px; font-weight: 700; }
   .store-version-item { flex-direction: column; align-items: stretch; }
   .store-download-btn { width: 100%; }
   .store-pagination { flex-wrap: wrap; }
-  .store-password-dialog .store-password-card { width: auto; }
+  #store-password-dialog .store-password-card { width: auto; }
 }
 
 @media (max-width: 720px) {
