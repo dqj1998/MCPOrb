@@ -117,9 +117,11 @@ pub async fn get_qa_history(
     let total_pages = total.div_ceil(page_size).max(1);
 
     let start = (page - 1) * page_size;
+    // Reverse so newest entries (stored at end) appear first on page 1
     let items: Vec<Value> = metrics
         .qa_history
         .iter()
+        .rev()
         .skip(start)
         .take(page_size)
         .map(|entry| {

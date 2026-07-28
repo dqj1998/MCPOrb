@@ -71,9 +71,11 @@ pub fn read_qa_history_from_file(
         });
     }
     let total_pages = total.div_ceil(page_size).max(1);
+    // Reverse so newest entries (stored at end) appear first on page 1
     let start = (page.saturating_sub(1) * page_size).min(total);
     let end = (start + page_size).min(total);
-    let items = persisted.qa_history[start..end].to_vec();
+    let reversed: Vec<_> = persisted.qa_history.into_iter().rev().collect();
+    let items = reversed[start..end].to_vec();
     Some(QaHistoryResponse {
         items,
         page,
