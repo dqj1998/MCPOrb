@@ -705,7 +705,13 @@ async fn main() -> anyhow::Result<()> {
     try_auto_unlock(&state);
 
     if !state.security.is_unlocked() {
-        let _ = try_env_unlock(&state)?;
+        // A wrong/expired MCPORB_UNLOCK_PASSWORD must NOT kill the child: the
+        // gateway treats a runtime that exits during init as a hard failure
+        // ("Orb child closed stdout during init"). Log and continue; the orb
+        // stays locked and can be unlocked explicitly later.
+        if let Err(e) = try_env_unlock(&state) {
+            tracing::warn!(error = %e, "env unlock failed; continuing without unlock");
+        }
     }
 
     match config.mode {

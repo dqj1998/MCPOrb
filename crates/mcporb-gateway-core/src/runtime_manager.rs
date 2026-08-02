@@ -7,10 +7,10 @@
 //! - Tracks last-use timestamps for idle reaping
 //! - Automatically reaps child processes after `idle_timeout_secs`
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -415,13 +415,23 @@ async fn spawn_orb_process(
         .take()
         .context("failed to capture child stderr")?;
 
-    // Forward stderr to tracing logs
+    // Forward stderr to tracing logs, and keep a bounded tail so init-failure
+    // errors can surface the child's actual reason (e.g. "unexpected argument
+    // '--orb-zip' found" when gateway/runtime versions drifted out of sync).
     let slug_for_stderr = orb.slug.clone();
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let stderr_tail_task = stderr_tail.clone();
     tokio::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
             tracing::debug!(orb = %slug_for_stderr, stderr = %line);
+            if let Ok(mut tail) = stderr_tail_task.lock() {
+                if tail.len() >= 20 {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
         }
     });
 
@@ -476,10 +486,23 @@ async fn spawn_orb_process(
 
     // Wait for initialize response (first line from child)
     // We'll receive it via our response_rx
-    tokio::time::timeout(Duration::from_secs(10), response_rx.recv())
+    let init_err_msg = |tail: &Mutex<VecDeque<String>>| -> anyhow::Error {
+        let mut detail = String::from("Orb child failed during init");
+        if let Ok(tail) = tail.lock() {
+            if !tail.is_empty() {
+                detail.push_str(" — child stderr:");
+                for line in tail.iter() {
+                    detail.push('\n');
+                    detail.push_str(line);
+                }
+            }
+        }
+        anyhow::anyhow!("{detail}")
+    };
+    let init_response = tokio::time::timeout(Duration::from_secs(10), response_rx.recv())
         .await
-        .context("timeout waiting for Orb initialize response")?
-        .ok_or_else(|| anyhow::anyhow!("Orb child closed stdout during init"))?;
+        .map_err(|_| init_err_msg(&stderr_tail))?;
+    init_response.ok_or_else(|| init_err_msg(&stderr_tail))?;
 
     // Send notifications/initialized (no response expected)
     let notif = serde_json::json!({
@@ -589,4 +612,42 @@ mod tests {
         let statuses = manager.list_orb_statuses().await;
         assert_eq!(statuses[0].1, "idle");
     }
+
+    /// A spawn failure must surface the child's stderr so the operator can see
+    /// the actual reason (e.g. "unexpected argument '--orb-zip' found") instead
+    /// of an opaque "closed stdout during init".
+    #[tokio::test]
+    async fn spawn_failure_includes_child_stderr() {
+        let script = std::env::temp_dir().join("mcporb-fake-runtime.sh");
+        std::fs::write(&script, "#!/bin/sh\necho \"P1_MARKER: ran with $*\" >&2\nexit 0\n")
+            .expect("write fake runtime");
+        self::make_executable(&script);
+
+        let mut config = GatewayConfig::default();
+        config.runtime_binary = script.clone();
+        let orbs = vec![test_orb("orb-a")];
+        let manager = RuntimeManager::new(config, orbs);
+
+        let err = manager.forward_request("orb-a", "tools/call", serde_json::json!({})).await;
+        let err = err.expect_err("spawn of fake runtime should fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("P1_MARKER"),
+            "expected child stderr in error, got: {msg}"
+        );
+        assert!(
+            msg.contains("ran with --orb-zip"),
+            "expected arg echo in stderr tail, got: {msg}"
+        );
+
+        let _ = std::fs::remove_file(&script);
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+    }
+    #[cfg(not(unix))]
+    fn make_executable(_path: &std::path::Path) {}
 }

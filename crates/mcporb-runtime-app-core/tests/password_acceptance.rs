@@ -51,7 +51,12 @@ fn auth_verifier(auth_key: &[u8; 32]) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
-fn make_security_json(password: &str, unlock_persistence: &str, include_asset_encryption: bool) -> SecurityMaterial {
+fn make_security_json(
+    password: &str,
+    unlock_persistence: &str,
+    include_asset_encryption: bool,
+    orb_identity_b64: &str,
+) -> SecurityMaterial {
     let salt = b"0123456789abcdef";
     let (auth_key, asset_key) = derive_keys(password, salt);
     let verifier = auth_verifier(&auth_key);
@@ -59,18 +64,20 @@ fn make_security_json(password: &str, unlock_persistence: &str, include_asset_en
 
     let security_json = if include_asset_encryption {
         format!(
-            "{{\"schema_version\":1,\"access_password\":{{\"enabled\":true,\"kdf\":\"argon2id\",\"kdf_params\":{{\"m_cost_kib\":32768,\"t_cost\":2,\"p_cost\":1}},\"salt_b64\":\"{}\",\"auth_verifier_b64\":\"{}\",\"unlock_persistence\":\"{}\",\"orb_identity_b64\":\"AQIDBA==\"}},\"asset_encryption\":{{\"enabled\":true,\"algorithm\":\"xchacha20poly1305\",\"payload\":\"orb_assets.enc\",\"nonce_b64\":\"{}\",\"aad\":\"mcporb-orb-assets-v1\"}}}}",
+            "{{\"schema_version\":1,\"access_password\":{{\"enabled\":true,\"kdf\":\"argon2id\",\"kdf_params\":{{\"m_cost_kib\":32768,\"t_cost\":2,\"p_cost\":1}},\"salt_b64\":\"{}\",\"auth_verifier_b64\":\"{}\",\"unlock_persistence\":\"{}\",\"orb_identity_b64\":\"{}\"}},\"asset_encryption\":{{\"enabled\":true,\"algorithm\":\"xchacha20poly1305\",\"payload\":\"orb_assets.enc\",\"nonce_b64\":\"{}\",\"aad\":\"mcporb-orb-assets-v1\"}}}}",
             B64.encode(salt),
             B64.encode(verifier),
             unlock_persistence,
+            orb_identity_b64,
             B64.encode(nonce),
         )
     } else {
         format!(
-            "{{\"schema_version\":1,\"access_password\":{{\"enabled\":true,\"kdf\":\"argon2id\",\"kdf_params\":{{\"m_cost_kib\":32768,\"t_cost\":2,\"p_cost\":1}},\"salt_b64\":\"{}\",\"auth_verifier_b64\":\"{}\",\"unlock_persistence\":\"{}\",\"orb_identity_b64\":\"AQIDBA==\"}}}}",
+            "{{\"schema_version\":1,\"access_password\":{{\"enabled\":true,\"kdf\":\"argon2id\",\"kdf_params\":{{\"m_cost_kib\":32768,\"t_cost\":2,\"p_cost\":1}},\"salt_b64\":\"{}\",\"auth_verifier_b64\":\"{}\",\"unlock_persistence\":\"{}\",\"orb_identity_b64\":\"{}\"}}}}",
             B64.encode(salt),
             B64.encode(verifier),
             unlock_persistence,
+            orb_identity_b64,
         )
     };
 
@@ -159,8 +166,8 @@ fn encrypt_inner_assets_zip(asset_key: &[u8; 32], inner_zip: &[u8]) -> Vec<u8> {
         .expect("encrypt orb_assets.enc")
 }
 
-fn write_orb_zip(path: &Path, unlock_persistence: &str, encrypted_assets: bool, password: &str) -> PathBuf {
-    let security = make_security_json(password, unlock_persistence, encrypted_assets);
+fn write_orb_zip(path: &Path, unlock_persistence: &str, encrypted_assets: bool, password: &str, orb_identity_b64: &str) -> PathBuf {
+    let security = make_security_json(password, unlock_persistence, encrypted_assets, orb_identity_b64);
     let knowledge = make_knowledge_zip_bytes();
 
     let cursor = Cursor::new(Vec::new());
@@ -201,12 +208,13 @@ fn write_orb_zip(path: &Path, unlock_persistence: &str, encrypted_assets: bool, 
 #[test]
 fn detects_password_persistence_modes() {
     let dir = tempdir().unwrap();
-    let every = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame");
+    let every = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame", "AQIDBA==");
     let remember = write_orb_zip(
         &dir.path().join("remember.zip"),
         "remember_on_this_device",
         false,
         "open-sesame",
+        "AQIEBA==",
     );
 
     let every_report = validate_zip_path(&every).unwrap();
@@ -231,21 +239,36 @@ fn detects_password_persistence_modes() {
 #[test]
 fn verifies_password_for_every_launch_orb() {
     let dir = tempdir().unwrap();
-    let orb = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame");
+    let orb = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame", "AQIEAQ==");
 
     assert!(!verify_orb_password(&orb, "wrong-pass").unwrap());
     assert!(verify_orb_password(&orb, "open-sesame").unwrap());
 }
 
 #[test]
-fn rejects_remember_on_every_launch_mode() {
+fn remembers_password_for_every_launch_orb() {
     let dir = tempdir().unwrap();
-    let orb = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame");
+    // A fresh identity per run so the device-unlock keyring entry is never
+    // pre-populated by an earlier run of this test (the keychain persists).
+    let identity = B64.encode(format!("every-{}", fresh_id()).as_bytes());
+    let orb = write_orb_zip(&dir.path().join("every.zip"), "every_launch", false, "open-sesame", &identity);
 
-    let error = remember_orb_password(&orb, "open-sesame").unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("requires a password every launch and cannot be remembered"));
+    let info_after = inspect_orb_security(&orb).unwrap();
+    assert!(!info_after.device_remembered);
+
+    // Password is entered once at import and remembered on the device; the
+    // legacy every-launch flag no longer blocks device unlock.
+    remember_orb_password(&orb, "open-sesame").expect("remember should succeed");
+    let info = inspect_orb_security(&orb).unwrap();
+    assert!(info.device_remembered);
+}
+
+fn fresh_id() -> u128 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
 }
 
 #[test]
@@ -256,6 +279,7 @@ fn encrypted_search_fails_without_password() {
         "every_launch",
         true,
         "open-sesame",
+        "AQICBQ==",
     );
 
     let locked = search_zip(&orb, "guarded", Some("bm25"), Some(3));

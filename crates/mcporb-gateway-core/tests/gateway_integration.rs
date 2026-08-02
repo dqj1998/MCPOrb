@@ -98,6 +98,8 @@ fn dummy_installed_orb() -> InstalledOrb {
         install_source: InstallSource::LocalImport,
         store_artifact_id: None,
         encrypted_assets: false,
+        password_protected: false,
+        password_persistence: None,
         last_used_at: None,
     }
 }
@@ -148,6 +150,8 @@ async fn registry_roundtrip_single_orb() {
         install_source: InstallSource::LocalImport,
         store_artifact_id: None,
         encrypted_assets: false,
+        password_protected: false,
+        password_persistence: None,
         last_used_at: None,
     };
 
@@ -202,6 +206,8 @@ async fn registry_roundtrip_roundtrips_fields() {
         install_source: InstallSource::StoreDownload,
         store_artifact_id: Some("store-abc".into()),
         encrypted_assets: true,
+        password_protected: true,
+        password_persistence: Some("device".into()),
         last_used_at: Some("2026-07-12T10:00:00Z".into()),
     };
 

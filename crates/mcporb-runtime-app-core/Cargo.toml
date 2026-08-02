@@ -1,6 +1,6 @@
 [package]
 name = "mcporb-runtime-app-core"
-version = "1.2.1"
+version = "1.2.2"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCPOrb Runner core services: local Orb registry, import validation, and app-facing APIs"
