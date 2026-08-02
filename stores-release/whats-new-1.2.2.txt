@@ -1,0 +1,63 @@
+MCPOrb Runner 1.2.2 - What's New
+=================================
+
+---- English ----
+
+Password-protected Orbs are now supported
+------------------------------------------------------------
+- Import Orbs that require a password. Enter the Orb password once
+  when you import it, and the app remembers it securely on this
+  device (Keychain). The Orb unlocks automatically from then on.
+- A wrong or missing password is detected up front, so you get a
+  clear prompt to retry instead of a silent failure.
+
+Choose your look: Light / Dark / System
+------------------------------------------------------------
+- Pick how the app appears: Light, Dark, or follow your system
+  setting. Switch anytime from the theme selector in the title bar.
+
+Smoother Store password experience
+------------------------------------------------------------
+- Clearer error messages and a retry flow when downloading
+  password-protected Orbs from the Store, with localized dialogs.
+
+============================================
+MCPOrb Runner 1.2.2 - 日本語
+============================================
+パスワード付きOrbに対応
+------------------------------------------------------------
+- パスワードが必要なOrbをインポートできます。インポート時に
+  Orbのパスワードを一度入力すると、アプリはそれをこのデバイスの
+  キーチェーンに安全に保存し、以降は自動的にロック解除されます。
+- パスワードの誤りや不足は事前に検知され、静かに失敗するのでは
+  なく、再試行を促す明確な表示になります。
+
+ライト / ダーク / システム のUIテーマ
+------------------------------------------------------------
+- アプリの見た目を「ライト」「ダーク」「システム設定に合わせる」から
+  選択できます。タイトルバーのテーマセレクターからいつでも変更可能です。
+
+Storeのパスワード操作の改善
+------------------------------------------------------------
+- パスワード保護されたOrbをStoreからダウンロードする際のエラー表示が
+  分かりやすくなり、再試行フローと多言語ダイアログに対応しました。
+
+============================================
+MCPOrb Runner 1.2.2 - 简体中文
+============================================
+
+支持密码保护的Orb
+------------------------------------------------------------
+- 现在可以导入需要密码的Orb。导入时输入一次Orb密码后，应用会
+  将其安全地保存在本机（钥匙串）中，之后打开应用即可自动解锁。
+- 密码错误或缺失时会立刻给出清晰提示，让你重试，而不是静默失败。
+
+界面外观：浅色 / 深色 / 跟随系统
+------------------------------------------------------------
+- 从标题栏的主题选择器，随时在「浅色」「深色」「跟随系统」之间
+  切换应用外观。
+
+更好的 Store 密码体验
+------------------------------------------------------------
+- 从 Store 下载受密码保护的 Orb 时，错误提示更清晰，并支持重试
+  流程，对话框也已本地化。
