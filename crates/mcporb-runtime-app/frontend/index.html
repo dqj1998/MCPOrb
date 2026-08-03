@@ -161,6 +161,14 @@
           <label for="settings-download-dir" data-i18n="settings.download_dir_label">Download Directory</label>
           <input id="settings-download-dir" class="text-input" placeholder="/path/to/downloads" />
         </div>
+        <div class="form-group" id="orb-library-group" style="display:none;">
+          <label for="settings-orb-library-dir" data-i18n="settings.orb_library_label">Orb Library Folder</label>
+          <div class="input-row">
+            <input id="settings-orb-library-dir" class="text-input" readonly placeholder="/path/to/MCPOrb" />
+            <button id="btn-choose-orb-library" class="btn btn-secondary" data-i18n="settings.orb_library_choose_btn">Choose…</button>
+          </div>
+          <p class="field-hint" data-i18n="settings.orb_library_hint">Imported Orb ZIPs are stored in this folder so the files stay accessible to you.</p>
+        </div>
         <div class="form-group">
           <label for="settings-http-port" data-i18n="settings.http_port_label">HTTP MCP Port</label>
           <input id="settings-http-port" class="text-input" type="number" placeholder="5599" />

@@ -453,6 +453,9 @@ h1 { font-size: 20px; font-weight: 700; }
 
 .form-group { display: grid; gap: 6px; margin-bottom: 12px; }
 .form-group label { color: var(--color-text-dim); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.input-row { display: flex; gap: 8px; align-items: center; }
+.input-row .text-input { flex: 1; }
+.field-hint { margin: 0; font-size: 12px; color: var(--color-text-dim); line-height: 1.5; }
 .muted-card { color: var(--color-text-dim); line-height: 1.5; }
 
 .orb-search-body { overflow: hidden !important; display: flex; flex-direction: column; }

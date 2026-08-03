@@ -14,6 +14,13 @@ pub struct RuntimeSettings {
     pub http_port: u16,
     #[serde(default)]
     pub network_binding: NetworkBinding,
+    /// User-chosen, user-accessible folder for imported Orb ZIPs (macOS App
+    /// Store requirement). `None` = legacy app-data location (Windows/Linux).
+    #[serde(default)]
+    pub orb_library_dir: Option<PathBuf>,
+    /// Base64 security-scoped bookmark for `orb_library_dir` (macOS sandbox only).
+    #[serde(default)]
+    pub orb_library_bookmark: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -35,6 +42,8 @@ impl Default for RuntimeSettings {
             download_dir: default_download_dir(),
             http_port: default_http_port(),
             network_binding: NetworkBinding::Localhost,
+            orb_library_dir: None,
+            orb_library_bookmark: None,
         }
     }
 }
@@ -95,6 +104,8 @@ mod tests {
         let settings = RuntimeSettings::default();
         assert_eq!(settings.http_port, 5599);
         assert_eq!(settings.network_binding, NetworkBinding::Localhost);
+        assert!(settings.orb_library_dir.is_none());
+        assert!(settings.orb_library_bookmark.is_none());
     }
 
     #[test]
@@ -104,9 +115,32 @@ mod tests {
         let mut settings = RuntimeSettings::default();
         settings.http_port = 8080;
         settings.network_binding = NetworkBinding::External;
+        settings.orb_library_dir = Some(PathBuf::from("/Users/test/Documents/MCPOrb"));
+        settings.orb_library_bookmark = Some("c2VjcmV0".to_string());
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.http_port, 8080);
         assert_eq!(loaded.network_binding, NetworkBinding::External);
+        assert_eq!(
+            loaded.orb_library_dir.as_deref(),
+            Some(std::path::Path::new("/Users/test/Documents/MCPOrb"))
+        );
+        assert_eq!(loaded.orb_library_bookmark.as_deref(), Some("c2VjcmV0"));
+    }
+
+    #[test]
+    fn legacy_settings_without_library_fields_still_load() {
+        // Old settings.json files (pre-library-folder) must deserialize with
+        // the new fields defaulting to None so Windows/macOS upgrades work.
+        let dir = tempfile::tempdir().unwrap();
+        let store = SettingsStore::new(dir.path().to_path_buf());
+        std::fs::write(
+            store.settings_path(),
+            r#"{"download_dir":"/tmp/dl","http_port":5599,"network_binding":"localhost"}"#,
+        )
+        .unwrap();
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.http_port, 5599);
+        assert!(loaded.orb_library_dir.is_none());
     }
 }

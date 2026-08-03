@@ -46,11 +46,22 @@ pub struct OrbRegistry {
 #[derive(Debug, Clone)]
 pub struct RegistryStore {
     root_dir: PathBuf,
+    orbs_dir_override: Option<PathBuf>,
 }
 
 impl RegistryStore {
     pub fn new(root_dir: PathBuf) -> Self {
-        Self { root_dir }
+        Self {
+            root_dir,
+            orbs_dir_override: None,
+        }
+    }
+
+    pub fn with_orbs_dir(root_dir: PathBuf, orbs_dir: PathBuf) -> Self {
+        Self {
+            root_dir,
+            orbs_dir_override: Some(orbs_dir),
+        }
     }
 
     pub fn default() -> Result<Self> {
@@ -65,7 +76,9 @@ impl RegistryStore {
     }
 
     pub fn orbs_dir(&self) -> PathBuf {
-        self.root_dir.join(ORBS_DIR)
+        self.orbs_dir_override
+            .clone()
+            .unwrap_or_else(|| self.root_dir.join(ORBS_DIR))
     }
 
     pub fn load(&self) -> Result<OrbRegistry> {

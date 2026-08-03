@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mcporb_runtime_app_core::{
@@ -17,6 +17,9 @@ use tauri::Manager;
 use tokio::sync::Mutex;
 
 const ORB_UNLOCK_PASSWORD_ENV: &str = "MCPORB_UNLOCK_PASSWORD";
+
+#[cfg(target_os = "macos")]
+mod macos_access;
 
 #[derive(Clone)]
 struct AppState {
@@ -51,6 +54,11 @@ struct ZipInspectResult {
 #[derive(Debug, Serialize)]
 struct RuntimeStatus {
     version: &'static str,
+}
+
+#[tauri::command]
+fn get_platform() -> &'static str {
+    std::env::consts::OS
 }
 
 #[tauri::command]
@@ -196,8 +204,57 @@ async fn save_settings(
     settings: RuntimeSettings,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let settings_store = state.settings.lock().await;
-    settings_store.save(&settings).map_err(to_string)
+    let store = state.settings.lock().await;
+    let current = store.load().unwrap_or_default();
+    let mut merged = settings;
+    // The frontend never edits the library folder/bookmark directly; preserve
+    // the stored values unless the user chose a new folder (choose_orb_library_dir).
+    if merged.orb_library_dir.is_none() {
+        merged.orb_library_dir = current.orb_library_dir;
+        merged.orb_library_bookmark = current.orb_library_bookmark;
+    } else if merged.orb_library_bookmark.is_none()
+        && current.orb_library_dir.as_deref() == merged.orb_library_dir.as_deref()
+    {
+        merged.orb_library_bookmark = current.orb_library_bookmark;
+    }
+    store.save(&merged).map_err(to_string)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn choose_orb_library_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |file_path| {
+        let _ = tx.send(file_path.and_then(|p| p.into_path().ok()));
+    });
+    let picked = rx
+        .await
+        .map_err(|_| "Folder dialog closed unexpectedly.".to_string())?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+
+    let bookmark = macos_access::create_bookmark(&picked)
+        .map_err(|e| format!("Could not create security-scoped bookmark: {e}"))?;
+
+    let store = state.settings.lock().await;
+    let mut settings = store.load().map_err(to_string)?;
+    settings.orb_library_dir = Some(picked.clone());
+    settings.orb_library_bookmark = Some(bookmark);
+    store.save(&settings).map_err(to_string)?;
+
+    Ok(Some(picked.to_string_lossy().to_string()))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn choose_orb_library_dir() -> Result<Option<String>, String> {
+    Err("Orb library folder selection is only available on macOS.".to_string())
 }
 
 #[tauri::command]
@@ -707,29 +764,64 @@ async fn store_download_artifact(
     Ok(dest_path.to_string_lossy().to_string())
 }
 
-fn main() {
-    // --- MCP STDIO proxy mode ---
-    // Intercept before any Tauri/WebKit init to keep stdio clean and avoid
-    // the ~50 MB WebView overhead when launched by an MCP client.
-    if std::env::args().any(|a| a == "--mcp-stdio") {
-        run_mcp_stdio_proxy();
-    }
+fn default_registry_root() -> PathBuf {
+    RegistryStore::default()
+        .map(|store| store.root_dir().to_path_buf())
+        .unwrap_or_else(|_| PathBuf::from(".mcporb-runtime"))
+}
 
+#[cfg(target_os = "macos")]
+fn resolve_macos_registry(
+    settings: &RuntimeSettings,
+) -> (Option<macos_access::AccessGuard>, RegistryStore) {
+    let fallback = || RegistryStore::new(default_registry_root());
+    match (&settings.orb_library_dir, &settings.orb_library_bookmark) {
+        (Some(_), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
+            Ok((path, guard)) => {
+                tracing::info!(path = %path.display(), "using user-selected Orb library folder");
+                (
+                    Some(guard),
+                    RegistryStore::with_orbs_dir(default_registry_root(), path.join("Orbs")),
+                )
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to resolve Orb library bookmark; falling back to app data folder"
+                );
+                (None, fallback())
+            }
+        },
+        _ => (None, fallback()),
+    }
+}
+
+fn main() {
     tracing_subscriber::fmt::init();
 
-    let registry = RegistryStore::default().unwrap_or_else(|error| {
-        tracing::warn!(%error, "falling back to local runtime registry directory");
-        RegistryStore::new(PathBuf::from(".mcporb-runtime"))
-    });
-
-    let settings = SettingsStore::default().unwrap_or_else(|error| {
+    let settings_store = SettingsStore::default().unwrap_or_else(|error| {
         tracing::warn!(%error, "falling back to default settings store");
         SettingsStore::new(PathBuf::from(".mcporb-runtime"))
     });
 
+    // macOS: restore security-scoped access to the user-chosen Orb library
+    // folder before anything else — the MCP STDIO proxy child needs it too.
+    #[cfg(target_os = "macos")]
+    let (_library_access, registry) =
+        resolve_macos_registry(&settings_store.load().unwrap_or_default());
+    #[cfg(not(target_os = "macos"))]
+    let registry = RegistryStore::new(default_registry_root());
+
+    // --- MCP STDIO proxy mode ---
+    // Intercept before any Tauri/WebKit init to keep stdio clean and avoid
+    // the ~50 MB WebView overhead when launched by an MCP client.
+    if std::env::args().any(|a| a == "--mcp-stdio") {
+        run_mcp_stdio_proxy(registry.root_dir());
+    }
+
     let app_state = AppState {
         registry,
-        settings: Arc::new(Mutex::new(settings)),
+        settings: Arc::new(Mutex::new(settings_store)),
         running_orbs: Arc::new(Mutex::new(Vec::new())),
         running_children: Arc::new(Mutex::new(HashMap::new())),
     };
@@ -749,6 +841,8 @@ fn main() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             runtime_status,
+            get_platform,
+            choose_orb_library_dir,
             list_orbs,
             inspect_zip,
             import_orb_zip,
@@ -787,18 +881,14 @@ fn main() {
 /// maintained (the child inherits the sandbox of this sandboxed process).
 ///
 /// Never returns — exits with the child's exit code.
-fn run_mcp_stdio_proxy() -> ! {
+fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
     let runtime_path = default_runtime_binary().unwrap_or_else(|| {
         eprintln!("mcporb-runner: mcporb-runtime binary not found");
         std::process::exit(1);
     });
 
     // Resolve the metrics directory so the runtime writes where the GUI reads.
-    // Best-effort: if RegistryStore fails, the runtime's own fallback will use
-    // the same `dirs::data_dir()` path inside the sandbox container.
-    let metrics_dir = RegistryStore::default()
-        .ok()
-        .map(|r| r.root_dir().join("metrics"));
+    let metrics_dir = registry_root.join("metrics");
 
     let mut runtime_args: Vec<String> = std::env::args()
         .skip(1)
@@ -810,11 +900,9 @@ fn run_mcp_stdio_proxy() -> ! {
         runtime_args.push("--stdio-only".to_string());
     }
     // Ensure metrics land where get_orb_metrics reads them
-    if let Some(ref dir) = metrics_dir {
-        if !runtime_args.iter().any(|a| a == "--metrics-dir") {
-            runtime_args.push("--metrics-dir".to_string());
-            runtime_args.push(dir.display().to_string());
-        }
+    if !runtime_args.iter().any(|a| a == "--metrics-dir") {
+        runtime_args.push("--metrics-dir".to_string());
+        runtime_args.push(metrics_dir.display().to_string());
     }
 
     let mut child = match std::process::Command::new(&runtime_path)

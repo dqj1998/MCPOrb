@@ -21,6 +21,8 @@ const state = {
   libraryPage: 1,
   libraryPageSize: 20,
   libraryTotalPages: 1,
+  platform: 'unknown',
+  orbLibraryDir: null,
 };
 
 const importState = {
@@ -159,6 +161,11 @@ const locales = {
     'settings.localhost_opt': 'Localhost (127.0.0.1) — Recommended',
     'settings.external_opt': 'External (0.0.0.0) — Requires caution',
     'settings.saved': 'Settings saved.',
+    'settings.orb_library_label': 'Orb Library Folder',
+    'settings.orb_library_choose_btn': 'Choose…',
+    'settings.orb_library_hint': 'Imported Orb ZIPs are stored in this folder so the files stay accessible to you. For example: ~/Documents/MCPOrb',
+    'settings.orb_library_choose_error': 'Could not set the Orb library folder:',
+    'settings.orb_library_changed': 'Orb library folder updated.',
     /* mcp config */
     'mcp.title': 'MCP Config',
     'mcp.runtime_path_label': 'Runtime CLI path',
@@ -333,6 +340,11 @@ const locales = {
     'settings.yes_opt': 'はい',
     'settings.no_opt': 'いいえ',
     'settings.saved': '設定を保存しました。',
+    'settings.orb_library_label': 'Orbライブラリフォルダ',
+    'settings.orb_library_choose_btn': '選択…',
+    'settings.orb_library_hint': 'インポートしたOrb ZIPはこのフォルダに保存され、ファイルにアクセスできる状態が維持されます。例: ~/Documents/MCPOrb',
+    'settings.orb_library_choose_error': 'Orbライブラリフォルダを設定できませんでした:',
+    'settings.orb_library_changed': 'Orbライブラリフォルダを更新しました。',
     'mcp.title': 'MCP設定',
     'mcp.runtime_path_label': 'ランタイムCLIパス',
     'mcp.runtime_path_placeholder': '空白の場合はバンドルされたmcporb-runtimeを使用',
@@ -507,6 +519,11 @@ const locales = {
     'settings.yes_opt': '是',
     'settings.no_opt': '否',
     'settings.saved': '设置已保存。',
+    'settings.orb_library_label': 'Orb 库文件夹',
+    'settings.orb_library_choose_btn': '选择…',
+    'settings.orb_library_hint': '导入的 Orb ZIP 将存储在此文件夹中,文件保持对你可见。例如:~/Documents/MCPOrb',
+    'settings.orb_library_choose_error': '无法设置 Orb 库文件夹:',
+    'settings.orb_library_changed': 'Orb 库文件夹已更新。',
     'mcp.title': 'MCP配置',
     'mcp.runtime_path_label': '运行时CLI路径',
     'mcp.runtime_path_placeholder': '留空使用内置mcporb-runtime',
@@ -719,6 +736,7 @@ function bindActions() {
   });
   $('btn-generate-config').addEventListener('click', generateMcpConfig);
   $('btn-save-settings').addEventListener('click', saveSettings);
+  $('btn-choose-orb-library').addEventListener('click', chooseOrbLibraryDir);
   $('btn-refresh-running').addEventListener('click', refreshRunning);
   $('btn-discover-configs').addEventListener('click', discoverPlatformConfigs);
   $('store-search-query').addEventListener('input', debounce(() => {
@@ -1499,8 +1517,36 @@ async function loadSettings() {
     $('settings-download-dir').value = settings.download_dir || '';
     $('settings-http-port').value = settings.http_port || 5599;
     $('settings-network-binding').value = settings.network_binding || 'localhost';
+    try {
+      state.platform = await invoke('get_platform');
+    } catch (_) {
+      state.platform = 'unknown';
+    }
+    const libraryGroup = $('orb-library-group');
+    if (libraryGroup) libraryGroup.style.display = state.platform === 'macos' ? '' : 'none';
+    if (settings.orb_library_dir) {
+      state.orbLibraryDir = settings.orb_library_dir;
+      $('settings-orb-library-dir').value = settings.orb_library_dir;
+    }
   } catch (error) {
     console.error('Failed to load settings:', error);
+  }
+}
+
+async function chooseOrbLibraryDir() {
+  if (!invoke) return;
+  try {
+    const dir = await invoke('choose_orb_library_dir');
+    if (dir) {
+      state.orbLibraryDir = dir;
+      $('settings-orb-library-dir').value = dir;
+      feedbackBtn($('btn-choose-orb-library'), 'settings.orb_library_changed');
+      $('settings-status').textContent = t('settings.orb_library_changed');
+      $('settings-status').classList.remove('error');
+    }
+  } catch (error) {
+    $('settings-status').textContent = t('settings.orb_library_choose_error') + ' ' + error;
+    $('settings-status').classList.add('error');
   }
 }
 
@@ -1511,6 +1557,7 @@ async function saveSettings() {
     download_dir: $('settings-download-dir').value,
     http_port: parseInt($('settings-http-port').value, 10) || 5599,
     network_binding: $('settings-network-binding').value,
+    orb_library_dir: state.orbLibraryDir || null,
   };
   try {
     await invoke('save_settings', { settings });
