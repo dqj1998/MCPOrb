@@ -107,14 +107,20 @@ foreach ($icon in $requiredIcons) {
 }
 
 $presentIcons = Get-ChildItem -Path $IconDir -Filter "*.png" | ForEach-Object { $_.Name }
-$extra = $presentIcons | Where-Object { $_ -notin ($requiredIcons | ForEach-Object { $_[0] }) }
+# Optional Store assets that are legitimate but not part of the required set
+# (e.g. Square300x300Logo.png is the Store catalogue thumbnail).
+$optionalIcons = @("Square300x300Logo.png")
+$extra = $presentIcons | Where-Object { $_ -notin ($requiredIcons | ForEach-Object { $_[0] }) -and $_ -notin $optionalIcons }
+if (($presentIcons | Where-Object { $_ -in $optionalIcons }).Count -gt 0) {
+    Write-Host "  [INFO] Optional store icon(s) present: $(( $presentIcons | Where-Object { $_ -in $optionalIcons }) -join ', ')" -ForegroundColor Cyan
+}
 foreach ($e in $extra) {
     Warn "Unexpected icon: $e" "Not in required set - verify it is intended"
 }
 
 # -- 4. Metadata --
 Write-Host "-- 4. Store Metadata ---------------------------------------" -ForegroundColor White
-$requiredMetadata = @("description.txt","keywords.txt","support_url.txt","privacy_url.txt","marketing_url.txt")
+$requiredMetadata = @("description.txt","keywords.txt","support_url.txt","privacy_url.txt","marketing_url.txt","short-description.txt")
 $metaDir = [System.IO.Path]::Combine($ScriptDir, "metadata")
 foreach ($m in $requiredMetadata) {
     $path = [System.IO.Path]::Combine($metaDir, $m)
@@ -124,8 +130,13 @@ foreach ($m in $requiredMetadata) {
 $descPath = [System.IO.Path]::Combine($metaDir, "description.txt")
 if (Test-Path $descPath) {
     $descLen = (Get-Content $descPath -Raw).Length
-    if ($descLen -gt 100)  { Warn "description.txt" "Short desc >100 chars ($descLen)" }
     if ($descLen -gt 4000) { Warn "description.txt" "Long desc >4000 chars ($descLen)" }
+}
+
+$shortPath = [System.IO.Path]::Combine($metaDir, "short-description.txt")
+if (Test-Path $shortPath) {
+    $shortLen = (Get-Content $shortPath -Raw).Length
+    if ($shortLen -gt 100) { Warn "short-description.txt" "Short desc >100 chars ($shortLen)" }
 }
 
 # -- 5. Privacy Policy --

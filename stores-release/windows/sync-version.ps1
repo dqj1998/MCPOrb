@@ -61,7 +61,7 @@ if (-not (Test-Path $ManifestPath)) {
 }
 
 $manifestContent = Get-Content $ManifestPath -Raw
-$manifestVersionMatch = [regex]::Match($manifestContent, 'Version="(\d+\.\d+\.\d+\.\d+)"')
+$manifestVersionMatch = [regex]::Match($manifestContent, '<Identity\s+Name="[^"]+"\s+Publisher="[^"]+"\s+Version="(\d+\.\d+\.\d+\.\d+)"')
 if (-not $manifestVersionMatch.Success) {
     throw "Could not find Version attribute in Package.appxmanifest"
 }
@@ -87,7 +87,7 @@ if ($DryRun) {
 
 # Update manifest - use [regex]::Replace for reliable escaping
 $pattern = [regex]::Escape("""$currentManifestVersion""")
-$updatedContent = $manifestContent -replace 'Version="\d+\.\d+\.\d+\.\d+"', "Version=`"$msixVersion`""
+$updatedContent = $manifestContent -replace '(<Identity\s+Name="[^"]+"\s+Publisher="[^"]+"\s+)Version="\d+\.\d+\.\d+\.\d+"', ('${1}Version="' + $msixVersion + '"')
 Set-Content -Path $ManifestPath -Value $updatedContent -NoNewline
 
 Write-Host ""

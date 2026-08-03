@@ -81,8 +81,15 @@ function Invoke-CargoBuild {
     $flag = if ($Configuration -eq "Debug") { "" } else { "--release" }
     Push-Location $RepoRoot
     try {
-        & cargo build $flag --package $PackageName
-        if ($LASTEXITCODE -ne 0) { throw "Build failed for $PackageName" }
+        # Native (cargo) stderr reporting triggers NativeCommandError under
+        # $ErrorActionPreference=Stop; temporarily Continue in *this* scope and
+        # merge streams so progress output is not mistaken for failure.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & cargo build $flag --package $PackageName 2>&1 | Out-Host
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = $prev
+        if ($code -ne 0) { throw "Build failed for $PackageName" }
     }
     finally { Pop-Location }
     Write-Host "    $PackageName OK" -ForegroundColor Green
@@ -131,8 +138,14 @@ if (-not $SkipBuild) {
         # ── Tauri v2: build sidecar binary paths listed in externalBin
         #    must exist *before* cargo tauri build runs, otherwise Tauri's
         #    bundler cannot discover them.  We build them in step 0 above.
-        & cargo tauri build $flag
-        if ($LASTEXITCODE -ne 0) { throw "cargo tauri build failed" }
+        #    --no-bundle: MSIX is produced by makeappx below; tauri's msi/nsis
+        #    bundler needs WiX/external tooling that is absent on this machine.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        & cargo tauri build $flag --no-bundle 2>&1 | Out-Host
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = $prev
+        if ($code -ne 0) { throw "cargo tauri build failed" }
     }
     finally { Pop-Location }
     Write-Host "  Build OK" -ForegroundColor Green
