@@ -124,6 +124,7 @@ clear_quarantine_attrs "$APP_PATH"
 # ── sign ────────────────────────────────────────────────────────────────────
 RUNTIME_BIN="$APP_PATH/Contents/MacOS/mcporb-runtime"
 RUNNER_BIN="$APP_PATH/Contents/MacOS/mcporb-runner"
+GATEWAY_BIN="$APP_PATH/Contents/MacOS/mcporb-gateway-stdio"
 BASE_ENTITLEMENTS="crates/mcporb-runtime-app/entitlements-mas.plist"
 
 PROFILE_PLIST=$(mktemp /tmp/mcporb-mas-profile.XXXXXX)
@@ -157,6 +158,17 @@ codesign --force --sign "$APP_IDENTITY" \
   --options runtime \
   --timestamp \
   "$RUNTIME_BIN"
+assert_sandbox_enabled "$RUNTIME_BIN"
+
+# Sign mcporb-gateway-stdio (Tauri externalBin) with sandbox too — Transporter
+# rejects the package if ANY bundled executable lacks the sandbox entitlement.
+log "signing mcporb-gateway-stdio (with sandbox)..."
+codesign --force --sign "$APP_IDENTITY" \
+  --entitlements "$BASE_ENTITLEMENTS" \
+  --options runtime \
+  --timestamp \
+  "$GATEWAY_BIN"
+assert_sandbox_enabled "$GATEWAY_BIN"
 
 # Sign mcporb-runner WITH sandbox entitlements (the Tauri GUI app)
 log "signing mcporb-runner (with sandbox)..."
