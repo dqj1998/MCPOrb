@@ -11,6 +11,14 @@
 | MAS Provisioning Profile | ❌ 缺失 | 需要创建 MCPOrb Runner 专用配置 |
 | App Store Connect 记录 | ❌ 未知 | 需要在 App Store Connect 创建应用 |
 
+## 审核被拒时的回复
+
+若收到 Guideline 2.4.5(i) 类审核拒绝,先阅读
+[`REVIEW-REPLY-2.4.5.md`](REVIEW-REPLY-2.4.5.md):
+
+- **权限疑问类**(如 `com.apple.security.network.server`):内有可直接粘贴的英文回复模板,通常无需重新提交。
+- **容器内保存用户文件类**:需要代码修复后重新提交(库文件夹 + security-scoped bookmark 方案,仅 macOS 生效,不影响 Windows)。
+
 ## 提交步骤
 
 ### 第一步：Apple Developer Portal 准备
