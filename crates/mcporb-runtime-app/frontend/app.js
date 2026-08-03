@@ -98,6 +98,7 @@ const locales = {
     'library.password_badge': 'Password',
     'library.password_every_launch': 'Every launch',
     'library.password_remembered': 'Remembered',
+    'library.restart_hint': 'If MCP clients (Claude, Cursor, etc.) are running, restart them to apply the updated Orb.',
     'library.stats_searches': 'Search: {n}',
     'library.stats_stdio': 'STDIO: {n}',
     'library.stats_http': 'HTTP: {n}',
