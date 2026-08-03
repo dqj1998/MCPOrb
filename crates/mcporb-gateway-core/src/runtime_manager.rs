@@ -616,6 +616,7 @@ mod tests {
     /// A spawn failure must surface the child's stderr so the operator can see
     /// the actual reason (e.g. "unexpected argument '--orb-zip' found") instead
     /// of an opaque "closed stdout during init".
+    #[cfg(unix)]
     #[tokio::test]
     async fn spawn_failure_includes_child_stderr() {
         let script = std::env::temp_dir().join("mcporb-fake-runtime.sh");
