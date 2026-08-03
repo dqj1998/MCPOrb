@@ -195,7 +195,7 @@ Write-Host "`n[3/4] Creating MSIX package..." -ForegroundColor Yellow
 
 if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
 
-& $makeappx pack /p $MsixPath /d $StageDir /l
+& $makeappx pack /p $MsixPath /d $StageDir /l /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx.exe failed (exit $LASTEXITCODE)" }
 if (-not (Test-Path $MsixPath)) { throw "MSIX not created" }
 
