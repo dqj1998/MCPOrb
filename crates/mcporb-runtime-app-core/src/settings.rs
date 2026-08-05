@@ -49,8 +49,11 @@ impl Default for RuntimeSettings {
 }
 
 fn default_download_dir() -> PathBuf {
-    dirs::download_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join("Downloads"))
+    // Use cache_dir (~/Library/Caches on macOS) so the path is within the app
+    // sandbox container — ~/Downloads requires files.downloads.read-write which
+    // we don't request, and would be blocked with EPERM in the sandbox.
+    dirs::cache_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join("Library").join("Caches"))
         .join("MCPOrb")
 }
 

@@ -773,16 +773,14 @@ async fn store_verify_download_password(
 async fn store_download_artifact(
     artifact_id: String,
     token: Option<String>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let settings = {
-        let settings_store = state.settings.lock().await;
-        settings_store.load().map_err(to_string)?
-    };
-
     let client = StoreClient::new().map_err(to_string)?;
 
-    let dest_dir = settings.download_dir.join("store");
+    // Use the OS temp dir ($TMPDIR on macOS) which is always sandbox-accessible,
+    // rather than settings.download_dir which may point to ~/Downloads where we
+    // lack the files.downloads.read-write entitlement.
+    let dest_dir = std::env::temp_dir().join("mcporb-store");
     std::fs::create_dir_all(&dest_dir).map_err(to_string)?;
     let dest_path = dest_dir.join(format!("{artifact_id}.zip"));
     let token = token.unwrap_or_default();
