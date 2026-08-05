@@ -317,6 +317,35 @@
     </div>
   </div>
 
+  <!-- Onboarding Modal (macOS only — shown on first launch when no Orb folder is set) -->
+  <div id="onboarding-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card onboarding-card">
+      <div class="modal-header">
+        <h2 data-i18n="onboarding.title">Choose Your Orb Library Location</h2>
+      </div>
+      <div class="modal-body">
+        <p class="onboarding-desc" data-i18n="onboarding.desc">
+          To keep your Orb collection visible in Finder and accessible across app updates,
+          MCPOrb Runner stores Orb files in a folder you choose — not inside the hidden app container.
+        </p>
+        <div class="onboarding-default-path">
+          <span class="onboarding-path-label" data-i18n="onboarding.recommended">Recommended location:</span>
+          <code class="onboarding-path-value">~/Documents/MCPOrb</code>
+        </div>
+        <p class="onboarding-hint" data-i18n="onboarding.hint">
+          Click "Open ~/Documents/MCPOrb" — the file picker will open there.
+          Use the New Folder button if the folder doesn't exist yet, then click Open.
+        </p>
+        <div id="onboarding-status" class="status-line"></div>
+      </div>
+      <div class="modal-footer onboarding-footer">
+        <button id="btn-onboarding-skip" class="btn btn-ghost" data-i18n="onboarding.skip_btn">Skip for now</button>
+        <button id="btn-onboarding-choose" class="btn btn-secondary" data-i18n="onboarding.choose_btn">Choose Different Location…</button>
+        <button id="btn-onboarding-default" class="btn btn-primary" data-i18n="onboarding.default_btn">Open ~/Documents/MCPOrb</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

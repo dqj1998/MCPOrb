@@ -285,6 +285,7 @@ async fn choose_orb_library_dir(
     let mut settings = store.load().map_err(to_string)?;
     settings.orb_library_dir = Some(picked.clone());
     settings.orb_library_bookmark = Some(bookmark);
+    settings.onboarding_complete = true;
     store.save(&settings).map_err(to_string)?;
 
     Ok(Some(picked.to_string_lossy().to_string()))
@@ -294,6 +295,69 @@ async fn choose_orb_library_dir(
 #[tauri::command]
 fn choose_orb_library_dir() -> Result<Option<String>, String> {
     Err("Orb library folder selection is only available on macOS.".to_string())
+}
+
+/// Opens the folder picker pre-navigated to ~/Documents/MCPOrb (the suggested
+/// default for the first-launch onboarding). On success marks onboarding done.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn choose_orb_library_dir_suggested(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let suggested = dirs::document_dir()
+        .map(|d| d.join("MCPOrb"))
+        .or_else(dirs::home_dir);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut dialog = app.dialog().file();
+    if let Some(path) = suggested {
+        dialog = dialog.set_directory(path);
+    }
+    dialog.pick_folder(move |file_path| {
+        let _ = tx.send(file_path.and_then(|p| p.into_path().ok()));
+    });
+    let picked = rx
+        .await
+        .map_err(|_| "Folder dialog closed unexpectedly.".to_string())?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+
+    let bookmark = macos_access::create_bookmark(&picked)
+        .map_err(|e| format!("Could not create security-scoped bookmark: {e}"))?;
+
+    let store = state.settings.lock().await;
+    let mut settings = store.load().map_err(to_string)?;
+    settings.orb_library_dir = Some(picked.clone());
+    settings.orb_library_bookmark = Some(bookmark);
+    settings.onboarding_complete = true;
+    store.save(&settings).map_err(to_string)?;
+
+    Ok(Some(picked.to_string_lossy().to_string()))
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn choose_orb_library_dir_suggested() -> Result<Option<String>, String> {
+    Err("Orb library folder selection is only available on macOS.".to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn dismiss_onboarding(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let store = state.settings.lock().await;
+    let mut settings = store.load().map_err(to_string)?;
+    settings.onboarding_complete = true;
+    store.save(&settings).map_err(to_string)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+async fn dismiss_onboarding() -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -901,6 +965,8 @@ fn main() {
             apply_platform_config,
             read_platform_config_raw,
             batch_start_orbs,
+            choose_orb_library_dir_suggested,
+            dismiss_onboarding,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MCPOrb Runner");

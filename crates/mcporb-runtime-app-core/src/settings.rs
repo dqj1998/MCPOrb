@@ -21,6 +21,11 @@ pub struct RuntimeSettings {
     /// Base64 security-scoped bookmark for `orb_library_dir` (macOS sandbox only).
     #[serde(default)]
     pub orb_library_bookmark: Option<String>,
+    /// True once the user has completed (or explicitly dismissed) the first-launch
+    /// Orb Library folder onboarding. macOS-only in practice; harmless on other
+    /// platforms because the frontend gates the onboarding UI on platform == 'macos'.
+    #[serde(default)]
+    pub onboarding_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,6 +49,7 @@ impl Default for RuntimeSettings {
             network_binding: NetworkBinding::Localhost,
             orb_library_dir: None,
             orb_library_bookmark: None,
+            onboarding_complete: false,
         }
     }
 }

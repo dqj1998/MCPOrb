@@ -254,6 +254,15 @@ const locales = {
     'feedback.stopped': '✓ Stopped!',
     'feedback.imported': '✓ Imported!',
     'feedback.filtered': '✓ Filtered!',
+    'onboarding.title': 'Choose Your Orb Library Location',
+    'onboarding.desc': 'To keep your Orb collection visible in Finder and accessible across app updates, MCPOrb Runner stores Orb files in a folder you choose — not inside the hidden app container.',
+    'onboarding.recommended': 'Recommended location:',
+    'onboarding.hint': 'Click "Open ~/Documents/MCPOrb" — the file picker will open there. Use the New Folder button if the folder doesn\'t exist yet, then click Open.',
+    'onboarding.skip_btn': 'Skip for now',
+    'onboarding.choose_btn': 'Choose Different Location…',
+    'onboarding.default_btn': 'Open ~/Documents/MCPOrb',
+    'onboarding.success': 'Orb library folder set to: {path}',
+    'onboarding.error': 'Could not set Orb library folder: {error}',
   },
   ja: {
     'app.title': 'MCPOrb Runner',
@@ -429,6 +438,15 @@ const locales = {
     'feedback.stopped': '✓ 停止しました！',
     'feedback.imported': '✓ インポートしました！',
     'feedback.filtered': '✓ 絞り込みました！',
+    'onboarding.title': 'Orbライブラリの保存場所を選択',
+    'onboarding.desc': 'FinderからOrbファイルにアクセスできるよう、MCPOrb Runnerはアプリのコンテナではなく、指定したフォルダにOrbを保存します。',
+    'onboarding.recommended': '推奨保存場所:',
+    'onboarding.hint': '「~/Documents/MCPOrb を開く」をクリックするとファイルピッカーがそのフォルダで開きます。フォルダがまだ存在しない場合は「新規フォルダ」で作成して選択してください。',
+    'onboarding.skip_btn': '後で設定する',
+    'onboarding.choose_btn': '別の場所を選択…',
+    'onboarding.default_btn': '~/Documents/MCPOrb を開く',
+    'onboarding.success': 'Orbライブラリフォルダを設定しました: {path}',
+    'onboarding.error': 'Orbライブラリフォルダを設定できませんでした: {error}',
   },
   zh: {
     'app.title': 'MCPOrb Runner',
@@ -608,6 +626,15 @@ const locales = {
     'feedback.stopped': '✓ 已停止！',
     'feedback.imported': '✓ 已导入！',
     'feedback.filtered': '✓ 已筛选！',
+    'onboarding.title': '选择 Orb 库文件夹',
+    'onboarding.desc': '为了让你的 Orb 文件在 Finder 中可见并在应用更新后保持可访问，MCPOrb Runner 会将 Orb 文件保存到你指定的文件夹，而不是隐藏的应用容器中。',
+    'onboarding.recommended': '推荐位置：',
+    'onboarding.hint': '点击"打开 ~/Documents/MCPOrb"，文件选择器将在该位置打开。如果文件夹尚不存在，请使用"新建文件夹"创建后再选择。',
+    'onboarding.skip_btn': '稍后设置',
+    'onboarding.choose_btn': '选择其他位置…',
+    'onboarding.default_btn': '打开 ~/Documents/MCPOrb',
+    'onboarding.success': '已设置 Orb 库文件夹：{path}',
+    'onboarding.error': '无法设置 Orb 库文件夹：{error}',
   },
 };
 
@@ -737,6 +764,9 @@ function bindActions() {
   $('btn-generate-config').addEventListener('click', generateMcpConfig);
   $('btn-save-settings').addEventListener('click', saveSettings);
   $('btn-choose-orb-library').addEventListener('click', chooseOrbLibraryDir);
+  $('btn-onboarding-default').addEventListener('click', onboardingUseDefault);
+  $('btn-onboarding-choose').addEventListener('click', onboardingChooseDifferent);
+  $('btn-onboarding-skip').addEventListener('click', onboardingSkip);
   $('btn-refresh-running').addEventListener('click', refreshRunning);
   $('btn-discover-configs').addEventListener('click', discoverPlatformConfigs);
   $('store-search-query').addEventListener('input', debounce(() => {
@@ -1528,6 +1558,10 @@ async function loadSettings() {
       state.orbLibraryDir = settings.orb_library_dir;
       $('settings-orb-library-dir').value = settings.orb_library_dir;
     }
+    // Show first-launch onboarding on macOS when user hasn't set a folder yet.
+    if (state.platform === 'macos' && !settings.onboarding_complete && !settings.orb_library_dir) {
+      showOnboardingModal();
+    }
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -1549,6 +1583,73 @@ async function chooseOrbLibraryDir() {
     $('settings-status').classList.add('error');
   }
 }
+
+// --- Onboarding modal (macOS first-launch) ---
+
+function showOnboardingModal() {
+  $('onboarding-modal').style.display = 'flex';
+  $('onboarding-status').textContent = '';
+}
+
+function hideOnboardingModal() {
+  $('onboarding-modal').style.display = 'none';
+}
+
+function applyOrbLibraryDir(dir) {
+  if (!dir) return;
+  state.orbLibraryDir = dir;
+  $('settings-orb-library-dir').value = dir;
+}
+
+async function onboardingUseDefault() {
+  if (!invoke) return;
+  $('onboarding-status').textContent = '';
+  $('btn-onboarding-default').disabled = true;
+  $('btn-onboarding-choose').disabled = true;
+  try {
+    const dir = await invoke('choose_orb_library_dir_suggested');
+    if (dir) {
+      applyOrbLibraryDir(dir);
+      hideOnboardingModal();
+    }
+  } catch (error) {
+    $('onboarding-status').textContent = t('onboarding.error', { error });
+    $('onboarding-status').classList.add('error');
+  } finally {
+    $('btn-onboarding-default').disabled = false;
+    $('btn-onboarding-choose').disabled = false;
+  }
+}
+
+async function onboardingChooseDifferent() {
+  if (!invoke) return;
+  $('onboarding-status').textContent = '';
+  $('btn-onboarding-default').disabled = true;
+  $('btn-onboarding-choose').disabled = true;
+  try {
+    const dir = await invoke('choose_orb_library_dir');
+    if (dir) {
+      applyOrbLibraryDir(dir);
+      hideOnboardingModal();
+    }
+  } catch (error) {
+    $('onboarding-status').textContent = t('onboarding.error', { error });
+    $('onboarding-status').classList.add('error');
+  } finally {
+    $('btn-onboarding-default').disabled = false;
+    $('btn-onboarding-choose').disabled = false;
+  }
+}
+
+async function onboardingSkip() {
+  if (!invoke) return;
+  try {
+    await invoke('dismiss_onboarding');
+  } catch (_) { /* best-effort */ }
+  hideOnboardingModal();
+}
+
+// --- End onboarding ---
 
 async function saveSettings() {
   if (!invoke) return;
