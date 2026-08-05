@@ -160,6 +160,12 @@ codesign --force --sign "$DIST_IDENTITY" \
   --options runtime --timestamp \
   "$APP_PATH/Contents/MacOS/mcporb-runtime"
 
+# mcporb-gateway-stdio: 同样需要 sandbox entitlement（Transporter 会拒绝未沙盒化的可执行文件）
+codesign --force --sign "$DIST_IDENTITY" \
+  --entitlements crates/mcporb-runtime-app/entitlements-mas.plist \
+  --options runtime --timestamp \
+  "$APP_PATH/Contents/MacOS/mcporb-gateway-stdio"
+
 # mcporb-runner: Tauri GUI 应用，需要沙盒权限
 codesign --force --sign "$DIST_IDENTITY" \
   --entitlements crates/mcporb-runtime-app/entitlements-mas.plist \
