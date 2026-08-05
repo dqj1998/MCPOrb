@@ -47,6 +47,48 @@ assert_sandbox_enabled() {
   fi
 }
 
+# Sandboxed processes abort in secinit (SIGTRAP in _libsecinit_appsandbox)
+# before main() when application-identifier is missing — assert it explicitly.
+assert_application_identifier() {
+  local bin="$1"
+  local ent
+  ent="$(codesign -d --entitlements :- "$bin" 2>&1 || true)"
+
+  if ! printf '%s' "$ent" | tr -d '\n' | grep -q '<key>com.apple.application-identifier</key>'; then
+    echo "$ent" >&2
+    die "application-identifier entitlement missing on $bin (sandboxed processes crash in secinit without it)"
+  fi
+}
+
+# Nested executables must NOT carry application-identifier: TestFlight rejects
+# any executable whose signature has an app id but no embedded provisioning
+# profile (ITMS-90885). The app id's profile lives in the bundle as
+# Contents/embedded.provisionprofile, which validates only the MAIN executable.
+assert_no_application_identifier() {
+  local bin="$1"
+  local ent
+  ent="$(codesign -d --entitlements :- "$bin" 2>&1 || true)"
+
+  if printf '%s' "$ent" | tr -d '\n' | grep -q '<key>com.apple.application-identifier</key>'; then
+    echo "$ent" >&2
+    die "application-identifier present on nested executable $bin (TestFlight ITMS-90885)"
+  fi
+}
+
+# team-identifier alone is sufficient for secinit to build the sandbox profile
+# (verified empirically: sandbox + team-identifier, no app id → process passes
+# secinit; the old crash only occurred when BOTH were absent).
+assert_team_identifier() {
+  local bin="$1"
+  local ent
+  ent="$(codesign -d --entitlements :- "$bin" 2>&1 || true)"
+
+  if ! printf '%s' "$ent" | tr -d '\n' | grep -q '<key>com.apple.developer.team-identifier</key>'; then
+    echo "$ent" >&2
+    die "team-identifier entitlement missing on $bin (sandboxed processes crash in secinit without it)"
+  fi
+}
+
 # ── preconditions ───────────────────────────────────────────────────────────
 [[ "$(uname -s)" == "Darwin" ]] || die "must run on macOS"
 command -v cargo >/dev/null || die "cargo not found"
@@ -129,7 +171,8 @@ BASE_ENTITLEMENTS="crates/mcporb-runtime-app/entitlements-mas.plist"
 
 PROFILE_PLIST=$(mktemp /tmp/mcporb-mas-profile.XXXXXX)
 APP_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-entitlements.XXXXXX)
-trap 'rm -f "$PROFILE_PLIST" "$APP_SIGN_ENTITLEMENTS"' EXIT
+NESTED_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-nested-entitlements.XXXXXX)
+trap 'rm -f "$PROFILE_PLIST" "$APP_SIGN_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"' EXIT
 
 security cms -D -i "$MAS_PROFILE" > "$PROFILE_PLIST"
 
@@ -148,27 +191,50 @@ cp "$BASE_ENTITLEMENTS" "$APP_SIGN_ENTITLEMENTS"
 /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $APP_IDENTIFIER" "$APP_SIGN_ENTITLEMENTS"
 /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_IDENTIFIER" "$APP_SIGN_ENTITLEMENTS"
 
+# Nested executables (runtime + gateway) get sandbox + team-identifier ONLY.
+# application-identifier is intentionally omitted: TestFlight rejects nested
+# executables whose signature carries an app id without an embedded
+# provisioning profile (ITMS-90885), and codesign on this machine cannot embed
+# profiles. The runner/bundle keep the app id, validated via the bundle-level
+# Contents/embedded.provisionprofile.
+cp "$BASE_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"
+/usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_IDENTIFIER" "$NESTED_SIGN_ENTITLEMENTS"
+
 log "using provisioning app id: $APP_IDENTIFIER"
 log "using provisioning team id: $TEAM_IDENTIFIER"
 
 # MAS requirement: every executable in the app bundle must be sandboxed.
-log "signing mcporb-runtime (with sandbox)..."
+# The runner and the bundle itself carry application-identifier (matching the
+# embedded.provisionprofile). Nested executables (runtime, gateway) are signed
+# WITHOUT application-identifier — TestFlight rejects any nested executable
+# whose signature carries an app id without an embedded provisioning profile
+# (ITMS-90885), and codesign here cannot embed profiles. team-identifier alone
+# prevents the secinit SIGTRAP crash (verified empirically).
+log "signing mcporb-runtime (sandbox, no app id)..."
 codesign --force --sign "$APP_IDENTITY" \
-  --entitlements "$BASE_ENTITLEMENTS" \
+  --identifier "com.mcporb.runner.runtime" \
+  --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
   --options runtime \
   --timestamp \
   "$RUNTIME_BIN"
 assert_sandbox_enabled "$RUNTIME_BIN"
+assert_team_identifier "$RUNTIME_BIN"
+assert_no_application_identifier "$RUNTIME_BIN"
 
 # Sign mcporb-gateway-stdio (Tauri externalBin) with sandbox too — Transporter
 # rejects the package if ANY bundled executable lacks the sandbox entitlement.
-log "signing mcporb-gateway-stdio (with sandbox)..."
+log "signing mcporb-gateway-stdio (sandbox, no app id)..."
 codesign --force --sign "$APP_IDENTITY" \
-  --entitlements "$BASE_ENTITLEMENTS" \
+  --identifier "com.mcporb.runner.gateway.stdio" \
+  --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
   --options runtime \
   --timestamp \
   "$GATEWAY_BIN"
 assert_sandbox_enabled "$GATEWAY_BIN"
+assert_team_identifier "$GATEWAY_BIN"
+assert_no_application_identifier "$GATEWAY_BIN"
 
 # Sign mcporb-runner WITH sandbox entitlements (the Tauri GUI app)
 log "signing mcporb-runner (with sandbox)..."
@@ -178,6 +244,7 @@ codesign --force --sign "$APP_IDENTITY" \
   --timestamp \
   "$RUNNER_BIN"
 assert_sandbox_enabled "$RUNNER_BIN"
+assert_application_identifier "$RUNNER_BIN"
 
 # Sign the bundle with the same entitlements for the main executable.
 log "signing app bundle..."
