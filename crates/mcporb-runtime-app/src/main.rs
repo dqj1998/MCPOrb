@@ -155,8 +155,47 @@ fn gateway_mcp_config_snippets(
     let gateway_bin = default_gateway_binary()
         .ok_or_else(|| "Could not resolve mcporb-gateway-stdio binary path".to_string())?;
     let registry_dir = state.registry.root_dir().to_path_buf();
-    // Keep the old per-orb command so existing callers don't break
-    Ok(mcp_config::gateway_stdio_config_snippets(&gateway_bin, &registry_dir))
+
+    #[cfg(target_os = "macos")]
+    {
+        let runner_bin = gateway_bin
+            .parent()
+            .and_then(resolve_runner_binary_in)
+            .or_else(mcp_binary_path)
+            .ok_or_else(|| "Could not resolve mcporb-runner binary path".to_string())?;
+
+        let value = serde_json::json!({
+            "mcpServers": {
+                "mcporb-gateway": {
+                    "command": runner_bin.display().to_string(),
+                    "args": [
+                        "--gateway-stdio",
+                        "--registry-dir",
+                        registry_dir.display().to_string(),
+                    ]
+                }
+            }
+        });
+        let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
+
+        return Ok([
+            ("claude_desktop", "Claude Desktop"),
+            ("cursor", "Cursor"),
+            ("vscode", "VS Code"),
+        ]
+        .into_iter()
+        .map(|(client, label)| mcp_config::McpConfigSnippet {
+            client: client.to_string(),
+            label: label.to_string(),
+            json: json.clone(),
+        })
+        .collect());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(mcp_config::gateway_stdio_config_snippets(&gateway_bin, &registry_dir))
+    }
 }
 
 #[tauri::command]
@@ -614,23 +653,14 @@ fn build_merged_platform_config(
 
     if use_gateway {
         let gateway_bin = default_gateway_binary().unwrap();
-        let server_value = platform_config::make_stdio_server_config(
-            &gateway_bin.display().to_string(),
-            "gateway",
-            &registry_dir.display().to_string(),
-            false,
-        );
-        let entry = ("mcporb-gateway".to_string(), server_value);
+        let entry = gateway_server_entry(&registry_dir, &gateway_bin);
         let existing = platform.current_content.as_deref();
-        return match platform_config::build_merged_config_with_entries(existing, &[entry]) {
+        return match platform_config::build_merged_config_with_entries(existing, std::slice::from_ref(&entry)) {
             Ok(json) => json,
             Err(_) => {
                 let mut map = serde_json::Map::new();
                 let mut servers = serde_json::Map::new();
-                servers.insert("mcporb-gateway".to_string(), serde_json::json!({
-                    "command": gateway_bin.display().to_string(),
-                    "args": ["--registry-dir", registry_dir.display().to_string()]
-                }));
+                servers.insert(entry.0, entry.1);
                 map.insert("mcpServers".to_string(), serde_json::Value::Object(servers));
                 serde_json::to_string_pretty(&serde_json::Value::Object(map))
                     .unwrap_or_else(|_| "{}".to_string())
@@ -818,6 +848,9 @@ fn main() {
     if std::env::args().any(|a| a == "--mcp-stdio") {
         run_mcp_stdio_proxy(registry.root_dir());
     }
+    if std::env::args().any(|a| a == "--gateway-stdio") {
+        run_gateway_stdio_proxy(registry.root_dir());
+    }
 
     let app_state = AppState {
         registry,
@@ -926,6 +959,81 @@ fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
     std::process::exit(status.code().unwrap_or(1));
 }
 
+/// Run as an MCP gateway STDIO proxy: spawn `mcporb-gateway-stdio` with
+/// cleaned args and inherit stdin/stdout/stderr.
+///
+/// Never returns — exits with the child's exit code.
+fn run_gateway_stdio_proxy(registry_root: &Path) -> ! {
+    let gateway_path = default_gateway_binary().unwrap_or_else(|| {
+        eprintln!("mcporb-runner: mcporb-gateway-stdio binary not found");
+        std::process::exit(1);
+    });
+
+    let mut gateway_args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--gateway-stdio")
+        .collect();
+
+    // Ensure the gateway can find the same registry as the GUI.
+    if !gateway_args.iter().any(|a| a == "--registry-dir") {
+        gateway_args.push("--registry-dir".to_string());
+        gateway_args.push(registry_root.display().to_string());
+    }
+
+    let mut child = match std::process::Command::new(&gateway_path)
+        .args(&gateway_args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("mcporb-runner: failed to spawn mcporb-gateway-stdio: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let status = child.wait().unwrap_or_else(|e| {
+        eprintln!("mcporb-runner: failed to wait for mcporb-gateway-stdio: {e}");
+        std::process::exit(1);
+    });
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(target_os = "macos")]
+fn gateway_server_entry(registry_dir: &Path, gateway_bin: &Path) -> (String, serde_json::Value) {
+    let parent = gateway_bin.parent().unwrap_or_else(|| Path::new("."));
+    let runner = resolve_runner_binary_in(parent).unwrap_or_else(|| {
+        parent.join(format!("mcporb-runner{}", std::env::consts::EXE_SUFFIX))
+    });
+    (
+        "mcporb-gateway".to_string(),
+        serde_json::json!({
+            "command": runner.display().to_string(),
+            "args": [
+                "--gateway-stdio",
+                "--registry-dir",
+                registry_dir.display().to_string()
+            ]
+        }),
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn gateway_server_entry(registry_dir: &Path, gateway_bin: &Path) -> (String, serde_json::Value) {
+    (
+        "mcporb-gateway".to_string(),
+        serde_json::json!({
+            "command": gateway_bin.display().to_string(),
+            "args": [
+                "--registry-dir",
+                registry_dir.display().to_string()
+            ]
+        }),
+    )
+}
+
 /// Whether the generated MCP client config should point to `mcporb-runner`
 /// (the sandboxed wrapper) instead of directly to `mcporb-runtime`.
 ///
@@ -970,6 +1078,16 @@ fn resolve_mcp_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
         Some(runner)
     } else {
         resolve_runtime_binary_in(dir)
+    }
+}
+
+fn resolve_runner_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let runner = dir.join(format!("mcporb-runner{suffix}"));
+    if runner.is_file() {
+        Some(runner)
+    } else {
+        None
     }
 }
 
@@ -1096,6 +1214,63 @@ mod tests {
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
         // no runner, should find runtime
         assert_eq!(resolve_mcp_binary_in(dir.path()), Some(runtime));
+    }
+
+    #[test]
+    fn resolve_runner_binary_returns_none_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(resolve_runner_binary_in(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_runner_binary_finds_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let runner = dir.path().join(format!("mcporb-runner{suffix}"));
+        fs::write(&runner, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&runner, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(resolve_runner_binary_in(dir.path()), Some(runner));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn gateway_server_entry_uses_runner_wrapper_on_macos() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let gateway = dir.path().join(format!("mcporb-gateway-stdio{suffix}"));
+        let runner = dir.path().join(format!("mcporb-runner{suffix}"));
+        fs::write(&gateway, "").unwrap();
+        fs::write(&runner, "").unwrap();
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&gateway, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::set_permissions(&runner, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let entry = gateway_server_entry(Path::new("/tmp/mcporb-runtime"), &gateway);
+        assert_eq!(entry.0, "mcporb-gateway");
+        assert_eq!(entry.1["command"], runner.display().to_string());
+        assert_eq!(entry.1["args"][0], "--gateway-stdio");
+        assert_eq!(entry.1["args"][1], "--registry-dir");
+        assert_eq!(entry.1["args"][2], "/tmp/mcporb-runtime");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn gateway_server_entry_keeps_gateway_direct_on_non_macos() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let gateway = dir.path().join(format!("mcporb-gateway-stdio{suffix}"));
+        fs::write(&gateway, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&gateway, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let entry = gateway_server_entry(Path::new("/tmp/mcporb-runtime"), &gateway);
+        assert_eq!(entry.0, "mcporb-gateway");
+        assert_eq!(entry.1["command"], gateway.display().to_string());
+        assert_eq!(entry.1["args"][0], "--registry-dir");
+        assert_eq!(entry.1["args"][1], "/tmp/mcporb-runtime");
     }
 
     // ── existing tests ───────────────────────────────────────────────────────
