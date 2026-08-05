@@ -972,19 +972,37 @@ fn main() {
         .expect("error while running MCPOrb Runner");
 }
 
-/// Run as an MCP STDIO proxy: spawn `mcporb-runtime` with cleaned args and
-/// inherit stdin/stdout/stderr so that the MCP client (e.g. Claude Desktop)
-/// communicates directly with the runtime while the sandbox container is
-/// maintained (the child inherits the sandbox of this sandboxed process).
+/// Exit without running atexit() handlers.
 ///
-/// Never returns — exits with the child's exit code.
+/// On macOS, mcporb-runner links against AppKit/WebKit (via Tauri). AppKit
+/// registers atexit() callbacks that crash when NSApp was never initialized —
+/// which is the case in --mcp-stdio and --gateway-stdio proxy modes where we
+/// intentionally bypass Tauri/AppKit. std::process::exit() calls libc exit()
+/// which runs those handlers; _exit() does not.
+#[cfg(unix)]
+fn proxy_exit(code: i32) -> ! {
+    extern "C" {
+        fn _exit(status: i32) -> !;
+    }
+    unsafe { _exit(code) }
+}
+
+/// Run as an MCP STDIO proxy.
+///
+/// On Unix: exec() replaces the current process image with mcporb-runtime,
+/// inheriting all file descriptors. The MCP client communicates directly with
+/// the runtime; mcporb-runner's AppKit atexit handlers never run.
+///
+/// On Windows: spawn + wait (no AppKit concern on Windows).
 fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
     let runtime_path = default_runtime_binary().unwrap_or_else(|| {
         eprintln!("mcporb-runner: mcporb-runtime binary not found");
+        #[cfg(unix)]
+        proxy_exit(1);
+        #[cfg(not(unix))]
         std::process::exit(1);
     });
 
-    // Resolve the metrics directory so the runtime writes where the GUI reads.
     let metrics_dir = registry_root.join("metrics");
 
     let mut runtime_args: Vec<String> = std::env::args()
@@ -992,44 +1010,57 @@ fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
         .filter(|a| a != "--mcp-stdio")
         .collect();
 
-    // The runtime needs --stdio-only for MCP protocol mode
     if !runtime_args.iter().any(|a| a == "--stdio-only") {
         runtime_args.push("--stdio-only".to_string());
     }
-    // Ensure metrics land where get_orb_metrics reads them
     if !runtime_args.iter().any(|a| a == "--metrics-dir") {
         runtime_args.push("--metrics-dir".to_string());
         runtime_args.push(metrics_dir.display().to_string());
     }
 
-    let mut child = match std::process::Command::new(&runtime_path)
-        .args(&runtime_args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
+    #[cfg(unix)]
     {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("mcporb-runner: failed to spawn mcporb-runtime: {e}");
-            std::process::exit(1);
-        }
-    };
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&runtime_path)
+            .args(&runtime_args)
+            .exec();
+        eprintln!("mcporb-runner: exec mcporb-runtime failed: {err}");
+        proxy_exit(1);
+    }
 
-    let status = child.wait().unwrap_or_else(|e| {
-        eprintln!("mcporb-runner: failed to wait for mcporb-runtime: {e}");
-        std::process::exit(1);
-    });
-    std::process::exit(status.code().unwrap_or(1));
+    #[cfg(not(unix))]
+    {
+        let mut child = match std::process::Command::new(&runtime_path)
+            .args(&runtime_args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mcporb-runner: failed to spawn mcporb-runtime: {e}");
+                std::process::exit(1);
+            }
+        };
+        let status = child.wait().unwrap_or_else(|e| {
+            eprintln!("mcporb-runner: failed to wait for mcporb-runtime: {e}");
+            std::process::exit(1);
+        });
+        std::process::exit(status.code().unwrap_or(1));
+    }
 }
 
-/// Run as an MCP gateway STDIO proxy: spawn `mcporb-gateway-stdio` with
-/// cleaned args and inherit stdin/stdout/stderr.
+/// Run as an MCP gateway STDIO proxy.
 ///
-/// Never returns — exits with the child's exit code.
+/// On Unix: exec() replaces the current process image with mcporb-gateway-stdio.
+/// On Windows: spawn + wait.
 fn run_gateway_stdio_proxy(registry_root: &Path) -> ! {
     let gateway_path = default_gateway_binary().unwrap_or_else(|| {
         eprintln!("mcporb-runner: mcporb-gateway-stdio binary not found");
+        #[cfg(unix)]
+        proxy_exit(1);
+        #[cfg(not(unix))]
         std::process::exit(1);
     });
 
@@ -1038,31 +1069,42 @@ fn run_gateway_stdio_proxy(registry_root: &Path) -> ! {
         .filter(|a| a != "--gateway-stdio")
         .collect();
 
-    // Ensure the gateway can find the same registry as the GUI.
     if !gateway_args.iter().any(|a| a == "--registry-dir") {
         gateway_args.push("--registry-dir".to_string());
         gateway_args.push(registry_root.display().to_string());
     }
 
-    let mut child = match std::process::Command::new(&gateway_path)
-        .args(&gateway_args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .spawn()
+    #[cfg(unix)]
     {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("mcporb-runner: failed to spawn mcporb-gateway-stdio: {e}");
-            std::process::exit(1);
-        }
-    };
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&gateway_path)
+            .args(&gateway_args)
+            .exec();
+        eprintln!("mcporb-runner: exec mcporb-gateway-stdio failed: {err}");
+        proxy_exit(1);
+    }
 
-    let status = child.wait().unwrap_or_else(|e| {
-        eprintln!("mcporb-runner: failed to wait for mcporb-gateway-stdio: {e}");
-        std::process::exit(1);
-    });
-    std::process::exit(status.code().unwrap_or(1));
+    #[cfg(not(unix))]
+    {
+        let mut child = match std::process::Command::new(&gateway_path)
+            .args(&gateway_args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mcporb-runner: failed to spawn mcporb-gateway-stdio: {e}");
+                std::process::exit(1);
+            }
+        };
+        let status = child.wait().unwrap_or_else(|e| {
+            eprintln!("mcporb-runner: failed to wait for mcporb-gateway-stdio: {e}");
+            std::process::exit(1);
+        });
+        std::process::exit(status.code().unwrap_or(1));
+    }
 }
 
 #[cfg(target_os = "macos")]

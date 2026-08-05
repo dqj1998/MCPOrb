@@ -39,6 +39,7 @@ extern "C" {
     ) -> CFURLRef;
     fn CFURLGetFileSystemRepresentation(
         url: CFURLRef,
+        resolve_against_base: Boolean,
         buffer: *mut c_char,
         buffer_len: CFIndex,
     ) -> Boolean;
@@ -177,7 +178,7 @@ unsafe fn url_from_path(path: &Path) -> Result<CFURLRef, String> {
 
 unsafe fn path_from_url(url: CFURLRef) -> Result<PathBuf, String> {
     let mut buffer = [0 as c_char; 4096];
-    if CFURLGetFileSystemRepresentation(url, buffer.as_mut_ptr(), buffer.len() as CFIndex) == 0 {
+    if CFURLGetFileSystemRepresentation(url, 1, buffer.as_mut_ptr(), buffer.len() as CFIndex) == 0 {
         return Err("CFURLGetFileSystemRepresentation failed".to_string());
     }
     let c_str = CStr::from_ptr(buffer.as_ptr());
