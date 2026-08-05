@@ -14,8 +14,8 @@ use base64::Engine;
 
 const K_CFURL_POSIX_PATH_STYLE: u32 = 0;
 const K_CFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
-const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 0;
-const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 0;
+const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
 
 #[repr(C)]
 struct __CFURL(c_void);

@@ -827,7 +827,7 @@ fn resolve_macos_registry(
 }
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().with_writer(std::io::stderr).init();
 
     let settings_store = SettingsStore::default().unwrap_or_else(|error| {
         tracing::warn!(%error, "falling back to default settings store");
