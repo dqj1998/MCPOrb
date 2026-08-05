@@ -43,8 +43,9 @@ struct OrbProcess {
     /// Background reader task handle (reads child's stdout).
     #[allow(dead_code)]
     reader_handle: tokio::task::JoinHandle<()>,
-    /// Receiver for responses matched by JSON-RPC id.
-    response_rx: tokio::sync::mpsc::Receiver<Value>,
+    /// In-flight requests waiting for a response, keyed by JSON-RPC id.
+    /// The background reader routes each Orb response to the matching sender.
+    pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>>,
     last_used: Instant,
     next_id: u64,
 }
@@ -144,30 +145,37 @@ impl RuntimeManager {
     /// Ensure the Orb's child process is running. If it's already running,
     /// this is a no-op.
     pub async fn ensure_orb(&self, slug: &str) -> Result<()> {
-        let mut processes = self.processes.write().await;
-        let status = processes.get(slug);
-
-        match status {
-            Some(OrbStatus::Running(_)) => return Ok(()),
-            Some(OrbStatus::Failed(msg)) => {
-                // Previous spawn failed; try again by resetting to Idle
-                tracing::info!(orb = %slug, previous_error = %msg, "Retrying Orb spawn");
-            }
-            Some(OrbStatus::Idle) => {} // proceed to spawn
-            None => {
-                anyhow::bail!("Unknown Orb: {slug}");
+        // Fast path under read lock (common case: process is already running).
+        {
+            let processes = self.processes.read().await;
+            match processes.get(slug) {
+                Some(OrbStatus::Running(_)) => return Ok(()),
+                None => anyhow::bail!("Unknown Orb: {slug}"),
+                Some(OrbStatus::Failed(msg)) => {
+                    tracing::info!(orb = %slug, previous_error = %msg, "Retrying Orb spawn");
+                }
+                Some(OrbStatus::Idle) => {}
             }
         }
 
-        // Find the orb config
+        // Find the orb config (orbs list is immutable; no lock needed).
         let orb = self
             .orbs
             .iter()
             .find(|o| o.slug == slug)
             .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
 
-        // Spawn the child process
-        match spawn_orb_process(&self.config.runtime_binary, orb, &self.config).await {
+        // Spawn OUTSIDE any lock so the reaper and other readers are not
+        // blocked during the ~10-second MCP initialize handshake.
+        let proc_result = spawn_orb_process(&self.config.runtime_binary, orb, &self.config).await;
+
+        // Insert result under write lock.
+        let mut processes = self.processes.write().await;
+        // Re-check: another task may have spawned the process in the meantime.
+        if let Some(OrbStatus::Running(_)) = processes.get(slug) {
+            return Ok(());
+        }
+        match proc_result {
             Ok(proc) => {
                 tracing::info!(orb = %slug, "Orb process started");
                 processes.insert(slug.to_string(), OrbStatus::Running(proc));
@@ -215,74 +223,82 @@ impl RuntimeManager {
         }
     }
 
-    /// Internal forwarding that acquires a write lock on the process entry.
+    /// Internal forwarding: write the request and wait for the response.
+    ///
+    /// The write lock is held only long enough to write the request to the
+    /// Orb's stdin and register a one-shot response waiter. It is released
+    /// before awaiting the response so the reaper and other tasks can proceed.
     async fn forward_request_inner(
         &self,
         slug: &str,
         method: &str,
         params: Value,
     ) -> Result<Value> {
-        // To get mutable access to OrbProcess, we need a write lock.
-        let mut processes = self.processes.write().await;
-        let status = processes
-            .get_mut(slug)
-            .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
+        let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
 
-        match status {
-            OrbStatus::Running(proc) => {
-                let request_id = proc.next_id;
-                proc.next_id += 1;
+        // Critical section: write request + register waiter.
+        {
+            let mut processes = self.processes.write().await;
+            let status = processes
+                .get_mut(slug)
+                .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
 
-                let request = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "method": method,
-                    "params": params,
-                });
+            match status {
+                OrbStatus::Running(proc) => {
+                    let request_id = proc.next_id;
+                    proc.next_id += 1;
 
-                let request_str = serde_json::to_string(&request)
-                    .context("failed to serialize JSON-RPC request")?;
+                    let request = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": method,
+                        "params": params,
+                    });
 
-                // Write to child's stdin
-                proc.stdin
-                    .write_all(request_str.as_bytes())
-                    .await
-                    .context("failed to write to Orb child stdin")?;
-                proc.stdin
-                    .write_all(b"\n")
-                    .await
-                    .context("failed to write newline to Orb child stdin")?;
-                proc.stdin
-                    .flush()
-                    .await
-                    .context("failed to flush Orb child stdin")?;
+                    let request_str = serde_json::to_string(&request)
+                        .context("failed to serialize JSON-RPC request")?;
 
-                proc.last_used = Instant::now();
-                tracing::debug!(
-                    orb = %slug,
-                    request_id,
-                    method = %method,
-                    "Request forwarded to Orb"
-                );
+                    proc.stdin
+                        .write_all(request_str.as_bytes())
+                        .await
+                        .context("failed to write to Orb child stdin")?;
+                    proc.stdin
+                        .write_all(b"\n")
+                        .await
+                        .context("failed to write newline to Orb child stdin")?;
+                    proc.stdin
+                        .flush()
+                        .await
+                        .context("failed to flush Orb child stdin")?;
 
-                // Wait for the response with a timeout
-                let response = tokio::time::timeout(
-                    Duration::from_secs(60),
-                    proc.response_rx.recv(),
-                )
-                .await
-                .context("timeout waiting for Orb response")?
-                .ok_or_else(|| anyhow::anyhow!("Orb child process stopped responding"))?;
+                    proc.last_used = Instant::now();
+                    proc.pending_requests
+                        .lock()
+                        .unwrap()
+                        .insert(request_id, tx);
 
-                Ok(response)
+                    tracing::debug!(
+                        orb = %slug,
+                        request_id,
+                        method = %method,
+                        "Request forwarded to Orb"
+                    );
+                }
+                OrbStatus::Failed(msg) => {
+                    anyhow::bail!("Orb {slug} is in a failed state: {msg}")
+                }
+                OrbStatus::Idle => {
+                    anyhow::bail!("Orb {slug} is idle (race condition)")
+                }
             }
-            OrbStatus::Failed(msg) => {
-                anyhow::bail!("Orb {slug} is in a failed state: {msg}")
-            }
-            OrbStatus::Idle => {
-                anyhow::bail!("Orb {slug} is idle (race condition)")
-            }
-        }
+        } // write lock released here
+
+        // Wait for the response WITHOUT holding any lock. The background
+        // reader task routes the Orb's response to our oneshot channel.
+        tokio::time::timeout(Duration::from_secs(60), rx)
+            .await
+            .context("timeout waiting for Orb response")?
+            .map_err(|_| anyhow::anyhow!("Orb child process stopped responding"))
     }
 
     /// Kill an Orb's child process and reset to Idle.
@@ -437,11 +453,19 @@ async fn spawn_orb_process(
 
     let slug = &orb.slug;
 
-    // Response channel: child stdout → mpsc receiver
-    let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<Value>(64);
+    // Response routing: each in-flight request registers a oneshot sender
+    // keyed by JSON-RPC id. The background reader delivers responses here.
+    let pending_requests: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<Value>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
-    // Background task: read stdout lines and forward to response channel
+    // Pre-register the initialize response receiver (id = 0) before the
+    // reader task starts so it is ready when the first response arrives.
+    let (init_tx, init_rx) = tokio::sync::oneshot::channel::<Value>();
+    pending_requests.lock().unwrap().insert(0u64, init_tx);
+
+    // Background task: read stdout lines and route to waiting callers.
     let slug_clone = orb.slug.clone();
+    let pending_clone = pending_requests.clone();
     let reader_handle = tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -449,9 +473,15 @@ async fn spawn_orb_process(
             match serde_json::from_str::<Value>(&line) {
                 Ok(response) => {
                     tracing::trace!(orb = %slug_clone, response = %line, "Received response from Orb");
-                    if response_tx.send(response).await.is_err() {
-                        tracing::warn!(orb = %slug_clone, "Response channel closed");
-                        break;
+                    if let Some(id) = response.get("id").and_then(|v| v.as_u64()) {
+                        let tx = pending_clone.lock().unwrap().remove(&id);
+                        if let Some(tx) = tx {
+                            let _ = tx.send(response);
+                        } else {
+                            tracing::warn!(orb = %slug_clone, id, "Response for unknown request id");
+                        }
+                    } else {
+                        tracing::debug!(orb = %slug_clone, line = %line, "Orb notification (no id)");
                     }
                 }
                 Err(e) => {
@@ -499,10 +529,10 @@ async fn spawn_orb_process(
         }
         anyhow::anyhow!("{detail}")
     };
-    let init_response = tokio::time::timeout(Duration::from_secs(10), response_rx.recv())
+    let init_response = tokio::time::timeout(Duration::from_secs(10), init_rx)
         .await
         .map_err(|_| init_err_msg(&stderr_tail))?;
-    init_response.ok_or_else(|| init_err_msg(&stderr_tail))?;
+    init_response.map_err(|_| init_err_msg(&stderr_tail))?;
 
     // Send notifications/initialized (no response expected)
     let notif = serde_json::json!({
@@ -521,9 +551,9 @@ async fn spawn_orb_process(
         child,
         stdin: stdin_buf,
         reader_handle,
-        response_rx,
+        pending_requests,
         last_used: Instant::now(),
-        next_id: 1,
+        next_id: 1, // 0 was used for the initialize handshake
     })
 }
 

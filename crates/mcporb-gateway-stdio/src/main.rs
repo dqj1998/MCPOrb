@@ -94,7 +94,30 @@ async fn main() -> anyhow::Result<()> {
         reaper.start_reaper().await;
     });
 
-    // STDIO loop: read lines, handle, write responses
+    // Response channel: handler tasks → writer task → stdout.
+    // Using a channel decouples request handling from stdout writes so that
+    // a slow or long-running tool call never blocks reading the next request.
+    let (resp_tx, mut resp_rx) = tokio::sync::mpsc::channel::<String>(64);
+
+    // Writer task: serialises all response writes to stdout.
+    let writer = tokio::spawn(async move {
+        let mut out = tokio::io::stdout();
+        while let Some(line) = resp_rx.recv().await {
+            if out.write_all(line.as_bytes()).await.is_err() {
+                break;
+            }
+            if out.write_all(b"\n").await.is_err() {
+                break;
+            }
+            if out.flush().await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // STDIO reader loop: parse each incoming line and spawn a handler task.
+    // The loop keeps reading stdin concurrently with in-flight tool calls so
+    // that ping / tools/list / initialize always get an immediate response.
     let stdin = tokio::io::stdin();
     let reader = BufReader::new(stdin);
     let mut lines = reader.lines();
@@ -112,46 +135,40 @@ async fn main() -> anyhow::Result<()> {
                     "id": null,
                     "error": { "code": -32700, "message": "Parse error" }
                 });
-                let json = serde_json::to_string(&error_resp).unwrap_or_default();
-                let mut out = tokio::io::stdout();
-                let _ = out.write_all(json.as_bytes()).await;
-                let _ = out.write_all(b"\n").await;
+                let _ = resp_tx
+                    .send(serde_json::to_string(&error_resp).unwrap_or_default())
+                    .await;
                 continue;
             }
         };
 
-        match handle_request(&manager, request).await {
-            Ok(Some(response)) => {
-                let response_str = serde_json::to_string(&response).unwrap_or_default();
-                let mut out = tokio::io::stdout();
-                if let Err(e) = out.write_all(response_str.as_bytes()).await {
-                    tracing::error!(error = %e, "Failed to write response");
-                    break;
+        let manager_clone = manager.clone();
+        let resp_tx_clone = resp_tx.clone();
+        tokio::spawn(async move {
+            match handle_request(&manager_clone, request).await {
+                Ok(Some(response)) => {
+                    let s = serde_json::to_string(&response).unwrap_or_default();
+                    let _ = resp_tx_clone.send(s).await;
                 }
-                if let Err(e) = out.write_all(b"\n").await {
-                    tracing::error!(error = %e, "Failed to write newline");
-                    break;
-                }
-                if let Err(e) = out.flush().await {
-                    tracing::error!(error = %e, "Failed to flush stdout");
-                    break;
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::error!(error = %e, "Internal error");
+                    let error_resp = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": null,
+                        "error": { "code": -32603, "message": format!("Internal error: {e}") }
+                    });
+                    let _ = resp_tx_clone
+                        .send(serde_json::to_string(&error_resp).unwrap_or_default())
+                        .await;
                 }
             }
-            Ok(None) => {}
-            Err(e) => {
-                tracing::error!(error = %e, "Internal error");
-                let error_resp = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": null,
-                    "error": { "code": -32603, "message": format!("Internal error: {e}") }
-                });
-                let json = serde_json::to_string(&error_resp).unwrap_or_default();
-                let mut out = tokio::io::stdout();
-                let _ = out.write_all(json.as_bytes()).await;
-                let _ = out.write_all(b"\n").await;
-            }
-        }
+        });
     }
+
+    // Stdin closed — signal the writer that no more responses are coming.
+    drop(resp_tx);
+    writer.await.ok();
 
     tracing::info!("STDIO loop ended, shutting down");
     manager.shutdown().await;
