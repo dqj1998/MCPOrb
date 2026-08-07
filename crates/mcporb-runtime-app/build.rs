@@ -15,7 +15,7 @@ fn sync_external_binaries() {
     } else {
         ""
     };
-    for name in ["mcporb-runtime", "mcporb-gateway-stdio"] {
+    for name in ["mcporb-runtime", "mcporb-gateway-stdio", "mcporb-gateway-http"] {
         let src = format!("../../target/release/{name}{ext}");
         let dst = format!("../../target/release/{name}-{target_triple}{ext}");
         println!("cargo:rerun-if-changed={src}");

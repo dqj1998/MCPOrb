@@ -26,6 +26,12 @@ pub struct RuntimeSettings {
     /// platforms because the frontend gates the onboarding UI on platform == 'macos'.
     #[serde(default)]
     pub onboarding_complete: bool,
+    /// Stable bearer token for the unified HTTP gateway. Generated once on first
+    /// gateway launch and persisted so MCP clients can configure the endpoint a
+    /// single time (a per-session rotation would break the "set once" property).
+    /// `None` = not yet generated (first launch).
+    #[serde(default)]
+    pub gateway_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -50,6 +56,7 @@ impl Default for RuntimeSettings {
             orb_library_dir: None,
             orb_library_bookmark: None,
             onboarding_complete: false,
+            gateway_token: None,
         }
     }
 }
@@ -126,6 +133,7 @@ mod tests {
         settings.network_binding = NetworkBinding::External;
         settings.orb_library_dir = Some(PathBuf::from("/Users/test/Documents/MCPOrb"));
         settings.orb_library_bookmark = Some("c2VjcmV0".to_string());
+        settings.gateway_token = Some("persistent-token".to_string());
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.http_port, 8080);
@@ -135,6 +143,7 @@ mod tests {
             Some(std::path::Path::new("/Users/test/Documents/MCPOrb"))
         );
         assert_eq!(loaded.orb_library_bookmark.as_deref(), Some("c2VjcmV0"));
+        assert_eq!(loaded.gateway_token.as_deref(), Some("persistent-token"));
     }
 
     #[test]

@@ -152,6 +152,18 @@ const locales = {
     'running.copy_config_btn': 'Copy Config',
     'running.loading': 'Loading gateway configuration…',
     'running.no_orbs': 'No Orbs installed. The gateway HTTP endpoint is ready — install Orbs from the Library to add tools.',
+    'running.gateway_status_running': 'Gateway running · {url}',
+    'running.gateway_status_stopped': 'Gateway stopped',
+    'running.gateway_start_btn': 'Start Gateway',
+    'running.gateway_stop_btn': 'Stop Gateway',
+    'running.gateway_starting': 'Starting…',
+    'running.gateway_stopping': 'Stopping…',
+    'running.gateway_conn_title': 'Connection String (with auth token)',
+    'running.gateway_copy_conn': 'Copy Connection String',
+    'running.gateway_reset_token': 'Reset Token',
+    'running.gateway_resetting': 'Resetting…',
+    'running.gateway_token_copied': 'Connection string copied.',
+    'running.gateway_reset_confirm': 'Reset the gateway token? Connected MCP clients will lose access until you update their connection string.',
     /* settings */
     'settings.title': 'Settings',
     'settings.save_btn': 'Save',
@@ -339,6 +351,18 @@ const locales = {
     'running.copy_config_btn': '設定をコピー',
     'running.loading': 'ゲートウェイ設定を読み込み中…',
     'running.no_orbs': 'Orbがインストールされていません。ライブラリからOrbをインストールすると、ゲートウェイHTTPエンドポイントが利用可能になります。',
+    'running.gateway_status_running': 'ゲートウェイ実行中 · {url}',
+    'running.gateway_status_stopped': 'ゲートウェイ停止中',
+    'running.gateway_start_btn': 'ゲートウェイを起動',
+    'running.gateway_stop_btn': 'ゲートウェイを停止',
+    'running.gateway_starting': '起動中…',
+    'running.gateway_stopping': '停止中…',
+    'running.gateway_conn_title': '接続文字列（認証トークン付き）',
+    'running.gateway_copy_conn': '接続文字列をコピー',
+    'running.gateway_reset_token': 'トークンを再発行',
+    'running.gateway_resetting': '再発行中…',
+    'running.gateway_token_copied': '接続文字列をコピーしました。',
+    'running.gateway_reset_confirm': 'ゲートウェイトークンを再発行しますか？ 接続中のMCPクライアントは、接続文字列を更新するまでアクセスできなくなります。',
     /* settings */
     'settings.save_btn': '保存',
     'settings.download_dir_label': 'ダウンロードディレクトリ',
@@ -527,6 +551,18 @@ const locales = {
     'running.copy_config_btn': '复制配置',
     'running.loading': '正在加载网关配置…',
     'running.no_orbs': '尚未安装Orb。从库中安装Orb后，网关HTTP端点即可使用。',
+    'running.gateway_status_running': '网关运行中 · {url}',
+    'running.gateway_status_stopped': '网关已停止',
+    'running.gateway_start_btn': '启动网关',
+    'running.gateway_stop_btn': '停止网关',
+    'running.gateway_starting': '启动中…',
+    'running.gateway_stopping': '停止中…',
+    'running.gateway_conn_title': '连接字符串（含认证令牌）',
+    'running.gateway_copy_conn': '复制连接字符串',
+    'running.gateway_reset_token': '重置令牌',
+    'running.gateway_resetting': '重置中…',
+    'running.gateway_token_copied': '连接字符串已复制。',
+    'running.gateway_reset_confirm': '确定重置网关令牌吗？已连接的 MCP 客户端在更新连接字符串之前将无法访问。',
     'settings.title': '设置',
     'settings.save_btn': '保存',
     'settings.download_dir_label': '下载目录',
@@ -1695,9 +1731,20 @@ function renderRunning(running) {
         <div class="config-meta">MCPOrb Gateway HTTP</div>
         <button class="btn btn-secondary btn-sm" id="copy-gateway-http-config">${t('running.copy_config_btn')}</button>
       </div>
+      <div id="gateway-status-line" class="status-line muted-card">${t('running.loading')}</div>
+      <button class="btn btn-primary btn-sm hidden" id="btn-gateway-toggle"></button>
+      <div id="gateway-conn-row" class="hidden">
+        <div class="conn-string-title">${t('running.gateway_conn_title')}</div>
+        <div class="conn-string-wrap">
+          <input readonly id="gateway-conn-string" class="conn-string-input" spellcheck="false">
+          <button class="btn btn-secondary btn-sm" id="copy-gateway-conn">${t('running.gateway_copy_conn')}</button>
+          <button class="btn btn-secondary btn-sm" id="reset-gateway-token">${t('running.gateway_reset_token')}</button>
+        </div>
+      </div>
       <textarea readonly id="gateway-http-config-json">${t('running.loading')}</textarea>
     </article>
   `;
+  refreshGatewayStatus();
   // Fetch and populate the gateway HTTP config
   (async () => {
     try {
@@ -1719,6 +1766,74 @@ function renderRunning(running) {
       $('gateway-http-config-json').value = `/* Error: ${error} */`;
     }
   })();
+}
+
+async function refreshGatewayStatus() {
+  if (!invoke) return;
+  const line = $('gateway-status-line');
+  const btn = $('btn-gateway-toggle');
+  if (!line || !btn) return;
+  try {
+    const s = await invoke('unified_gateway_status');
+    const connRow = $('gateway-conn-row');
+    if (s.running) {
+      line.textContent = t('running.gateway_status_running', { url: s.url });
+      btn.textContent = t('running.gateway_stop_btn');
+      btn.className = 'btn btn-secondary btn-sm';
+      btn.onclick = async () => {
+        btn.textContent = t('running.gateway_stopping');
+        await invoke('stop_unified_gateway');
+        refreshGatewayStatus();
+      };
+      if (connRow) {
+        const resetBtn = $('reset-gateway-token');
+        if (resetBtn) {
+          resetBtn.textContent = t('running.gateway_reset_token');
+          resetBtn.disabled = false;
+        }
+        const conn = s.token ? `${s.url}?token=${encodeURIComponent(s.token)}` : s.url;
+        connRow.classList.remove('hidden');
+        const input = $('gateway-conn-string');
+        if (input) input.value = conn;
+        const copyBtn = $('copy-gateway-conn');
+        if (copyBtn) copyBtn.onclick = async () => {
+          await navigator.clipboard.writeText(conn);
+          feedbackBtn(copyBtn, 'running.gateway_token_copied');
+        };
+        if (resetBtn) resetBtn.onclick = async () => {
+          const dlg = window.__TAURI__?.dialog;
+          const confirmed = dlg?.confirm
+            ? await dlg.confirm(t('running.gateway_reset_confirm'), {
+                title: t('running.gateway_reset_token'),
+                kind: 'warning',
+              })
+            : window.confirm(t('running.gateway_reset_confirm'));
+          if (!confirmed) return;
+          resetBtn.textContent = t('running.gateway_resetting');
+          resetBtn.disabled = true;
+          try {
+            await invoke('reset_gateway_token');
+          } finally {
+            refreshGatewayStatus();
+          }
+        };
+      }
+    } else {
+      line.textContent = t('running.gateway_status_stopped');
+      btn.textContent = t('running.gateway_start_btn');
+      btn.className = 'btn btn-primary btn-sm';
+      btn.onclick = async () => {
+        btn.textContent = t('running.gateway_starting');
+        await invoke('ensure_unified_gateway');
+        refreshGatewayStatus();
+      };
+      if (connRow) connRow.classList.add('hidden');
+    }
+    btn.style.display = '';
+  } catch (error) {
+    line.textContent = `Error: ${escapeHtml(error)}`;
+    btn.style.display = 'none';
+  }
 }
 
 // ── Platform Config Discovery ──────────────────────────────────────────────

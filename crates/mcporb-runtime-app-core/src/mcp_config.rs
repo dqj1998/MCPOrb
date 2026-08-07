@@ -84,8 +84,13 @@ pub fn gateway_stdio_config_snippets(
 }
 
 /// Generate a single unified HTTP config pointing to the Gateway HTTP server.
-pub fn gateway_http_config_snippets(port: u16) -> Vec<McpConfigSnippet> {
-    let url = format!("http://127.0.0.1:{port}/mcp");
+/// When a token is configured it is embedded in the URL (`?token=`) so
+/// URL-only MCP clients can authenticate without header support.
+pub fn gateway_http_config_snippets(port: u16, token: Option<&str>) -> Vec<McpConfigSnippet> {
+    let url = match token {
+        Some(t) => format!("http://127.0.0.1:{port}/mcp?token={t}"),
+        None => format!("http://127.0.0.1:{port}/mcp"),
+    };
     let value = json!({
         "mcpServers": {
             "mcporb-gateway": {
@@ -224,5 +229,23 @@ mod tests {
         // direct: [--orb-zip, <path>, --stdio-only]
         assert_eq!(d_args[1], "/tmp/test.orb.zip");
         assert_eq!(d_args[2], "--stdio-only");
+    }
+
+    #[test]
+    fn gateway_http_snippets_embed_token_in_url() {
+        let snippets = gateway_http_config_snippets(5599, Some("T0k3n-abc"));
+        assert_eq!(snippets.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
+        let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
+        assert_eq!(url, "http://127.0.0.1:5599/mcp?token=T0k3n-abc");
+    }
+
+    #[test]
+    fn gateway_http_snippets_omit_token_when_none() {
+        let snippets = gateway_http_config_snippets(5599, None);
+        let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
+        let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
+        assert_eq!(url, "http://127.0.0.1:5599/mcp");
+        assert!(!url.contains('?'));
     }
 }

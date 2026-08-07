@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
-    http::{header, HeaderMap, StatusCode},
-    response::IntoResponse,
+    extract::{Request, State},
+    http::{header, HeaderMap, StatusCode, Uri},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
@@ -44,6 +45,11 @@ struct Args {
 
     #[arg(long, default_value = "30")]
     check_interval: u64,
+
+    /// Optional bearer token. When set, every request must present it via
+    /// `Authorization: Bearer <token>` or `?token=<token>`.
+    #[arg(long)]
+    token: Option<String>,
 }
 
 fn resolve_config(args: &Args) -> GatewayConfig {
@@ -107,9 +113,12 @@ async fn main() -> anyhow::Result<()> {
         reaper.start_reaper().await;
     });
 
-    let app = Router::new()
-        .route("/mcp", post(mcp_handler))
-        .with_state(manager);
+    let state = Arc::new(GatewayState {
+        manager,
+        token: args.token.map(Arc::from),
+    });
+
+    let app = build_app(state);
 
     let addr: SocketAddr = format!("{}:{}", args.bind, args.port)
         .parse()
@@ -123,9 +132,22 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Shared gateway state: the routing core plus an optional auth token.
+struct GatewayState {
+    manager: Arc<RuntimeManager>,
+    token: Option<Arc<str>>,
+}
+
+fn build_app(state: Arc<GatewayState>) -> Router {
+    Router::new()
+        .route("/mcp", post(mcp_handler))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .with_state(state)
+}
+
 /// POST /mcp — receive JSON-RPC and route to the appropriate Orb.
 async fn mcp_handler(
-    State(manager): State<Arc<RuntimeManager>>,
+    State(state): State<Arc<GatewayState>>,
     headers: HeaderMap,
     Json(request): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -135,7 +157,7 @@ async fn mcp_handler(
         .map(|v| v.split(',').any(|part| part.trim() == "text/event-stream"))
         .unwrap_or(false);
 
-    match handle_request(&manager, request).await {
+    match handle_request(&state.manager, request).await {
         Ok(Some(response)) => {
             if wants_sse {
                 let body = serde_json::to_string(&response).unwrap_or_default();
@@ -159,5 +181,216 @@ async fn mcp_handler(
             )
                 .into_response()
         }
+    }
+}
+
+/// Defense-in-depth gate for a localhost endpoint. Rejects non-loopback Host
+/// headers (blunts DNS-rebinding from a malicious web page) and, when a token
+/// is configured, requires it via `Authorization: Bearer` or `?token=`.
+async fn auth_middleware(
+    State(state): State<Arc<GatewayState>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, Response> {
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    if !host_allowed(host) {
+        return Err(reject(
+            StatusCode::FORBIDDEN,
+            -32002,
+            "forbidden: non-loopback host",
+        ));
+    }
+
+    if let Some(expected) = &state.token {
+        let provided = bearer_token(req.headers()).or_else(|| query_token(req.uri()));
+        match provided {
+            Some(p) if constant_time_eq(p.as_bytes(), expected.as_bytes()) => {}
+            _ => return Err(reject(StatusCode::UNAUTHORIZED, -32001, "unauthorized")),
+        }
+    }
+
+    Ok(next.run(req).await)
+}
+
+fn reject(code: StatusCode, jsonrpc_code: i64, message: &str) -> Response {
+    (
+        code,
+        Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "error": { "code": jsonrpc_code, "message": message }
+        })),
+    )
+        .into_response()
+}
+
+/// Loopback-only Host allowlist: `127.0.0.1`, `localhost`, and the IPv6 `::1`
+/// literal, with any port.
+fn host_allowed(host: &str) -> bool {
+    let h = host.trim();
+    if let Some(rest) = h.strip_prefix('[') {
+        return rest.split(']').next() == Some("::1");
+    }
+    let host_only = h.split(':').next().unwrap_or(h);
+    matches!(host_only, "127.0.0.1" | "localhost")
+}
+
+/// Extract a `Bearer` credential from the `Authorization` header, case-insensitive.
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
+    let scheme = value.split_once(' ')?;
+    if scheme.0.eq_ignore_ascii_case("Bearer") {
+        Some(scheme.1.trim().to_string())
+    } else {
+        None
+    }
+}
+
+/// Extract a `token` value from the query string (`?token=...`). The token is
+/// URL-safe base64 so no percent-decoding is required here.
+fn query_token(uri: &Uri) -> Option<String> {
+    let query = uri.query()?;
+    query.split('&').find_map(|pair| {
+        let (key, val) = pair.split_once('=')?;
+        (key == "token").then(|| val.to_string())
+    })
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_allowlist_accepts_loopback_only() {
+        assert!(host_allowed("127.0.0.1:5599"));
+        assert!(host_allowed("127.0.0.1"));
+        assert!(host_allowed("localhost:5599"));
+        assert!(host_allowed("[::1]:5599"));
+        assert!(host_allowed("[::1]"));
+        assert!(!host_allowed("192.168.1.10:5599"));
+        assert!(!host_allowed("evil.example.com:5599"));
+        assert!(!host_allowed(""));
+    }
+
+    #[test]
+    fn bearer_token_parses_case_insensitively() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(bearer_token(&headers), None);
+        headers.insert(header::AUTHORIZATION, "Bearer abc123".parse().unwrap());
+        assert_eq!(bearer_token(&headers).as_deref(), Some("abc123"));
+        headers.insert(header::AUTHORIZATION, "bearer xyz".parse().unwrap());
+        assert_eq!(bearer_token(&headers).as_deref(), Some("xyz"));
+        headers.insert(header::AUTHORIZATION, "Basic dXNlcjpwYXNz".parse().unwrap());
+        assert_eq!(bearer_token(&headers), None);
+    }
+
+    #[test]
+    fn query_token_extracts_only_token_key() {
+        let uri = "http://127.0.0.1:5599/mcp?token=sekret&x=1".parse::<Uri>().unwrap();
+        assert_eq!(query_token(&uri).as_deref(), Some("sekret"));
+        let uri = "http://127.0.0.1:5599/mcp".parse::<Uri>().unwrap();
+        assert_eq!(query_token(&uri), None);
+        let uri = "http://127.0.0.1:5599/mcp?other=1".parse::<Uri>().unwrap();
+        assert_eq!(query_token(&uri), None);
+    }
+
+    #[test]
+    fn constant_time_eq_matches_exact_bytes_only() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"", b"x"));
+    }
+
+    // ── auth middleware integration (router-level, no real server) ──────────
+
+    fn test_state(token: Option<&str>) -> Arc<GatewayState> {
+        let manager = Arc::new(RuntimeManager::new(GatewayConfig::default(), vec![]));
+        Arc::new(GatewayState {
+            manager,
+            token: token.map(Arc::from),
+        })
+    }
+
+    fn request(uri: &str, token: Option<&str>) -> Request {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            // Real HTTP clients always send a Host header; bare oneshot requests
+            // do not, and the host allowlist treats an absent Host as non-loopback.
+            .header(header::HOST, "127.0.0.1:5599")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(t) = token {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
+        }
+        builder
+            .body(axum::body::Body::from(
+                r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            ))
+            .unwrap()
+    }
+
+    async fn run(router: Router, req: Request) -> StatusCode {
+        use tower::ServiceExt;
+        router.oneshot(req).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_missing_token_with_401() {
+        let app = build_app(test_state(Some("sekret")));
+        let status = run(app, request("http://127.0.0.1:5599/mcp", None)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_wrong_token_with_401() {
+        let app = build_app(test_state(Some("sekret")));
+        let status = run(app, request("http://127.0.0.1:5599/mcp", Some("wrong"))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn middleware_rejects_non_loopback_host_with_403() {
+        let app = build_app(test_state(Some("sekret")));
+        let mut req = request("http://127.0.0.1:5599/mcp", Some("sekret"));
+        req.headers_mut()
+            .insert(header::HOST, "evil.example.com".parse().unwrap());
+        let status = run(app, req).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn middleware_accepts_valid_bearer_token() {
+        let app = build_app(test_state(Some("sekret")));
+        let status = run(app, request("http://127.0.0.1:5599/mcp", Some("sekret"))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn middleware_accepts_valid_query_token() {
+        let app = build_app(test_state(Some("sekret")));
+        let status = run(app, request("http://127.0.0.1:5599/mcp?token=sekret", None)).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn middleware_skips_auth_when_no_token_configured() {
+        let app = build_app(test_state(None));
+        let status = run(app, request("http://127.0.0.1:5599/mcp", None)).await;
+        assert_eq!(status, StatusCode::OK);
     }
 }

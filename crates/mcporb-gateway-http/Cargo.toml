@@ -8,10 +8,13 @@ description = "MCPOrb Gateway HTTP — single HTTP MCP endpoint routing to multi
 [dependencies]
 mcporb-gateway-core = { path = "../mcporb-gateway-core" }
 tokio = { workspace = true, features = ["net", "process"] }
-axum = { workspace = true }
+axum = { workspace = true, features = ["query"] }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

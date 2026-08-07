@@ -29,7 +29,8 @@
     "targets": "all",
     "externalBin": [
       "../../target/release/mcporb-runtime",
-      "../../target/release/mcporb-gateway-stdio"
+      "../../target/release/mcporb-gateway-stdio",
+      "../../target/release/mcporb-gateway-http"
     ],
     "category": "DeveloperTool",
     "shortDescription": "Run Orb ZIP knowledge bases for MCP clients",

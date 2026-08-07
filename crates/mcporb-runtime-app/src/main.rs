@@ -44,6 +44,21 @@ struct OrbStartRequest {
     password: Option<String>,
 }
 
+/// Reserved key for the unified HTTP gateway child process in
+/// `running_children`. It reuses the same lifecycle map as per-orb servers, so
+/// `shutdown_running_orbs` already tears it down on window close — no extra
+/// shutdown wiring needed.
+const UNIFIED_GATEWAY_KEY: &str = "__unified_gateway__";
+
+/// Status of the unified HTTP gateway, serialized for the frontend.
+#[derive(Debug, Serialize)]
+struct UnifiedGatewayStatus {
+    running: bool,
+    port: u16,
+    url: String,
+    token: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ZipInspectResult {
     password_protected: bool,
@@ -245,18 +260,27 @@ async fn save_settings(
 ) -> Result<(), String> {
     let store = state.settings.lock().await;
     let current = store.load().unwrap_or_default();
-    let mut merged = settings;
-    // The frontend never edits the library folder/bookmark directly; preserve
-    // the stored values unless the user chose a new folder (choose_orb_library_dir).
-    if merged.orb_library_dir.is_none() {
-        merged.orb_library_dir = current.orb_library_dir;
-        merged.orb_library_bookmark = current.orb_library_bookmark;
-    } else if merged.orb_library_bookmark.is_none()
-        && current.orb_library_dir.as_deref() == merged.orb_library_dir.as_deref()
-    {
-        merged.orb_library_bookmark = current.orb_library_bookmark;
-    }
+    let merged = merge_settings(current, settings);
     store.save(&merged).map_err(to_string)
+}
+
+/// Merge frontend-supplied settings over the stored ones. The frontend form
+/// never edits the library bookmark, the gateway token, or the onboarding
+/// flag; preserving them keeps the "configure the MCP client once" contract —
+/// dropping the token here would silently rotate it on any unrelated save.
+fn merge_settings(current: RuntimeSettings, mut incoming: RuntimeSettings) -> RuntimeSettings {
+    if incoming.orb_library_dir.is_none() {
+        incoming.orb_library_dir = current.orb_library_dir;
+        incoming.orb_library_bookmark = current.orb_library_bookmark;
+    } else if incoming.orb_library_bookmark.is_none()
+        && current.orb_library_dir.as_deref() == incoming.orb_library_dir.as_deref()
+    {
+        incoming.orb_library_bookmark = current.orb_library_bookmark;
+    }
+    if incoming.gateway_token.as_deref().map_or(true, str::is_empty) {
+        incoming.gateway_token = current.gateway_token;
+    }
+    incoming
 }
 
 #[cfg(target_os = "macos")]
@@ -394,7 +418,14 @@ async fn start_orb_http(
         .ok_or_else(|| "Could not resolve mcporb-runtime binary path".to_string())?;
 
     let token = token_from_orb_id(&orb_id);
-    let port = settings.http_port;
+    let gw_running = state
+        .running_children
+        .lock()
+        .await
+        .contains_key(UNIFIED_GATEWAY_KEY);
+    // The unified gateway owns `http_port`; per-orb servers shift up to avoid
+    // a bind conflict when it is active.
+    let port = settings.http_port + if gw_running { 1 } else { 0 };
 
     let mut cmd = tokio::process::Command::new(&runtime_path);
     cmd.arg("--orb-zip")
@@ -480,7 +511,9 @@ async fn batch_start_orbs(
         };
 
         let token = token_base(&req.orb_id);
-        let port = settings.http_port + results.len() as u16;
+        let gw_running = children_lock.contains_key(UNIFIED_GATEWAY_KEY);
+        let base_port = settings.http_port + if gw_running { 1 } else { 0 };
+        let port = base_port + results.len() as u16;
 
         let mut cmd = tokio::process::Command::new(&runtime_path);
         cmd.arg("--orb-zip")
@@ -552,6 +585,169 @@ async fn list_running_orbs(
 ) -> Result<Vec<RunningOrb>, String> {
     let running_orbs = state.running_orbs.lock().await;
     Ok(running_orbs.clone())
+}
+
+fn unified_gateway_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/mcp")
+}
+
+fn generate_gateway_token() -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+async fn is_port_listening(port: u16) -> bool {
+    tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .is_ok()
+}
+
+async fn unified_gateway_status_impl(state: &AppState) -> Result<UnifiedGatewayStatus, String> {
+    let settings = state.settings.lock().await.load().map_err(to_string)?;
+    let port = settings.http_port;
+    let running = state
+        .running_children
+        .lock()
+        .await
+        .contains_key(UNIFIED_GATEWAY_KEY)
+        && is_port_listening(port).await;
+    Ok(UnifiedGatewayStatus {
+        running,
+        port,
+        url: unified_gateway_url(port),
+        token: settings.gateway_token.clone(),
+    })
+}
+
+async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayStatus, String> {
+    if state
+        .running_children
+        .lock()
+        .await
+        .contains_key(UNIFIED_GATEWAY_KEY)
+    {
+        return unified_gateway_status_impl(state).await;
+    }
+
+    let gateway_bin = default_gateway_http_binary()
+        .ok_or_else(|| "mcporb-gateway-http binary not found next to mcporb-runner".to_string())?;
+
+    let (port, token) = {
+        let store = state.settings.lock().await;
+        let mut settings = store.load().map_err(to_string)?;
+        if settings.gateway_token.as_deref().map_or(true, str::is_empty) {
+            settings.gateway_token = Some(generate_gateway_token());
+            store.save(&settings).map_err(to_string)?;
+        }
+        (
+            settings.http_port,
+            settings.gateway_token.clone().unwrap_or_default(),
+        )
+    };
+    let registry_root = state.registry.root_dir().to_path_buf();
+
+    let mut cmd = tokio::process::Command::new(&gateway_bin);
+    cmd.arg("--registry-dir")
+        .arg(&registry_root)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--bind")
+        .arg("127.0.0.1")
+        .arg("--token")
+        .arg(&token)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn {gateway_bin:?}: {e}"))?;
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = tokio::io::BufReader::new(stderr);
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                tracing::debug!(target: "unified_gateway", "{line}");
+            }
+        });
+    }
+
+    state
+        .running_children
+        .lock()
+        .await
+        .insert(UNIFIED_GATEWAY_KEY.to_string(), child);
+
+    for _ in 0..30 {
+        if is_port_listening(port).await {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    if !is_port_listening(port).await {
+        if let Some(mut c) = state.running_children.lock().await.remove(UNIFIED_GATEWAY_KEY) {
+            let _ = c.kill().await;
+        }
+        return Err(format!(
+            "unified gateway failed to listen on {port} (check for a port conflict)"
+        ));
+    }
+
+    tracing::info!(%port, registry_root = %registry_root.display(), "unified HTTP gateway started");
+    unified_gateway_status_impl(state).await
+}
+
+async fn stop_unified_gateway_impl(state: &AppState) -> Result<(), String> {
+    if let Some(mut child) = state
+        .running_children
+        .lock()
+        .await
+        .remove(UNIFIED_GATEWAY_KEY)
+    {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn unified_gateway_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<UnifiedGatewayStatus, String> {
+    unified_gateway_status_impl(&state).await
+}
+
+#[tauri::command]
+async fn ensure_unified_gateway(
+    state: tauri::State<'_, AppState>,
+) -> Result<UnifiedGatewayStatus, String> {
+    ensure_unified_gateway_impl(&state).await
+}
+
+#[tauri::command]
+async fn reset_gateway_token(
+    state: tauri::State<'_, AppState>,
+) -> Result<UnifiedGatewayStatus, String> {
+    {
+        let store = state.settings.lock().await;
+        let mut settings = store.load().map_err(to_string)?;
+        settings.gateway_token = Some(generate_gateway_token());
+        store.save(&settings).map_err(to_string)?;
+    }
+    stop_unified_gateway_impl(&state).await?;
+    ensure_unified_gateway_impl(&state).await
+}
+
+#[tauri::command]
+async fn stop_unified_gateway(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    stop_unified_gateway_impl(&state).await
 }
 
 #[tauri::command]
@@ -652,7 +848,10 @@ async fn gateway_http_config_snippets(
         let settings_store = state.settings.lock().await;
         settings_store.load().map_err(to_string)?
     };
-    Ok(mcp_config::gateway_http_config_snippets(settings.http_port))
+    Ok(mcp_config::gateway_http_config_snippets(
+        settings.http_port,
+        settings.gateway_token.as_deref(),
+    ))
 }
 
 #[tauri::command]
@@ -934,6 +1133,38 @@ fn main() {
             }
         })
         .manage(app_state)
+        .setup(|app| {
+            let state = app.state::<AppState>().inner().clone();
+            let gw_state = state.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = ensure_unified_gateway_impl(&gw_state).await {
+                    tracing::warn!(error = %e, "auto-start of unified HTTP gateway failed");
+                }
+            });
+            // SIGTERM/SIGINT teardown: `kill_on_drop` on child processes does not
+            // fire when the process is killed by a signal, which would orphan the
+            // gateway child and leave its port occupied, breaking the next
+            // auto-start. Tear children down explicitly before exiting.
+            #[cfg(unix)]
+            {
+                let state = state.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut term = signal(SignalKind::terminate())
+                        .expect("register SIGTERM handler");
+                    let mut int = signal(SignalKind::interrupt())
+                        .expect("register SIGINT handler");
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                    }
+                    tracing::info!("received termination signal; shutting down children");
+                    shutdown_running_orbs(&state).await;
+                    std::process::exit(0);
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             get_platform,
@@ -955,6 +1186,10 @@ fn main() {
             get_orb_qa_history,
             gateway_http_config_snippets,
             mcp_config_http_snippets,
+            unified_gateway_status,
+            ensure_unified_gateway,
+            stop_unified_gateway,
+            reset_gateway_token,
             store_search,
             store_get_orb,
             store_list_tags,
@@ -1208,6 +1443,21 @@ fn resolve_gateway_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
     if path.is_file() { Some(path) } else { None }
 }
 
+/// Locate the unified HTTP gateway binary (`mcporb-gateway-http`) next to the
+/// current executable. Bundled into the .app by `build.rs` `sync_external_binaries`.
+fn resolve_gateway_http_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let path = dir.join(format!("mcporb-gateway-http{suffix}"));
+    if path.is_file() { Some(path) } else { None }
+}
+
+/// The path to the `mcporb-gateway-http` binary, resolved relative to the
+/// current executable.
+fn default_gateway_http_binary() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    resolve_gateway_http_binary_in(&dir)
+}
+
 /// The path to the `mcporb-gateway-stdio` binary, resolved relative to the
 /// current executable.
 fn default_gateway_binary() -> Option<PathBuf> {
@@ -1225,6 +1475,47 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    // ── settings merge tests ────────────────────────────────────────────────
+
+    #[test]
+    fn merge_settings_preserves_gateway_token_when_incoming_is_empty() {
+        let mut current = RuntimeSettings::default();
+        current.gateway_token = Some("persistent-token".to_string());
+        // Incoming settings from the frontend form carry no token (None).
+        let merged = merge_settings(current, RuntimeSettings::default());
+        assert_eq!(merged.gateway_token.as_deref(), Some("persistent-token"));
+    }
+
+    #[test]
+    fn merge_settings_honors_an_explicit_new_token() {
+        let mut current = RuntimeSettings::default();
+        current.gateway_token = Some("old".to_string());
+        let mut incoming = RuntimeSettings::default();
+        incoming.gateway_token = Some("new".to_string());
+        let merged = merge_settings(current, incoming);
+        assert_eq!(merged.gateway_token.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn merge_settings_preserves_orb_library_bookmark() {
+        let mut current = RuntimeSettings::default();
+        current.orb_library_dir = Some(PathBuf::from("/Users/t/Documents/MCPOrb"));
+        current.orb_library_bookmark = Some("bm".to_string());
+        let merged = merge_settings(current, RuntimeSettings::default());
+        assert_eq!(merged.orb_library_dir.as_deref(), Some(std::path::Path::new("/Users/t/Documents/MCPOrb")));
+        assert_eq!(merged.orb_library_bookmark.as_deref(), Some("bm"));
+    }
+
+    #[test]
+    fn generate_gateway_token_is_url_safe_and_random() {
+        let a = generate_gateway_token();
+        let b = generate_gateway_token();
+        // 32 random bytes, base64url no padding → 43 chars, chars ∈ [A-Za-z0-9-_].
+        assert_eq!(a.len(), 43);
+        assert!(a.bytes().all(|c| matches!(c, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_')));
+        assert_ne!(a, b, "two independent draws must not collide");
+    }
 
     // ── binary resolution tests ──────────────────────────────────────────────
 
@@ -1255,6 +1546,29 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
         // gateway binary is absent, should not find runtime
         assert_eq!(resolve_gateway_binary_in(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_gateway_http_binary_finds_http_not_stdio() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let bin = dir.path().join(format!("mcporb-gateway-http{suffix}"));
+        fs::write(&bin, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(resolve_gateway_http_binary_in(dir.path()), Some(bin));
+        assert_eq!(resolve_gateway_binary_in(dir.path()), None);
+    }
+
+    #[test]
+    fn resolve_gateway_http_binary_absent_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let suffix = std::env::consts::EXE_SUFFIX;
+        let bin = dir.path().join(format!("mcporb-gateway-stdio{suffix}"));
+        fs::write(&bin, "").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(resolve_gateway_http_binary_in(dir.path()), None);
     }
 
     #[test]

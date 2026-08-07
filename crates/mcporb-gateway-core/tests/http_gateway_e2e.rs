@@ -55,6 +55,14 @@ struct HttpGatewayHarness {
 
 impl HttpGatewayHarness {
     async fn start(port: u16) -> Self {
+        Self::start_impl(port, None).await
+    }
+
+    async fn start_with_token(port: u16, token: &str) -> Self {
+        Self::start_impl(port, Some(token)).await
+    }
+
+    async fn start_impl(port: u16, token: Option<&str>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let store = RegistryStore::new(dir.path().to_path_buf());
 
@@ -81,12 +89,16 @@ impl HttpGatewayHarness {
         registry.orbs.push(installed);
         store.save(&registry).unwrap();
 
-        let child = Command::new(gateway_bin())
-            .arg("--registry-dir").arg(dir.path())
+        let mut cmd = Command::new(gateway_bin());
+        cmd.arg("--registry-dir").arg(dir.path())
             .arg("--runtime-binary").arg(mock_runtime_bin())
             .arg("--port").arg(port.to_string())
             .arg("--idle-timeout").arg("5")
-            .arg("--check-interval").arg("60")
+            .arg("--check-interval").arg("60");
+        if let Some(t) = token {
+            cmd.arg("--token").arg(t);
+        }
+        let child = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -98,11 +110,11 @@ impl HttpGatewayHarness {
             base_url: format!("http://127.0.0.1:{port}"),
             _dir: dir,
         };
-        harness.wait_ready().await;
+        harness.wait_ready(token).await;
         harness
     }
 
-    async fn wait_ready(&self) {
+    async fn wait_ready(&self, token: Option<&str>) {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()
@@ -114,7 +126,11 @@ impl HttpGatewayHarness {
 
         for i in 0..20 {
             tokio::time::sleep(Duration::from_millis(250)).await;
-            match client.post(&url).json(&ping).send().await {
+            let mut req = client.post(&url).json(&ping);
+            if let Some(t) = token {
+                req = req.bearer_auth(t);
+            }
+            match req.send().await {
                 Ok(resp) if resp.status().is_success() => return,
                 _ if i < 19 => continue,
                 _ => panic!("HTTP gateway did not become ready after 5s"),
@@ -123,11 +139,20 @@ impl HttpGatewayHarness {
     }
 
     async fn post_mcp(&self, body: &serde_json::Value) -> reqwest::Response {
+        self.post_mcp_authed(body, None).await
+    }
+
+    async fn post_mcp_authed(
+        &self,
+        body: &serde_json::Value,
+        token: Option<&str>,
+    ) -> reqwest::Response {
         let client = reqwest::Client::new();
-        client
-            .post(format!("{}/mcp", self.base_url))
-            .json(body)
-            .send()
+        let mut req = client.post(format!("{}/mcp", self.base_url)).json(body);
+        if let Some(t) = token {
+            req = req.bearer_auth(t);
+        }
+        req.send()
             .await
             .expect("HTTP request to gateway failed")
     }
@@ -241,4 +266,24 @@ async fn http_gateway_batch_request() {
     let responses = body.as_array().unwrap();
     assert_eq!(responses.len(), 2);
     assert_eq!(responses[0]["result"], serde_json::json!({}));
+}
+
+#[tokio::test]
+async fn http_gateway_with_auth_rejects_missing_and_wrong_token() {
+    let harness = HttpGatewayHarness::start_with_token(PORT_BASE + 8, "e2e-secret").await;
+    let ping = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" });
+
+    // No credential → 401.
+    let resp = harness.post_mcp(&ping).await;
+    assert_eq!(resp.status().as_u16(), 401);
+
+    // Wrong bearer token → 401.
+    let resp = harness.post_mcp_authed(&ping, Some("wrong")).await;
+    assert_eq!(resp.status().as_u16(), 401);
+
+    // Correct bearer token → success.
+    let resp = harness.post_mcp_authed(&ping, Some("e2e-secret")).await;
+    assert!(resp.status().is_success());
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["result"], serde_json::json!({}));
 }
