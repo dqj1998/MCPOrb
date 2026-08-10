@@ -167,6 +167,7 @@ clear_quarantine_attrs "$APP_PATH"
 RUNTIME_BIN="$APP_PATH/Contents/MacOS/mcporb-runtime"
 RUNNER_BIN="$APP_PATH/Contents/MacOS/mcporb-runner"
 GATEWAY_BIN="$APP_PATH/Contents/MacOS/mcporb-gateway-stdio"
+GATEWAY_HTTP_BIN="$APP_PATH/Contents/MacOS/mcporb-gateway-http"
 BASE_ENTITLEMENTS="crates/mcporb-runtime-app/entitlements-mas.plist"
 
 PROFILE_PLIST=$(mktemp /tmp/mcporb-mas-profile.XXXXXX)
@@ -235,6 +236,24 @@ codesign --force --sign "$APP_IDENTITY" \
 assert_sandbox_enabled "$GATEWAY_BIN"
 assert_team_identifier "$GATEWAY_BIN"
 assert_no_application_identifier "$GATEWAY_BIN"
+
+# Sign mcporb-gateway-http (also a Tauri externalBin since 1.2.12) with the
+# same sandbox-only profile — Transporter rejects ANY bundled executable
+# without the sandbox entitlement.
+if [[ -f "$GATEWAY_HTTP_BIN" ]]; then
+  log "signing mcporb-gateway-http (sandbox, no app id)..."
+  codesign --force --sign "$APP_IDENTITY" \
+    --identifier "com.mcporb.runner.gateway.http" \
+    --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
+    --options runtime \
+    --timestamp \
+    "$GATEWAY_HTTP_BIN"
+  assert_sandbox_enabled "$GATEWAY_HTTP_BIN"
+  assert_team_identifier "$GATEWAY_HTTP_BIN"
+  assert_no_application_identifier "$GATEWAY_HTTP_BIN"
+else
+  log "mcporb-gateway-http not bundled; skipping"
+fi
 
 # Sign mcporb-runner WITH sandbox entitlements (the Tauri GUI app)
 log "signing mcporb-runner (with sandbox)..."
