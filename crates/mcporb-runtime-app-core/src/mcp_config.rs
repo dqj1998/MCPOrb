@@ -85,11 +85,17 @@ pub fn gateway_stdio_config_snippets(
 
 /// Generate a single unified HTTP config pointing to the Gateway HTTP server.
 /// When a token is configured it is embedded in the URL (`?token=`) so
-/// URL-only MCP clients can authenticate without header support.
-pub fn gateway_http_config_snippets(port: u16, token: Option<&str>) -> Vec<McpConfigSnippet> {
+/// URL-only MCP clients can authenticate without header support. `host` is
+/// the connectable address (127.0.0.1 for localhost mode, LAN IP for
+/// external mode).
+pub fn gateway_http_config_snippets(
+    port: u16,
+    token: Option<&str>,
+    host: &str,
+) -> Vec<McpConfigSnippet> {
     let url = match token {
-        Some(t) => format!("http://127.0.0.1:{port}/mcp?token={t}"),
-        None => format!("http://127.0.0.1:{port}/mcp"),
+        Some(t) => format!("http://{host}:{port}/mcp?token={t}"),
+        None => format!("http://{host}:{port}/mcp"),
     };
     let value = json!({
         "mcpServers": {
@@ -233,7 +239,7 @@ mod tests {
 
     #[test]
     fn gateway_http_snippets_embed_token_in_url() {
-        let snippets = gateway_http_config_snippets(5599, Some("T0k3n-abc"));
+        let snippets = gateway_http_config_snippets(5599, Some("T0k3n-abc"), "127.0.0.1");
         assert_eq!(snippets.len(), 1);
         let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
         let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
@@ -242,10 +248,26 @@ mod tests {
 
     #[test]
     fn gateway_http_snippets_omit_token_when_none() {
-        let snippets = gateway_http_config_snippets(5599, None);
+        let snippets = gateway_http_config_snippets(5599, None, "127.0.0.1");
         let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
         let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
         assert_eq!(url, "http://127.0.0.1:5599/mcp");
         assert!(!url.contains('?'));
+    }
+
+    #[test]
+    fn gateway_http_snippets_use_custom_host() {
+        let snippets = gateway_http_config_snippets(5599, None, "192.168.1.5");
+        let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
+        let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
+        assert_eq!(url, "http://192.168.1.5:5599/mcp");
+    }
+
+    #[test]
+    fn gateway_http_snippets_custom_host_with_token_appends_query_token() {
+        let snippets = gateway_http_config_snippets(5599, Some("T0k3n-abc"), "192.168.1.5");
+        let parsed: serde_json::Value = serde_json::from_str(&snippets[0].json).unwrap();
+        let url = parsed["mcpServers"]["mcporb-gateway"]["url"].as_str().unwrap();
+        assert_eq!(url, "http://192.168.1.5:5599/mcp?token=T0k3n-abc");
     }
 }

@@ -34,6 +34,7 @@ rand = "0.8"
 sha2 = { workspace = true }
 base64 = { workspace = true }
 dirs = "5"
+local-ip-address = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

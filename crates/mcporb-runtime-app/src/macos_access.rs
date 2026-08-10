@@ -79,6 +79,12 @@ pub struct AccessGuard {
     url: CFURLRef,
 }
 
+// Safety: the guard is only ever passed around and stopped on drop; the
+// underlying CFURL is immutable and CoreFoundation's start/stop access calls
+// are thread-safe, so sharing the guard across threads is sound.
+unsafe impl Send for AccessGuard {}
+unsafe impl Sync for AccessGuard {}
+
 impl Drop for AccessGuard {
     fn drop(&mut self) {
         unsafe {

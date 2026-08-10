@@ -27,8 +27,13 @@ pub struct GatewayOrb {
 /// Configuration for the gateway.
 #[derive(Debug, Clone)]
 pub struct GatewayConfig {
-    /// Directory containing `registry.json` and the `Orbs/` subdirectory.
-    pub registry_dir: PathBuf,
+/// Directory containing `registry.json` (the orb index). Orb ZIPs are NOT
+/// resolved relative to this directory — each `InstalledOrb.zip_path` in the
+/// registry is an absolute path to the ZIP. Platform note: on Windows/Linux
+/// (and macOS with the default layout) ZIPs live at `<registry_dir>/Orbs/`,
+/// but when a macOS user picks a custom Orb library folder, ZIPs move to
+/// `<library>/Orbs` and this directory holds only the index.
+pub registry_dir: PathBuf,
     /// Path to the `mcporb-runtime` binary used to spawn Orb child processes.
     pub runtime_binary: PathBuf,
     /// Seconds of inactivity before an Orb child process is killed.

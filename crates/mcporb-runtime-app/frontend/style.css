@@ -223,6 +223,11 @@ h1 { font-size: 20px; font-weight: 700; }
 .btn-secondary { background: var(--color-surface2); color: var(--color-text); border-color: var(--color-border); }
 .btn-danger { background: rgba(244, 67, 54, 0.15); color: var(--color-error-text); border-color: rgba(244, 67, 54, 0.3); }
 .btn-danger:hover { background: rgba(244, 67, 54, 0.3); }
+.btn-dirty { box-shadow: 0 0 0 2px rgba(255, 213, 79, 0.9); animation: btn-dirty-pulse 1.6s ease-in-out infinite; }
+@keyframes btn-dirty-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 213, 79, 0.9); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 213, 79, 0.4); }
+}
 .btn:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-importing { opacity: 0.7; cursor: wait; position: relative; padding-left: 28px; }
@@ -526,6 +531,15 @@ h1 { font-size: 20px; font-weight: 700; }
 /* Confirm delete modal */
 .confirm-modal-card { width: 400px; }
 .confirm-message {
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 8px 0;
+  color: var(--color-text);
+}
+
+/* Orb library folder change modal */
+.library-change-card { width: 440px; }
+.library-change-message {
   font-size: 15px;
   line-height: 1.5;
   padding: 8px 0;

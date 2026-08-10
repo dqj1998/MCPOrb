@@ -23,6 +23,8 @@ const state = {
   libraryTotalPages: 1,
   platform: 'unknown',
   orbLibraryDir: null,
+  pendingLibraryChange: null,
+  pendingLibraryDelete: false,
 };
 
 const importState = {
@@ -173,11 +175,21 @@ const locales = {
     'settings.localhost_opt': 'Localhost (127.0.0.1) — Recommended',
     'settings.external_opt': 'External (0.0.0.0) — Requires caution',
     'settings.saved': 'Settings saved.',
+    'settings.unsaved_hint': 'Unsaved changes — click Save to apply.',
     'settings.orb_library_label': 'Orb Library Folder',
     'settings.orb_library_choose_btn': 'Choose…',
     'settings.orb_library_hint': 'Imported Orb ZIPs are stored in this folder so the files stay accessible to you. For example: ~/Documents/MCPOrb',
     'settings.orb_library_choose_error': 'Could not set the Orb library folder:',
     'settings.orb_library_changed': 'Orb library folder updated.',
+    'librarychange.title': 'Change Orb Library Folder?',
+    'librarychange.message': '{count} previously imported Orb(s) are stored outside the new library folder. What should happen to them?',
+    'librarychange.migrate_btn': 'Migrate Orbs',
+    'librarychange.delete_btn': 'Delete Orbs…',
+    'librarychange.delete_confirm': 'Delete {count} Orb(s) and their files from the old location? This cannot be undone.',
+    'librarychange.cancel_btn': 'Cancel',
+    'librarychange.migrated': 'Orb library folder changed. {count} Orb(s) migrated.',
+    'librarychange.deleted': 'Orb library folder changed. {count} Orb(s) deleted.',
+    'librarychange.error': 'Could not change Orb library folder: {error}',
     /* mcp config */
     'mcp.title': 'MCP Config',
     'mcp.runtime_path_label': 'Runtime CLI path',
@@ -373,11 +385,21 @@ const locales = {
     'settings.yes_opt': 'はい',
     'settings.no_opt': 'いいえ',
     'settings.saved': '設定を保存しました。',
+    'settings.unsaved_hint': '未保存の変更があります — 保存をクリックして適用してください。',
     'settings.orb_library_label': 'Orbライブラリフォルダ',
     'settings.orb_library_choose_btn': '選択…',
     'settings.orb_library_hint': 'インポートしたOrb ZIPはこのフォルダに保存され、ファイルにアクセスできる状態が維持されます。例: ~/Documents/MCPOrb',
     'settings.orb_library_choose_error': 'Orbライブラリフォルダを設定できませんでした:',
     'settings.orb_library_changed': 'Orbライブラリフォルダを更新しました。',
+    'librarychange.title': 'Orbライブラリフォルダを変更しますか？',
+    'librarychange.message': '新しいライブラリフォルダの外に、以前インポートした {count} 個のOrbがあります。どうしますか？',
+    'librarychange.migrate_btn': 'Orbを移行',
+    'librarychange.delete_btn': 'Orbを削除…',
+    'librarychange.delete_confirm': '以前の場所から {count} 個のOrbとそのファイルを削除しますか？この操作は元に戻せません。',
+    'librarychange.cancel_btn': 'キャンセル',
+    'librarychange.migrated': 'Orbライブラリフォルダを変更しました。{count} 個のOrbを移行しました。',
+    'librarychange.deleted': 'Orbライブラリフォルダを変更しました。{count} 個のOrbを削除しました。',
+    'librarychange.error': 'Orbライブラリフォルダを変更できませんでした: {error}',
     'mcp.title': 'MCP設定',
     'mcp.runtime_path_label': 'ランタイムCLIパス',
     'mcp.runtime_path_placeholder': '空白の場合はバンドルされたmcporb-runtimeを使用',
@@ -573,11 +595,21 @@ const locales = {
     'settings.yes_opt': '是',
     'settings.no_opt': '否',
     'settings.saved': '设置已保存。',
+    'settings.unsaved_hint': '有未保存的更改 — 点击保存以生效。',
     'settings.orb_library_label': 'Orb 库文件夹',
     'settings.orb_library_choose_btn': '选择…',
     'settings.orb_library_hint': '导入的 Orb ZIP 将存储在此文件夹中,文件保持对你可见。例如:~/Documents/MCPOrb',
     'settings.orb_library_choose_error': '无法设置 Orb 库文件夹:',
     'settings.orb_library_changed': 'Orb 库文件夹已更新。',
+    'librarychange.title': '更改 Orb 库文件夹？',
+    'librarychange.message': '新库文件夹之外有 {count} 个之前导入的 Orb。如何处理它们？',
+    'librarychange.migrate_btn': '迁移 Orb',
+    'librarychange.delete_btn': '删除 Orb…',
+    'librarychange.delete_confirm': '从旧位置删除 {count} 个 Orb 及其文件？此操作无法撤销。',
+    'librarychange.cancel_btn': '取消',
+    'librarychange.migrated': 'Orb 库文件夹已更改。已迁移 {count} 个 Orb。',
+    'librarychange.deleted': 'Orb 库文件夹已更改。已删除 {count} 个 Orb。',
+    'librarychange.error': '无法更改 Orb 库文件夹: {error}',
     'mcp.title': 'MCP配置',
     'mcp.runtime_path_label': '运行时CLI路径',
     'mcp.runtime_path_placeholder': '留空使用内置mcporb-runtime',
@@ -715,6 +747,7 @@ function applyLocale() {
   if (hint && hint.style.display !== 'none') {
     $('library-restart-hint-text').textContent = t('library.restart_hint');
   }
+  updateUnsavedHint();
 }
 
 function initLocale() {
@@ -800,6 +833,9 @@ function bindActions() {
   $('btn-generate-config').addEventListener('click', generateMcpConfig);
   $('btn-save-settings').addEventListener('click', saveSettings);
   $('btn-choose-orb-library').addEventListener('click', chooseOrbLibraryDir);
+  ['settings-download-dir', 'settings-http-port', 'settings-network-binding'].forEach((id) => {
+    $(id).addEventListener('input', markSettingsEdited);
+  });
   $('btn-onboarding-default').addEventListener('click', onboardingUseDefault);
   $('btn-onboarding-choose').addEventListener('click', onboardingChooseDifferent);
   $('btn-onboarding-skip').addEventListener('click', onboardingSkip);
@@ -918,6 +954,14 @@ function bindActions() {
   $('confirm-modal').addEventListener('click', (e) => {
     if (e.target === $('confirm-modal')) hideConfirmDeleteModal();
   });
+  // Orb library folder change modal
+  $('btn-library-change-migrate').addEventListener('click', migrateLibraryChange);
+  $('btn-library-change-delete').addEventListener('click', deleteLibraryChange);
+  $('btn-library-change-cancel').addEventListener('click', cancelLibraryChange);
+  $('btn-library-change-close').addEventListener('click', cancelLibraryChange);
+  $('library-change-modal').addEventListener('click', (e) => {
+    if (e.target === $('library-change-modal')) cancelLibraryChange();
+  });
   // Restart hint dismiss
   $('btn-dismiss-restart-hint').addEventListener('click', hideRestartHint);
 }
@@ -979,16 +1023,13 @@ function hideImportModal() {
 async function browseFile() {
   try {
     let path = null;
-    // Try Tauri native dialog
-    if (window.__TAURI__?.dialog?.open) {
-      path = await window.__TAURI__.dialog.open({
-        multiple: false,
-        filters: [{ name: 'Orb ZIP', extensions: ['zip'] }],
-      });
-    } else if (window.__TAURI__?.dialog) {
-      path = await window.__TAURI__.dialog.open({
-        multiple: false,
-        filters: [{ name: 'Orb ZIP', extensions: ['zip'] }],
+    // Direct IPC: window.__TAURI__.dialog is unavailable in this plain-JS frontend.
+    if (invoke) {
+      path = await invoke('plugin:dialog|open', {
+        options: {
+          multiple: false,
+          filters: [{ name: 'Orb ZIP', extensions: ['zip'] }],
+        },
       });
     } else {
       setModalStatus(t('import.desktop_only'), true);
@@ -1598,6 +1639,8 @@ async function loadSettings() {
     if (state.platform === 'macos' && !settings.onboarding_complete && !settings.orb_library_dir) {
       showOnboardingModal();
     }
+    captureSettingsSnapshot();
+    updateUnsavedHint();
   } catch (error) {
     console.error('Failed to load settings:', error);
   }
@@ -1606,17 +1649,101 @@ async function loadSettings() {
 async function chooseOrbLibraryDir() {
   if (!invoke) return;
   try {
-    const dir = await invoke('choose_orb_library_dir');
-    if (dir) {
-      state.orbLibraryDir = dir;
-      $('settings-orb-library-dir').value = dir;
-      feedbackBtn($('btn-choose-orb-library'), 'settings.orb_library_changed');
-      $('settings-status').textContent = t('settings.orb_library_changed');
-      $('settings-status').classList.remove('error');
+    const result = await invoke('choose_orb_library_dir');
+    if (!result?.path) return;
+    if (result.pending) {
+      state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      showLibraryChangeModal();
+      return;
     }
+    state.orbLibraryDir = result.path;
+    $('settings-orb-library-dir').value = result.path;
+    feedbackBtn($('btn-choose-orb-library'), 'settings.orb_library_changed');
+    $('settings-status').textContent = t('settings.orb_library_changed');
+    $('settings-status').classList.remove('error');
+    markSettingsEdited();
   } catch (error) {
     $('settings-status').textContent = t('settings.orb_library_choose_error') + ' ' + error;
     $('settings-status').classList.add('error');
+  }
+}
+
+// ── Orb library folder change (migrate / delete old orbs) ──────────────────
+
+function showLibraryChangeModal() {
+  const pending = state.pendingLibraryChange;
+  if (!pending) return;
+  $('library-change-message').textContent = t('librarychange.message', { count: pending.orbCount });
+  $('library-change-status').textContent = '';
+  $('library-change-status').className = 'status-line';
+  $('library-change-modal').style.display = 'flex';
+}
+
+function hideLibraryChangeModal() {
+  $('library-change-modal').style.display = 'none';
+  $('library-change-status').textContent = '';
+  state.pendingLibraryDelete = false;
+}
+
+async function cancelLibraryChange() {
+  try {
+    await invoke('cancel_orb_library_change');
+  } catch (_) { /* best-effort */ }
+  state.pendingLibraryChange = null;
+  hideLibraryChangeModal();
+}
+
+async function migrateLibraryChange() {
+  if (!invoke) return;
+  $('btn-library-change-migrate').disabled = true;
+  $('btn-library-change-delete').disabled = true;
+  try {
+    const result = await invoke('apply_orb_library_change', { action: 'migrate' });
+    applyOrbLibraryDir(result.path);
+    captureSettingsSnapshot();
+    updateUnsavedHint();
+    hideLibraryChangeModal();
+    state.pendingLibraryChange = null;
+    $('settings-status').textContent = t('librarychange.migrated', { count: result.orb_count });
+    $('settings-status').classList.remove('error');
+  } catch (error) {
+    $('library-change-status').textContent = t('librarychange.error', { error });
+    $('library-change-status').classList.add('error');
+  } finally {
+    $('btn-library-change-migrate').disabled = false;
+    $('btn-library-change-delete').disabled = false;
+  }
+}
+
+function deleteLibraryChange() {
+  const pending = state.pendingLibraryChange;
+  if (!pending) return;
+  // Second confirmation via the existing danger modal; the library-change
+  // modal stays open underneath so the user can still pick Migrate.
+  state.pendingLibraryDelete = true;
+  $('confirm-modal-message').textContent = t('librarychange.delete_confirm', { count: pending.orbCount });
+  $('confirm-modal').style.display = '';
+}
+
+async function doDeleteLibraryChange() {
+  if (!invoke) return;
+  try {
+    const result = await invoke('apply_orb_library_change', { action: 'delete' });
+    hideConfirmDeleteModal();
+    applyOrbLibraryDir(result.path);
+    captureSettingsSnapshot();
+    updateUnsavedHint();
+    await refreshLibrary();
+    syncOrbSelects();
+    refreshRunning();
+    hideLibraryChangeModal();
+    state.pendingLibraryChange = null;
+    $('settings-status').textContent = t('librarychange.deleted', { count: result.orb_count });
+    $('settings-status').classList.remove('error');
+  } catch (error) {
+    hideConfirmDeleteModal();
+    $('library-change-status').textContent = t('librarychange.error', { error });
+    $('library-change-status').classList.add('error');
   }
 }
 
@@ -1635,6 +1762,7 @@ function applyOrbLibraryDir(dir) {
   if (!dir) return;
   state.orbLibraryDir = dir;
   $('settings-orb-library-dir').value = dir;
+  markSettingsEdited();
 }
 
 async function onboardingUseDefault() {
@@ -1643,11 +1771,15 @@ async function onboardingUseDefault() {
   $('btn-onboarding-default').disabled = true;
   $('btn-onboarding-choose').disabled = true;
   try {
-    const dir = await invoke('choose_orb_library_dir_suggested');
-    if (dir) {
-      applyOrbLibraryDir(dir);
-      hideOnboardingModal();
+    const result = await invoke('choose_orb_library_dir_suggested');
+    if (!result?.path) return;
+    if (result.pending) {
+      state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      showLibraryChangeModal();
+      return;
     }
+    applyOrbLibraryDir(result.path);
+    hideOnboardingModal();
   } catch (error) {
     $('onboarding-status').textContent = t('onboarding.error', { error });
     $('onboarding-status').classList.add('error');
@@ -1663,11 +1795,15 @@ async function onboardingChooseDifferent() {
   $('btn-onboarding-default').disabled = true;
   $('btn-onboarding-choose').disabled = true;
   try {
-    const dir = await invoke('choose_orb_library_dir');
-    if (dir) {
-      applyOrbLibraryDir(dir);
-      hideOnboardingModal();
+    const result = await invoke('choose_orb_library_dir');
+    if (!result?.path) return;
+    if (result.pending) {
+      state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      showLibraryChangeModal();
+      return;
     }
+    applyOrbLibraryDir(result.path);
+    hideOnboardingModal();
   } catch (error) {
     $('onboarding-status').textContent = t('onboarding.error', { error });
     $('onboarding-status').classList.add('error');
@@ -1687,6 +1823,49 @@ async function onboardingSkip() {
 
 // --- End onboarding ---
 
+// --- Unsaved-settings detection ---
+
+let savedSettingsSnapshot = null;
+
+function captureSettingsSnapshot() {
+  savedSettingsSnapshot = {
+    download_dir: $('settings-download-dir').value,
+    http_port: $('settings-http-port').value,
+    network_binding: $('settings-network-binding').value,
+    orb_library_dir: state.orbLibraryDir || '',
+  };
+}
+
+function settingsHaveUnsavedChanges() {
+  if (!savedSettingsSnapshot) return false;
+  return (
+    savedSettingsSnapshot.download_dir !== $('settings-download-dir').value ||
+    savedSettingsSnapshot.http_port !== $('settings-http-port').value ||
+    savedSettingsSnapshot.network_binding !== $('settings-network-binding').value ||
+    savedSettingsSnapshot.orb_library_dir !== (state.orbLibraryDir || '')
+  );
+}
+
+function updateUnsavedHint() {
+  const status = $('settings-status');
+  if (!status) return;
+  const saveBtn = $('btn-save-settings');
+  if (settingsHaveUnsavedChanges()) {
+    status.textContent = t('settings.unsaved_hint');
+    status.classList.remove('error');
+    if (saveBtn) saveBtn.classList.add('btn-dirty');
+  } else if (saveBtn) {
+    // Keep any existing status text (e.g. "Settings saved.") intact.
+    saveBtn.classList.remove('btn-dirty');
+  }
+}
+
+function markSettingsEdited() {
+  updateUnsavedHint();
+}
+
+// --- End unsaved-settings detection ---
+
 async function saveSettings() {
   if (!invoke) return;
   feedbackBtn($('btn-save-settings'), 'feedback.saved');
@@ -1700,6 +1879,11 @@ async function saveSettings() {
     await invoke('save_settings', { settings });
     $('settings-status').textContent = t('settings.saved');
     $('settings-status').classList.remove('error');
+    captureSettingsSnapshot();
+    updateUnsavedHint();
+    // Refresh the HTTP tab so the gateway URL / config JSON reflect the
+    // new network binding (the gateway process restarts on change).
+    refreshRunning();
   } catch (error) {
     $('settings-status').textContent = String(error);
     $('settings-status').classList.add('error');
@@ -1745,27 +1929,30 @@ function renderRunning(running) {
     </article>
   `;
   refreshGatewayStatus();
-  // Fetch and populate the gateway HTTP config
-  (async () => {
-    try {
-      const snippets = await invoke('gateway_http_config_snippets');
-      const area = $('gateway-http-config-json');
-      if (snippets.length > 0) {
-        area.value = snippets[0].json;
-      } else {
-        area.value = '/* Gateway config unavailable */';
-      }
-      const copyBtn = $('copy-gateway-http-config');
-      copyBtn.addEventListener('click', async () => {
+  refreshGatewayHttpConfig();
+}
+
+async function refreshGatewayHttpConfig() {
+  if (!invoke) return;
+  const area = $('gateway-http-config-json');
+  if (!area) return;
+  try {
+    const snippets = await invoke('gateway_http_config_snippets');
+    area.value = snippets.length > 0
+      ? snippets[0].json
+      : '/* Gateway config unavailable */';
+    const copyBtn = $('copy-gateway-http-config');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
         if (snippets.length > 0) {
           await navigator.clipboard.writeText(snippets[0].json);
           feedbackBtn(copyBtn, 'feedback.copied');
         }
-      });
-    } catch (error) {
-      $('gateway-http-config-json').value = `/* Error: ${error} */`;
+      };
     }
-  })();
+  } catch (error) {
+    area.value = `/* Error: ${error} */`;
+  }
 }
 
 async function refreshGatewayStatus() {
@@ -1801,13 +1988,21 @@ async function refreshGatewayStatus() {
           feedbackBtn(copyBtn, 'running.gateway_token_copied');
         };
         if (resetBtn) resetBtn.onclick = async () => {
-          const dlg = window.__TAURI__?.dialog;
-          const confirmed = dlg?.confirm
-            ? await dlg.confirm(t('running.gateway_reset_confirm'), {
-                title: t('running.gateway_reset_token'),
-                kind: 'warning',
-              })
-            : window.confirm(t('running.gateway_reset_confirm'));
+          let confirmed = false;
+          try {
+            // Direct IPC: the dialog plugin overrides window.confirm with a
+            // call to a nonexistent `plugin:dialog|confirm` command, so use
+            // the real `message` command instead.
+            const result = await invoke('plugin:dialog|message', {
+              message: t('running.gateway_reset_confirm'),
+              title: t('running.gateway_reset_token'),
+              kind: 'warning',
+              buttons: 'OkCancel',
+            });
+            confirmed = result === 'Ok';
+          } catch (error) {
+            confirmed = window.confirm(t('running.gateway_reset_confirm'));
+          }
           if (!confirmed) return;
           resetBtn.textContent = t('running.gateway_resetting');
           resetBtn.disabled = true;
@@ -1815,6 +2010,7 @@ async function refreshGatewayStatus() {
             await invoke('reset_gateway_token');
           } finally {
             refreshGatewayStatus();
+            refreshGatewayHttpConfig();
           }
         };
       }
@@ -1988,6 +2184,7 @@ function deleteOrb(orbId) {
 
 function hideConfirmDeleteModal() {
   state.pendingDeleteOrbId = null;
+  state.pendingLibraryDelete = false;
   $('confirm-modal').style.display = 'none';
 }
 
@@ -1996,6 +2193,10 @@ function confirmModalVisible() {
 }
 
 async function confirmDeleteOrb() {
+  if (state.pendingLibraryDelete) {
+    state.pendingLibraryDelete = false;
+    return doDeleteLibraryChange();
+  }
   const orbId = state.pendingDeleteOrbId;
   if (!orbId || !invoke) return;
   try {

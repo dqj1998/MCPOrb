@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mcporb_runtime_app_core::{
-    mcp_config, metrics, platform_config, search, settings::SettingsStore, store_client::StoreClient,
+    mcp_config, metrics, platform_config, search, settings::SettingsStore, settings::NetworkBinding,
+    store_client::StoreClient,
     validate_zip_path, ImportOptions, InstalledOrb, PlatformConfig, RegistryStore, RuntimeSettings,
     DownloadToken, ListResponse, OrbDetail, SearchResponse, TagInfo, WriteConfigResult,
     inspect_orb_security, remember_orb_password as remember_orb_password_impl,
@@ -27,6 +28,33 @@ struct AppState {
     settings: Arc<Mutex<SettingsStore>>,
     running_orbs: Arc<Mutex<Vec<RunningOrb>>>,
     running_children: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
+    /// Picked-but-unapplied library folder (macOS); consumed by
+    /// `apply_orb_library_change` / `cancel_orb_library_change`.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pending_library_pick: Arc<Mutex<Option<PendingLibraryPick>>>,
+    /// Security-scoped access to the active library folder (macOS sandbox);
+    /// swapped for the new folder's guard after a migration.
+    #[cfg(target_os = "macos")]
+    library_access: Arc<Mutex<Option<macos_access::AccessGuard>>>,
+}
+
+/// Folder picked in the dialog plus its security-scoped bookmark, held until
+/// the user decides what to do with the orbs in the old folder.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[derive(Debug, Clone)]
+struct PendingLibraryPick {
+    path: PathBuf,
+    bookmark: String,
+}
+
+/// Result of picking / applying an Orb library folder change.
+#[derive(Debug, Serialize)]
+struct OrbLibraryPick {
+    path: String,
+    /// true = settings not saved yet; frontend must ask migrate/delete for
+    /// the `orb_count` orbs in the old folder before anything is applied.
+    pending: bool,
+    orb_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,10 +286,22 @@ async fn save_settings(
     settings: RuntimeSettings,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let store = state.settings.lock().await;
-    let current = store.load().unwrap_or_default();
-    let merged = merge_settings(current, settings);
-    store.save(&merged).map_err(to_string)
+    let binding_changed = {
+        let store = state.settings.lock().await;
+        let current = store.load().unwrap_or_default();
+        let old_binding = current.network_binding.clone();
+        let merged = merge_settings(current, settings);
+        let binding_changed = merged.network_binding != old_binding;
+        store.save(&merged).map_err(to_string)?;
+        binding_changed
+    };
+    // The gateway bind address is a spawn-time argument; a binding change
+    // only takes effect after a restart, so bounce the process in-place.
+    if binding_changed {
+        stop_unified_gateway_impl(&state).await?;
+        ensure_unified_gateway_impl(&state).await?;
+    }
+    Ok(())
 }
 
 /// Merge frontend-supplied settings over the stored ones. The frontend form
@@ -284,22 +324,30 @@ fn merge_settings(current: RuntimeSettings, mut incoming: RuntimeSettings) -> Ru
 }
 
 #[cfg(target_os = "macos")]
-#[tauri::command]
-async fn choose_orb_library_dir(
-    app: tauri::AppHandle,
+async fn pick_orb_library_impl(
+    app: &tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<Option<String>, String> {
+    suggested: Option<PathBuf>,
+) -> Result<OrbLibraryPick, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
-    app.dialog().file().pick_folder(move |file_path| {
+    let mut dialog = app.dialog().file();
+    if let Some(dir) = suggested {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog.pick_folder(move |file_path| {
         let _ = tx.send(file_path.and_then(|p| p.into_path().ok()));
     });
     let picked = rx
         .await
         .map_err(|_| "Folder dialog closed unexpectedly.".to_string())?;
     let Some(picked) = picked else {
-        return Ok(None);
+        return Ok(OrbLibraryPick {
+            path: String::new(),
+            pending: false,
+            orb_count: 0,
+        });
     };
 
     let bookmark = macos_access::create_bookmark(&picked)
@@ -307,17 +355,76 @@ async fn choose_orb_library_dir(
 
     let store = state.settings.lock().await;
     let mut settings = store.load().map_err(to_string)?;
+
+    // Orbs outside the newly picked folder would be left behind: they live in
+    // the current library folder or in the legacy default app-data Orbs dir
+    // (imported before any library folder was configured). Keep the pick
+    // pending so the frontend can ask the user to migrate or delete them.
+    let same_dir = match settings.orb_library_dir.as_deref() {
+        Some(old) => old == picked
+            || matches!(
+                (std::fs::canonicalize(old), std::fs::canonicalize(&picked)),
+                (Ok(a), Ok(b)) if a == b
+            ),
+        None => false,
+    };
+    if !same_dir {
+        let new_orbs_dir = picked.join("Orbs");
+        let mut old_orbs_dirs: Vec<PathBuf> = Vec::new();
+        if let Some(old) = settings.orb_library_dir.as_deref() {
+            old_orbs_dirs.push(old.join("Orbs"));
+        }
+        let legacy_orbs_dir = default_registry_root().join("Orbs");
+        if legacy_orbs_dir != new_orbs_dir && !old_orbs_dirs.contains(&legacy_orbs_dir) {
+            old_orbs_dirs.push(legacy_orbs_dir);
+        }
+        let count = state
+            .registry
+            .list()
+            .map_err(to_string)?
+            .iter()
+            .filter(|orb| {
+                old_orbs_dirs.iter().any(|dir| orb.zip_path.starts_with(dir))
+                    && !orb.zip_path.starts_with(&new_orbs_dir)
+            })
+            .count();
+        if count > 0 {
+            state.pending_library_pick.lock().await.replace(PendingLibraryPick {
+                path: picked.clone(),
+                bookmark,
+            });
+            return Ok(OrbLibraryPick {
+                path: picked.to_string_lossy().into_owned(),
+                pending: true,
+                orb_count: count,
+            });
+        }
+    }
+
     settings.orb_library_dir = Some(picked.clone());
     settings.orb_library_bookmark = Some(bookmark);
     settings.onboarding_complete = true;
     store.save(&settings).map_err(to_string)?;
 
-    Ok(Some(picked.to_string_lossy().to_string()))
+    Ok(OrbLibraryPick {
+        path: picked.to_string_lossy().into_owned(),
+        pending: false,
+        orb_count: 0,
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn choose_orb_library_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<OrbLibraryPick, String> {
+    pick_orb_library_impl(&app, state, None).await
 }
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-fn choose_orb_library_dir() -> Result<Option<String>, String> {
+fn choose_orb_library_dir() -> Result<OrbLibraryPick, String> {
     Err("Orb library folder selection is only available on macOS.".to_string())
 }
 
@@ -328,44 +435,108 @@ fn choose_orb_library_dir() -> Result<Option<String>, String> {
 async fn choose_orb_library_dir_suggested(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    use tauri_plugin_dialog::DialogExt;
-
+) -> Result<OrbLibraryPick, String> {
     let suggested = dirs::document_dir()
         .map(|d| d.join("MCPOrb"))
         .or_else(dirs::home_dir);
-
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let mut dialog = app.dialog().file();
-    if let Some(path) = suggested {
-        dialog = dialog.set_directory(path);
-    }
-    dialog.pick_folder(move |file_path| {
-        let _ = tx.send(file_path.and_then(|p| p.into_path().ok()));
-    });
-    let picked = rx
-        .await
-        .map_err(|_| "Folder dialog closed unexpectedly.".to_string())?;
-    let Some(picked) = picked else {
-        return Ok(None);
-    };
-
-    let bookmark = macos_access::create_bookmark(&picked)
-        .map_err(|e| format!("Could not create security-scoped bookmark: {e}"))?;
-
-    let store = state.settings.lock().await;
-    let mut settings = store.load().map_err(to_string)?;
-    settings.orb_library_dir = Some(picked.clone());
-    settings.orb_library_bookmark = Some(bookmark);
-    settings.onboarding_complete = true;
-    store.save(&settings).map_err(to_string)?;
-
-    Ok(Some(picked.to_string_lossy().to_string()))
+    pick_orb_library_impl(&app, state, suggested).await
 }
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-fn choose_orb_library_dir_suggested() -> Result<Option<String>, String> {
+fn choose_orb_library_dir_suggested() -> Result<OrbLibraryPick, String> {
+    Err("Orb library folder selection is only available on macOS.".to_string())
+}
+
+/// Applies a pending library-folder change: `action` is "migrate" (move the
+/// old folder's Orb ZIPs to the new folder and keep the orbs) or "delete"
+/// (remove the old folder's orbs). On success saves the new folder in the
+/// settings and repoints the registry so same-session imports land there.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn apply_orb_library_change(
+    action: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<OrbLibraryPick, String> {
+    let pending = state
+        .pending_library_pick
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(|| "No pending Orb library change. Choose a folder first.".to_string())?;
+
+    let settings_store = state.settings.lock().await;
+    let settings = settings_store.load().map_err(to_string)?;
+
+    // Resolve both bookmarks before consuming the pending pick so a failure
+    // leaves it intact for retry or cancel. The old bookmark is optional: it
+    // covers orbs in the previous library folder, while orbs imported before
+    // any library folder existed live in the legacy app-data Orbs dir, which
+    // needs no bookmark.
+    let (new_path, new_guard) =
+        macos_access::resolve_bookmark(&pending.bookmark).map_err(to_string)?;
+    let new_orbs_dir = new_path.join("Orbs");
+
+    let mut old_orbs_dirs: Vec<PathBuf> = Vec::new();
+    let mut _old_guard: Option<macos_access::AccessGuard> = None;
+    if let Some(old_bookmark) = settings.orb_library_bookmark.as_deref() {
+        let (old_path, guard) = macos_access::resolve_bookmark(old_bookmark).map_err(to_string)?;
+        old_orbs_dirs.push(old_path.join("Orbs"));
+        _old_guard = Some(guard);
+    }
+    let legacy_orbs_dir = default_registry_root().join("Orbs");
+    if legacy_orbs_dir != new_orbs_dir && !old_orbs_dirs.contains(&legacy_orbs_dir) {
+        old_orbs_dirs.push(legacy_orbs_dir);
+    }
+
+    let orb_count = match action.as_str() {
+        "migrate" => state
+            .registry
+            .migrate_orbs(&old_orbs_dirs, &new_orbs_dir)
+            .map_err(to_string)?,
+        "delete" => state
+            .registry
+            .delete_orbs(&old_orbs_dirs)
+            .map_err(to_string)?,
+        other => return Err(format!("Unknown action `{other}`")),
+    };
+
+    state.pending_library_pick.lock().await.take();
+    let mut settings = settings_store.load().map_err(to_string)?;
+    settings.orb_library_dir = Some(pending.path.clone());
+    settings.orb_library_bookmark = Some(pending.bookmark);
+    settings.onboarding_complete = true;
+    settings_store.save(&settings).map_err(to_string)?;
+
+    // Keep same-session imports pointing at the new folder and keep it
+    // accessible under the sandbox for the rest of this session.
+    state.registry.set_orbs_dir(new_orbs_dir);
+    state.library_access.lock().await.replace(new_guard);
+
+    Ok(OrbLibraryPick {
+        path: pending.path.to_string_lossy().into_owned(),
+        pending: false,
+        orb_count,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn apply_orb_library_change() -> Result<OrbLibraryPick, String> {
+    Err("Orb library folder selection is only available on macOS.".to_string())
+}
+
+/// Abandons a pending library-folder change; settings stay on the old folder.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn cancel_orb_library_change(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.pending_library_pick.lock().await.take();
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn cancel_orb_library_change() -> Result<(), String> {
     Err("Orb library folder selection is only available on macOS.".to_string())
 }
 
@@ -587,8 +758,31 @@ async fn list_running_orbs(
     Ok(running_orbs.clone())
 }
 
-fn unified_gateway_url(port: u16) -> String {
-    format!("http://127.0.0.1:{port}/mcp")
+/// Bind address for the unified gateway process: `127.0.0.1` for localhost
+/// mode, `0.0.0.0` (all interfaces) for external mode.
+fn unified_gateway_bind_addr(binding: NetworkBinding) -> &'static str {
+    match binding {
+        NetworkBinding::Localhost => "127.0.0.1",
+        NetworkBinding::External => "0.0.0.0",
+    }
+}
+
+/// The address MCP clients should connect to. In external mode the gateway
+/// binds `0.0.0.0`, but `0.0.0.0` is not a connectable address, so advertise
+/// the machine's LAN IP instead (falling back to localhost if undetectable).
+fn unified_gateway_url(port: u16, binding: NetworkBinding) -> String {
+    let host = match binding {
+        NetworkBinding::Localhost => "127.0.0.1".to_string(),
+        NetworkBinding::External => local_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string()),
+    };
+    format!("http://{host}:{port}/mcp")
+}
+
+/// First non-loopback IPv4 address, if any.
+fn local_lan_ip() -> Option<String> {
+    local_ip_address::local_ip()
+        .ok()
+        .map(|ip| ip.to_string())
 }
 
 fn generate_gateway_token() -> String {
@@ -618,7 +812,7 @@ async fn unified_gateway_status_impl(state: &AppState) -> Result<UnifiedGatewayS
     Ok(UnifiedGatewayStatus {
         running,
         port,
-        url: unified_gateway_url(port),
+        url: unified_gateway_url(port, settings.network_binding),
         token: settings.gateway_token.clone(),
     })
 }
@@ -636,7 +830,7 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
     let gateway_bin = default_gateway_http_binary()
         .ok_or_else(|| "mcporb-gateway-http binary not found next to mcporb-runner".to_string())?;
 
-    let (port, token) = {
+    let (port, token, bind_addr) = {
         let store = state.settings.lock().await;
         let mut settings = store.load().map_err(to_string)?;
         if settings.gateway_token.as_deref().map_or(true, str::is_empty) {
@@ -646,6 +840,7 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
         (
             settings.http_port,
             settings.gateway_token.clone().unwrap_or_default(),
+            unified_gateway_bind_addr(settings.network_binding),
         )
     };
     let registry_root = state.registry.root_dir().to_path_buf();
@@ -656,7 +851,7 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
         .arg("--port")
         .arg(port.to_string())
         .arg("--bind")
-        .arg("127.0.0.1")
+        .arg(bind_addr)
         .arg("--token")
         .arg(&token)
         .stdin(std::process::Stdio::null())
@@ -848,9 +1043,14 @@ async fn gateway_http_config_snippets(
         let settings_store = state.settings.lock().await;
         settings_store.load().map_err(to_string)?
     };
+    let host = match settings.network_binding {
+        NetworkBinding::Localhost => "127.0.0.1".to_string(),
+        NetworkBinding::External => local_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string()),
+    };
     Ok(mcp_config::gateway_http_config_snippets(
         settings.http_port,
         settings.gateway_token.as_deref(),
+        &host,
     ))
 }
 
@@ -1098,7 +1298,7 @@ fn main() {
     // macOS: restore security-scoped access to the user-chosen Orb library
     // folder before anything else — the MCP STDIO proxy child needs it too.
     #[cfg(target_os = "macos")]
-    let (_library_access, registry) =
+    let (library_access, registry) =
         resolve_macos_registry(&settings_store.load().unwrap_or_default());
     #[cfg(not(target_os = "macos"))]
     let registry = RegistryStore::new(default_registry_root());
@@ -1118,6 +1318,9 @@ fn main() {
         settings: Arc::new(Mutex::new(settings_store)),
         running_orbs: Arc::new(Mutex::new(Vec::new())),
         running_children: Arc::new(Mutex::new(HashMap::new())),
+        pending_library_pick: Arc::new(Mutex::new(None)),
+        #[cfg(target_os = "macos")]
+        library_access: Arc::new(Mutex::new(library_access)),
     };
 
     tauri::Builder::default()
@@ -1202,6 +1405,8 @@ fn main() {
             batch_start_orbs,
             choose_orb_library_dir_suggested,
             dismiss_onboarding,
+            apply_orb_library_change,
+            cancel_orb_library_change,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MCPOrb Runner");
@@ -1508,6 +1713,34 @@ mod tests {
     }
 
     #[test]
+    fn merge_settings_preserves_bookmark_when_dir_is_unchanged() {
+        // The frontend form always submits the (read-only) library dir field,
+        // so the incoming orb_library_dir is Some and equal to the current
+        // one. The bookmark itself must still survive an unrelated save.
+        let mut current = RuntimeSettings::default();
+        current.orb_library_dir = Some(PathBuf::from("/Users/t/Documents/MCPOrb"));
+        current.orb_library_bookmark = Some("bm".to_string());
+        let mut incoming = RuntimeSettings::default();
+        incoming.orb_library_dir = Some(PathBuf::from("/Users/t/Documents/MCPOrb"));
+        let merged = merge_settings(current, incoming);
+        assert_eq!(merged.orb_library_bookmark.as_deref(), Some("bm"));
+    }
+
+    #[test]
+    fn merge_settings_drops_bookmark_when_dir_changes() {
+        // A genuinely different library dir without a bookmark must not keep
+        // the stale bookmark of the previous folder.
+        let mut current = RuntimeSettings::default();
+        current.orb_library_dir = Some(PathBuf::from("/Users/t/Documents/MCPOrb"));
+        current.orb_library_bookmark = Some("bm".to_string());
+        let mut incoming = RuntimeSettings::default();
+        incoming.orb_library_dir = Some(PathBuf::from("/Volumes/SSD/OtherLib"));
+        let merged = merge_settings(current, incoming);
+        assert_eq!(merged.orb_library_dir.as_deref(), Some(std::path::Path::new("/Volumes/SSD/OtherLib")));
+        assert_eq!(merged.orb_library_bookmark, None);
+    }
+
+    #[test]
     fn generate_gateway_token_is_url_safe_and_random() {
         let a = generate_gateway_token();
         let b = generate_gateway_token();
@@ -1710,6 +1943,9 @@ mod tests {
                 settings: Arc::new(Mutex::new(SettingsStore::new(PathBuf::from(
                     ".mcporb-runtime-test",
                 )))),
+                pending_library_pick: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_access: Arc::new(Mutex::new(None)),
                 running_orbs: Arc::new(Mutex::new(vec![RunningOrb {
                     orb_id: "orb-1".to_string(),
                     slug: "orb-1".to_string(),
@@ -1731,5 +1967,118 @@ mod tests {
             assert!(app_state.running_orbs.lock().await.is_empty());
             assert!(app_state.running_children.lock().await.is_empty());
         });
+    }
+
+    // ── reset-gateway-token dialog regression tests ─────────────────────────
+    //
+    // The Runner frontend is plain JS (no bundler), so the dialog plugin's
+    // guest-JS global `window.__TAURI__.dialog` is never exposed, and the
+    // plugin's init script overrides `window.confirm` to call a nonexistent
+    // `plugin:dialog|confirm` command. The reset-token button must call the
+    // real `plugin:dialog|message` command over IPC instead; these tests pin
+    // that contract so the button can never silently die again.
+
+    #[test]
+    fn reset_token_button_uses_direct_message_ipc_in_frontend() {
+        let app_js = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/app.js"),
+        )
+        .expect("frontend/app.js must exist next to the crate");
+        assert!(
+            app_js.contains("invoke('plugin:dialog|message'"),
+            "reset-token handler must call plugin:dialog|message directly"
+        );
+        assert!(
+            app_js.contains("buttons: 'OkCancel'"),
+            "reset-token confirm must use OkCancel buttons"
+        );
+        assert!(
+            !app_js.contains("window.__TAURI__?.dialog"),
+            "frontend must not depend on the unexposed window.__TAURI__.dialog global"
+        );
+    }
+
+    #[test]
+    fn capabilities_grant_dialog_message_permission() {
+        let caps_json = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities/default.json"),
+        )
+        .expect("capabilities/default.json must exist next to the crate");
+        let caps: serde_json::Value =
+            serde_json::from_str(&caps_json).expect("capabilities/default.json must be valid JSON");
+        let granted: Vec<&str> = caps["permissions"]
+            .as_array()
+            .expect("permissions must be an array")
+            .iter()
+            .filter_map(|p| p.as_str())
+            .collect();
+        assert!(
+            granted.contains(&"dialog:allow-message"),
+            "dialog:allow-message must be granted for the confirm dialog; got {granted:?}"
+        );
+        assert!(
+            granted.contains(&"dialog:allow-open"),
+            "dialog:allow-open must be granted for the file picker; got {granted:?}"
+        );
+    }
+
+    #[test]
+    fn frontend_library_change_modal_wired_in_html_and_js() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let app_js = fs::read_to_string(manifest_dir.join("frontend/app.js"))
+            .expect("frontend/app.js must exist next to the crate");
+        let index_html = fs::read_to_string(manifest_dir.join("frontend/index.html"))
+            .expect("frontend/index.html must exist next to the crate");
+
+        assert!(
+            index_html.contains("id=\"library-change-modal\""),
+            "index.html must contain the library-change modal"
+        );
+        assert!(
+            index_html.contains("btn-library-change-migrate"),
+            "index.html must contain the migrate button"
+        );
+        assert!(
+            index_html.contains("btn-library-change-delete"),
+            "index.html must contain the delete button"
+        );
+        assert!(
+            app_js.contains("invoke('choose_orb_library_dir')"),
+            "frontend must open the folder picker via choose_orb_library_dir"
+        );
+        assert!(
+            app_js.contains("invoke('apply_orb_library_change', { action: 'migrate' })"),
+            "migrate action must call apply_orb_library_change"
+        );
+        assert!(
+            app_js.contains("invoke('apply_orb_library_change', { action: 'delete' })"),
+            "delete action must call apply_orb_library_change"
+        );
+    }
+
+    // ── gateway network-binding tests ───────────────────────────────────────
+
+    #[test]
+    fn gateway_bind_addr_follows_network_binding() {
+        assert_eq!(unified_gateway_bind_addr(NetworkBinding::Localhost), "127.0.0.1");
+        assert_eq!(unified_gateway_bind_addr(NetworkBinding::External), "0.0.0.0");
+    }
+
+    #[test]
+    fn gateway_url_localhost_mode_uses_loopback() {
+        assert_eq!(
+            unified_gateway_url(5599, NetworkBinding::Localhost),
+            "http://127.0.0.1:5599/mcp"
+        );
+    }
+
+    #[test]
+    fn gateway_url_external_mode_advertises_connectable_host() {
+        // 0.0.0.0 is not connectable, so external mode must advertise a real
+        // host — the LAN IP when available, loopback as a last resort.
+        let url = unified_gateway_url(5599, NetworkBinding::External);
+        assert!(url.starts_with("http://"), "unexpected url: {url}");
+        assert!(url.ends_with(":5599/mcp"), "unexpected url: {url}");
+        assert!(!url.contains("0.0.0.0"), "external url must not be 0.0.0.0: {url}");
     }
 }
