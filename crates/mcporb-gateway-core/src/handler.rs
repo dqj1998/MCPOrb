@@ -7,7 +7,10 @@
 use serde_json::{json, Value};
 use tracing;
 
-use crate::router::{extract_slug_from_resource_uri, parse_tool_name};
+use crate::router::{
+    parse_tool_name, split_namespaced_resource_uri, to_namespaced_resource_uri,
+    to_native_resource_uri,
+};
 use crate::runtime_manager::RuntimeManager;
 
 /// Error codes matching MCP spec conventions.
@@ -236,8 +239,8 @@ async fn handle_resource_read(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Extract slug from resource URI
-    let slug = extract_slug_from_resource_uri(uri).ok_or_else(|| {
+    // Parse the namespaced resource URI: orb://{slug}/documents/{id}
+    let (slug, remainder) = split_namespaced_resource_uri(uri).ok_or_else(|| {
         format!(
             "Invalid resource URI format: '{uri}'. Expected 'orb://{{slug}}/...'."
         )
@@ -252,14 +255,45 @@ async fn handle_resource_read(
         )));
     }
 
-    // Forward the resources/read request as-is (URI stays in orb-native format)
+    // `resources/list` advertises `orb://{slug}/` as an informational resource,
+    // but it is not readable — only `orb://{slug}/documents/{id}` is.
+    if remainder.trim_start_matches('/').is_empty() {
+        return Ok(Some(json_rpc_error(
+            id,
+            error_codes::INVALID_REQUEST,
+            &format!(
+                "Resource URI '{uri}' is not readable. Use 'orb://{slug}/documents/{{id}}'."
+            ),
+        )));
+    }
+
+    // Rewrite the URI to the orb-native form (`orb://documents/{id}`) — the
+    // child runtime does not understand the namespaced scheme.
+    let mut forward_params = params.clone();
+    forward_params["uri"] = json!(to_native_resource_uri(uri).expect("validated above"));
+
+    // Forward the rewritten request to the Orb
     match manager
-        .forward_request(slug, "resources/read", params.clone())
+        .forward_request(slug, "resources/read", forward_params)
         .await
     {
         Ok(response) => {
             if let Some(result) = response.get("result") {
-                Ok(Some(json_rpc_success(id, result.clone())))
+                // Rewrite returned content URIs back to the namespaced form so
+                // clients see the same URI they requested.
+                let mut result = result.clone();
+                if let Some(contents) = result.get_mut("contents").and_then(|c| c.as_array_mut()) {
+                    for content in contents {
+                        if let Some(c_uri) = content.get_mut("uri") {
+                            if let Some(s) = c_uri.as_str() {
+                                if let Some(namespaced) = to_namespaced_resource_uri(slug, s) {
+                                    *c_uri = json!(namespaced);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Some(json_rpc_success(id, result)))
             } else if let Some(error) = response.get("error") {
                 Ok(Some(json!({
                     "jsonrpc": "2.0",

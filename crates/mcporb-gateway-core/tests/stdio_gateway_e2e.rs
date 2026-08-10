@@ -309,3 +309,61 @@ fn stdio_gateway_resources_list() {
     child.kill().unwrap();
     child.wait().unwrap();
 }
+
+#[test]
+fn stdio_gateway_resource_read_rewrites_namespaced_uri() {
+    let (_dir, registry_dir) = setup_registry();
+    let mut child = spawn_gateway(&registry_dir);
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+
+    // Initialise first (required before resources/read per MCP)
+    let init = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "e2e-test", "version": "1.0" }
+        }
+    });
+    send_and_recv(&mut stdin, &mut stdout, &init);
+
+    let notif = serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
+    let notif_str = serde_json::to_string(&notif).unwrap();
+    writeln!(stdin, "{notif_str}").unwrap();
+    stdin.flush().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Namespaced URI must be rewritten to orb-native (`orb://documents/42`)
+    // before forwarding, and the echoed content URI must come back namespaced.
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "resources/read",
+        "params": { "uri": "orb://mock-orb/documents/42" }
+    });
+    let resp = send_and_recv(&mut stdin, &mut stdout, &request);
+    assert!(resp.get("result").is_some(), "expected result, got: {resp}");
+    let contents = resp["result"]["contents"].as_array().unwrap();
+    assert_eq!(contents[0]["uri"], "orb://mock-orb/documents/42");
+    assert_eq!(contents[0]["text"], "Mock document 42");
+
+    // The informational directory URI advertised by resources/list is not
+    // readable and must fail with a clear error instead of reaching the orb.
+    let dir_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "resources/read",
+        "params": { "uri": "orb://mock-orb/" }
+    });
+    let resp = send_and_recv(&mut stdin, &mut stdout, &dir_request);
+    assert!(
+        resp.get("error").is_some(),
+        "expected error for directory URI, got: {resp}"
+    );
+
+    child.kill().unwrap();
+    child.wait().unwrap();
+}

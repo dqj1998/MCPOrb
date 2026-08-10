@@ -31,6 +31,29 @@ pub fn parse_tool_name(name: &str) -> Option<(&str, &str)> {
     Some((slug, method))
 }
 
+/// Split a namespaced resource URI into its orb slug and the path remainder.
+///
+/// Format: `orb://{slug}/documents/{id}` → `("my-orb", "/documents/0")`
+///
+/// Returns `None` for malformed URIs.
+///
+/// # Examples
+///
+/// ```
+/// use mcporb_gateway_core::router::split_namespaced_resource_uri;
+/// assert_eq!(split_namespaced_resource_uri("orb://my-orb/documents/0"), Some(("my-orb", "/documents/0")));
+/// assert_eq!(split_namespaced_resource_uri("orb:///documents/0"), None);
+/// ```
+pub fn split_namespaced_resource_uri(uri: &str) -> Option<(&str, &str)> {
+    let rest = uri.strip_prefix(RESOURCE_SCHEME)?;
+    let slug_end = rest.find('/')?;
+    let slug = &rest[..slug_end];
+    if slug.is_empty() {
+        return None;
+    }
+    Some((slug, &rest[slug_end..]))
+}
+
 /// Extract the orb slug from a namespaced resource URI.
 ///
 /// Format: `orb://{slug}/documents/{id}`
@@ -45,13 +68,44 @@ pub fn parse_tool_name(name: &str) -> Option<(&str, &str)> {
 /// assert_eq!(extract_slug_from_resource_uri("orb:///documents/0"), None);
 /// ```
 pub fn extract_slug_from_resource_uri(uri: &str) -> Option<&str> {
+    split_namespaced_resource_uri(uri).map(|(slug, _)| slug)
+}
+
+/// Rewrite a namespaced resource URI into the orb-native form the child
+/// runtime understands: `orb://{slug}/documents/{id}` → `orb://documents/{id}`.
+///
+/// Returns `None` for malformed URIs.
+///
+/// # Examples
+///
+/// ```
+/// use mcporb_gateway_core::router::to_native_resource_uri;
+/// assert_eq!(to_native_resource_uri("orb://my-orb/documents/0"), Some("orb://documents/0".to_string()));
+/// assert_eq!(to_native_resource_uri("my-orb/documents/0"), None);
+/// ```
+pub fn to_native_resource_uri(uri: &str) -> Option<String> {
+    let (_, remainder) = split_namespaced_resource_uri(uri)?;
+    Some(format!("{RESOURCE_SCHEME}{}", remainder.trim_start_matches('/')))
+}
+
+/// Prefix an orb-native resource URI (`orb://documents/{id}`) with the slug,
+/// producing the namespaced form advertised by `resources/list`.
+///
+/// Returns `None` for malformed URIs.
+///
+/// # Examples
+///
+/// ```
+/// use mcporb_gateway_core::router::to_namespaced_resource_uri;
+/// assert_eq!(to_namespaced_resource_uri("my-orb", "orb://documents/0"), Some("orb://my-orb/documents/0".to_string()));
+/// assert_eq!(to_namespaced_resource_uri("my-orb", "not-an-orb-uri"), None);
+/// ```
+pub fn to_namespaced_resource_uri(slug: &str, uri: &str) -> Option<String> {
     let rest = uri.strip_prefix(RESOURCE_SCHEME)?;
-    let slug_end = rest.find('/')?;
-    let slug = &rest[..slug_end];
-    if slug.is_empty() {
+    if rest.is_empty() {
         return None;
     }
-    Some(slug)
+    Some(format!("{RESOURCE_SCHEME}{slug}/{rest}"))
 }
 
 /// Build a namespaced tool name from slug and method.
@@ -162,5 +216,61 @@ mod tests {
         let uri = build_namespaced_resource_uri("test-orb", 7);
         assert_eq!(uri, "orb://test-orb/documents/7");
         assert_eq!(extract_slug_from_resource_uri(&uri), Some("test-orb"));
+    }
+
+    #[test]
+    fn split_namespaced_resource_uri_returns_slug_and_remainder() {
+        assert_eq!(
+            split_namespaced_resource_uri("orb://my-orb/documents/0"),
+            Some(("my-orb", "/documents/0"))
+        );
+    }
+
+    #[test]
+    fn split_namespaced_resource_uri_empty_slug() {
+        assert_eq!(split_namespaced_resource_uri("orb:///documents/0"), None);
+    }
+
+    #[test]
+    fn split_namespaced_resource_uri_directory() {
+        assert_eq!(
+            split_namespaced_resource_uri("orb://my-orb/"),
+            Some(("my-orb", "/"))
+        );
+    }
+
+    #[test]
+    fn to_native_resource_uri_strips_slug() {
+        assert_eq!(
+            to_native_resource_uri("orb://my-orb/documents/0"),
+            Some("orb://documents/0".to_string())
+        );
+    }
+
+    #[test]
+    fn to_native_resource_uri_rejects_unprefixed() {
+        assert_eq!(to_native_resource_uri("my-orb/documents/0"), None);
+    }
+
+    #[test]
+    fn to_namespaced_resource_uri_prefixes_slug() {
+        assert_eq!(
+            to_namespaced_resource_uri("my-orb", "orb://documents/0"),
+            Some("orb://my-orb/documents/0".to_string())
+        );
+    }
+
+    #[test]
+    fn to_namespaced_resource_uri_rejects_unprefixed() {
+        assert_eq!(to_namespaced_resource_uri("my-orb", "not-an-orb-uri"), None);
+    }
+
+    #[test]
+    fn resource_uri_rewrite_roundtrip() {
+        let namespaced = "orb://test-orb/documents/7";
+        let native = to_native_resource_uri(namespaced).unwrap();
+        assert_eq!(native, "orb://documents/7");
+        let back = to_namespaced_resource_uri("test-orb", &native).unwrap();
+        assert_eq!(back, namespaced);
     }
 }

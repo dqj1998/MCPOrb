@@ -87,6 +87,39 @@ fn handle_resources_list(id: &serde_json::Value) -> serde_json::Value {
     })
 }
 
+// Mirrors the real orb runtime (crates/mcporb-runtime/src/mcp_handler.rs):
+// only `orb://documents/{id}` is accepted; the response echoes the native URI.
+fn handle_resources_read(
+    id: &serde_json::Value,
+    params: &serde_json::Value,
+) -> serde_json::Value {
+    let uri = params
+        .get("uri")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let doc_id: Option<u32> = uri
+        .strip_prefix("orb://documents/")
+        .and_then(|value| value.parse().ok());
+    match doc_id {
+        Some(doc_id) => serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "text/plain",
+                    "text": format!("Mock document {doc_id}")
+                }]
+            }
+        }),
+        None => serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32602, "message": "Invalid resource URI" }
+        }),
+    }
+}
+
 fn handle_request(request: &serde_json::Value) -> Option<serde_json::Value> {
     let id = request.get("id").cloned().unwrap_or(serde_json::Value::Null);
     let method = request
@@ -107,6 +140,7 @@ fn handle_request(request: &serde_json::Value) -> Option<serde_json::Value> {
         "tools/list" => handle_tools_list(&id),
         "tools/call" => handle_tools_call(&id, &params),
         "resources/list" => handle_resources_list(&id),
+        "resources/read" => handle_resources_read(&id, &params),
         _ => serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
