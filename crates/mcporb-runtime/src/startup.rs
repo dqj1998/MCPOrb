@@ -61,6 +61,12 @@ pub struct OrbArgs {
     /// stdio-only mode.
     #[arg(long)]
     pub mcp_transport: Option<String>,
+    /// Base64 security-scoped bookmark for the user-picked Orb library folder
+    /// (macOS App Sandbox). Passed down by the gateway so this child can
+    /// resolve the folder access it needs to read the Orb ZIP. Ignored on
+    /// non-macOS platforms.
+    #[arg(long, hide = true)]
+    pub library_bookmark: Option<String>,
 }
 
 pub struct StartupConfig {
@@ -74,6 +80,7 @@ pub struct StartupConfig {
     pub metrics_dir: Option<std::path::PathBuf>,
     pub bind_external: bool,
     pub mcp_transport: Option<String>,
+    pub library_bookmark: Option<String>,
 }
 
 pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
@@ -110,5 +117,6 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         metrics_dir: args.metrics_dir.clone(),
         bind_external: args.bind_external,
         mcp_transport: args.mcp_transport.clone(),
+        library_bookmark: args.library_bookmark.clone(),
     }
 }

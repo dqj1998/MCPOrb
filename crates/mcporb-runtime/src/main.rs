@@ -4,6 +4,8 @@ mod assets;
 mod embed_startup;
 mod device_unlock;
 mod encrypted_assets;
+#[cfg(target_os = "macos")]
+mod macos_access;
 mod mcp_handler;
 mod security;
 mod startup;
@@ -131,7 +133,16 @@ fn load_sidecar_orb_data(binary_path: &std::path::Path) -> anyhow::Result<Loaded
 }
 
 fn load_orb_zip_data(zip_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
-    let bundle_bytes = std::fs::read(zip_path)?;
+    let bundle_bytes = std::fs::read(zip_path).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to read Orb ZIP at {}: {} (this usually means the file is in a user folder outside the sandbox; either move it to {} or re-grant folder access via MCPOrb Runner Settings)",
+            zip_path.display(),
+            e,
+            dirs::data_dir()
+                .map(|p| p.join("MCPOrb/Runtime/Orbs").display().to_string())
+                .unwrap_or_else(|| "~/.mcporb-runtime/Orbs".to_string())
+        )
+    })?;
     let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
     load_orb_from_archive(&mut archive)
 }
@@ -628,6 +639,24 @@ async fn main() -> anyhow::Result<()> {
     let config = detect_startup(&args);
 
     tracing::info!(mode = ?config.mode, "MCPOrb Runner starting");
+
+    // macOS App Sandbox: when the gateway passes the user-picked library
+    // folder's security-scoped bookmark, resolve it here so the Orb ZIP (which
+    // lives outside the sandbox container) becomes readable by this process.
+    // The guard must stay alive for the whole process lifetime.
+    #[cfg(target_os = "macos")]
+    let _library_guard = config.library_bookmark.as_deref().and_then(|bookmark| {
+        match macos_access::resolve_bookmark(bookmark) {
+            Ok((path, guard)) => {
+                tracing::info!(path = %path.display(), "resolved Orb library bookmark");
+                Some(guard)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to resolve Orb library bookmark");
+                None
+            }
+        }
+    });
 
     let loaded = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
