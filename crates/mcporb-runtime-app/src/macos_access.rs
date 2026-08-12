@@ -6,14 +6,12 @@
 // dependency is required. This module is only compiled on macOS (the `mod`
 // declaration in main.rs is gated with #[cfg(target_os = "macos")]).
 
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_void, CStr};
 use std::os::raw::c_char;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use base64::Engine;
 
-const K_CFURL_POSIX_PATH_STYLE: u32 = 0;
-const K_CFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
 const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
 
@@ -27,16 +25,9 @@ type CFDataRef = *const __CFData;
 type CFAllocatorRef = *const c_void;
 type CFIndex = isize;
 type Boolean = u8;
-type CFStringRef = *const c_void;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
-    fn CFURLCreateWithFileSystemPath(
-        allocator: CFAllocatorRef,
-        file_path: CFStringRef,
-        path_style: u32,
-        is_directory: Boolean,
-    ) -> CFURLRef;
     fn CFURLGetFileSystemRepresentation(
         url: CFURLRef,
         resolve_against_base: Boolean,
@@ -62,11 +53,6 @@ extern "C" {
     ) -> CFURLRef;
     fn CFURLStartAccessingSecurityScopedResource(url: CFURLRef) -> Boolean;
     fn CFURLStopAccessingSecurityScopedResource(url: CFURLRef);
-    fn CFStringCreateWithCString(
-        allocator: CFAllocatorRef,
-        c_str: *const c_char,
-        encoding: u32,
-    ) -> CFStringRef;
     fn CFDataCreate(allocator: CFAllocatorRef, bytes: *const u8, length: CFIndex) -> CFDataRef;
     fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
     fn CFDataGetLength(data: CFDataRef) -> CFIndex;
@@ -94,31 +80,37 @@ impl Drop for AccessGuard {
     }
 }
 
-/// Creates a security-scoped bookmark for `path` (the app must currently hold
-/// access to it, e.g. from a folder-open dialog) and returns it base64-encoded
-/// for persistence.
-pub fn create_bookmark(path: &Path) -> Result<String, String> {
-    unsafe {
-        let url = url_from_path(path)?;
-        let bookmark = CFURLCreateBookmarkData(
-            std::ptr::null(),
-            url,
-            K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE,
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null_mut(),
-        );
-        CFRelease(url.cast());
-        if bookmark.is_null() {
-            return Err("CFURLCreateBookmarkData returned null".to_string());
-        }
-        let len = CFDataGetLength(bookmark) as usize;
-        let ptr = CFDataGetBytePtr(bookmark);
-        let bytes = std::slice::from_raw_parts(ptr, len);
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        CFRelease(bookmark.cast());
-        Ok(encoded)
+/// Creates a security-scoped bookmark from an existing CFURL and returns it
+/// base64-encoded for persistence.
+///
+/// The URL MUST carry an attached security-scoped extension — i.e. the
+/// toll-free-bridged `NSURL` returned by `NSOpenPanel`. A URL rebuilt from a
+/// plain path string (the old `create_bookmark(&Path)` approach) has no
+/// attached extension, so the resulting bookmark contains no usable security
+/// scope: resolving it later succeeds but `CFURLStartAccessingSecurityScopedResource`
+/// returns false ("startAccessingSecurityScopedResource failed").
+///
+/// # Safety
+///
+/// `url` must be a valid CFURLRef (or toll-free-bridged NSURL pointer).
+pub unsafe fn create_bookmark_from_url(url: *const c_void) -> Result<String, String> {
+    let bookmark = CFURLCreateBookmarkData(
+        std::ptr::null(),
+        url as CFURLRef,
+        K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE,
+        std::ptr::null(),
+        std::ptr::null(),
+        std::ptr::null_mut(),
+    );
+    if bookmark.is_null() {
+        return Err("CFURLCreateBookmarkData returned null".to_string());
     }
+    let len = CFDataGetLength(bookmark) as usize;
+    let ptr = CFDataGetBytePtr(bookmark);
+    let bytes = std::slice::from_raw_parts(ptr, len);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    CFRelease(bookmark.cast());
+    Ok(encoded)
 }
 
 /// Resolves a persisted base64 bookmark back to a folder path and starts
@@ -159,27 +151,6 @@ pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String>
         }
         Ok((path, AccessGuard { url }))
     }
-}
-
-unsafe fn url_from_path(path: &Path) -> Result<CFURLRef, String> {
-    let c_path = CString::new(path.to_string_lossy().as_bytes())
-        .map_err(|_| "path contains a NUL byte".to_string())?;
-    let cf_string =
-        CFStringCreateWithCString(std::ptr::null(), c_path.as_ptr(), K_CFSTRING_ENCODING_UTF8);
-    if cf_string.is_null() {
-        return Err("CFStringCreateWithCString failed".to_string());
-    }
-    let url = CFURLCreateWithFileSystemPath(
-        std::ptr::null(),
-        cf_string,
-        K_CFURL_POSIX_PATH_STYLE,
-        1,
-    );
-    CFRelease(cf_string.cast());
-    if url.is_null() {
-        return Err("CFURLCreateWithFileSystemPath failed".to_string());
-    }
-    Ok(url)
 }
 
 unsafe fn path_from_url(url: CFURLRef) -> Result<PathBuf, String> {

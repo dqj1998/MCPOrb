@@ -181,6 +181,7 @@ const locales = {
     'settings.orb_library_hint': 'Imported Orb ZIPs are stored in this folder so the files stay accessible to you. For example: ~/Documents/MCPOrb',
     'settings.orb_library_choose_error': 'Could not set the Orb library folder:',
     'settings.orb_library_changed': 'Orb library folder updated.',
+    'settings.orb_library_bookmark_stale': 'Orb library folder access has expired (e.g. after an app update). Please click Choose… to re-select the folder.',
     'librarychange.title': 'Change Orb Library Folder?',
     'librarychange.message': '{count} previously imported Orb(s) are stored outside the new library folder. What should happen to them?',
     'librarychange.migrate_btn': 'Migrate Orbs',
@@ -391,6 +392,7 @@ const locales = {
     'settings.orb_library_hint': 'インポートしたOrb ZIPはこのフォルダに保存され、ファイルにアクセスできる状態が維持されます。例: ~/Documents/MCPOrb',
     'settings.orb_library_choose_error': 'Orbライブラリフォルダを設定できませんでした:',
     'settings.orb_library_changed': 'Orbライブラリフォルダを更新しました。',
+    'settings.orb_library_bookmark_stale': 'Orbライブラリフォルダへのアクセスが無効になりました（例：アプリ更新後）。「選択…」をクリックしてフォルダを再選択してください。',
     'librarychange.title': 'Orbライブラリフォルダを変更しますか？',
     'librarychange.message': '新しいライブラリフォルダの外に、以前インポートした {count} 個のOrbがあります。どうしますか？',
     'librarychange.migrate_btn': 'Orbを移行',
@@ -601,6 +603,7 @@ const locales = {
     'settings.orb_library_hint': '导入的 Orb ZIP 将存储在此文件夹中,文件保持对你可见。例如:~/Documents/MCPOrb',
     'settings.orb_library_choose_error': '无法设置 Orb 库文件夹:',
     'settings.orb_library_changed': 'Orb 库文件夹已更新。',
+    'settings.orb_library_bookmark_stale': 'Orb 库文件夹访问已失效（例如应用更新后）。请点击"选择…"重新选择文件夹。',
     'librarychange.title': '更改 Orb 库文件夹？',
     'librarychange.message': '新库文件夹之外有 {count} 个之前导入的 Orb。如何处理它们？',
     'librarychange.migrate_btn': '迁移 Orb',
@@ -1638,6 +1641,17 @@ async function loadSettings() {
     // Show first-launch onboarding on macOS when user hasn't set a folder yet.
     if (state.platform === 'macos' && !settings.onboarding_complete && !settings.orb_library_dir) {
       showOnboardingModal();
+    }
+    // Warn if the saved bookmark is stale (e.g. after a TestFlight reinstall).
+    if (state.platform === 'macos' && settings.orb_library_dir) {
+      try {
+        const health = await invoke('get_library_health');
+        const statusEl = $('settings-status');
+        if (health.bookmark_stale && statusEl) {
+          statusEl.textContent = t('settings.orb_library_bookmark_stale');
+          statusEl.classList.add('error');
+        }
+      } catch (_) {}
     }
     captureSettingsSnapshot();
     updateUnsavedHint();

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use mcporb_runtime_app_core::{
@@ -21,6 +22,8 @@ const ORB_UNLOCK_PASSWORD_ENV: &str = "MCPORB_UNLOCK_PASSWORD";
 
 #[cfg(target_os = "macos")]
 mod macos_access;
+#[cfg(target_os = "macos")]
+mod macos_panel;
 
 #[derive(Clone)]
 struct AppState {
@@ -36,6 +39,10 @@ struct AppState {
     /// swapped for the new folder's guard after a migration.
     #[cfg(target_os = "macos")]
     library_access: Arc<Mutex<Option<macos_access::AccessGuard>>>,
+    /// Set when the stored Orb library bookmark is stale (e.g. after a
+    /// TestFlight reinstall). The UI checks this to prompt re-selection.
+    #[cfg(target_os = "macos")]
+    library_bookmark_stale: Arc<AtomicBool>,
 }
 
 /// Folder picked in the dialog plus its security-scoped bookmark, held until
@@ -102,6 +109,29 @@ struct RuntimeStatus {
 #[tauri::command]
 fn get_platform() -> &'static str {
     std::env::consts::OS
+}
+
+#[derive(Debug, Serialize)]
+struct LibraryHealth {
+    /// true when the saved Orb library bookmark is stale or inaccessible,
+    /// meaning the user must re-select the folder via Settings → Choose…
+    bookmark_stale: bool,
+}
+
+/// Returns macOS Orb library bookmark health. Called by the Settings UI on
+/// load so it can show a re-select warning after e.g. a TestFlight reinstall.
+#[tauri::command]
+#[cfg(target_os = "macos")]
+fn get_library_health(state: tauri::State<AppState>) -> LibraryHealth {
+    LibraryHealth {
+        bookmark_stale: state.library_bookmark_stale.load(Ordering::Relaxed),
+    }
+}
+
+#[tauri::command]
+#[cfg(not(target_os = "macos"))]
+fn get_library_health(_state: tauri::State<AppState>) -> LibraryHealth {
+    LibraryHealth { bookmark_stale: false }
 }
 
 #[tauri::command]
@@ -329,19 +359,19 @@ async fn pick_orb_library_impl(
     state: tauri::State<'_, AppState>,
     suggested: Option<PathBuf>,
 ) -> Result<OrbLibraryPick, String> {
-    use tauri_plugin_dialog::DialogExt;
-
+    // Run NSOpenPanel directly instead of going through the dialog plugin:
+    // the plugin (via rfd) strips the panel result down to a PathBuf, losing
+    // the security-scoped NSURL that the bookmark must be created from.
     let (tx, rx) = tokio::sync::oneshot::channel();
-    let mut dialog = app.dialog().file();
-    if let Some(dir) = suggested {
-        dialog = dialog.set_directory(dir);
-    }
-    dialog.pick_folder(move |file_path| {
-        let _ = tx.send(file_path.and_then(|p| p.into_path().ok()));
-    });
+    app.run_on_main_thread(move || {
+        // Safety: run_on_main_thread dispatches to the main thread.
+        let result = unsafe { macos_panel::pick_library_folder(suggested) };
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Could not show folder picker: {e}"))?;
     let picked = rx
         .await
-        .map_err(|_| "Folder dialog closed unexpectedly.".to_string())?;
+        .map_err(|_| "Folder dialog closed unexpectedly.".to_string())??;
     let Some(picked) = picked else {
         return Ok(OrbLibraryPick {
             path: String::new(),
@@ -349,9 +379,6 @@ async fn pick_orb_library_impl(
             orb_count: 0,
         });
     };
-
-    let bookmark = macos_access::create_bookmark(&picked)
-        .map_err(|e| format!("Could not create security-scoped bookmark: {e}"))?;
 
     let store = state.settings.lock().await;
     let mut settings = store.load().map_err(to_string)?;
@@ -361,15 +388,15 @@ async fn pick_orb_library_impl(
     // (imported before any library folder was configured). Keep the pick
     // pending so the frontend can ask the user to migrate or delete them.
     let same_dir = match settings.orb_library_dir.as_deref() {
-        Some(old) => old == picked
+        Some(old) => old == picked.path
             || matches!(
-                (std::fs::canonicalize(old), std::fs::canonicalize(&picked)),
+                (std::fs::canonicalize(old), std::fs::canonicalize(&picked.path)),
                 (Ok(a), Ok(b)) if a == b
             ),
         None => false,
     };
     if !same_dir {
-        let new_orbs_dir = picked.join("Orbs");
+        let new_orbs_dir = picked.path.join("Orbs");
         let mut old_orbs_dirs: Vec<PathBuf> = Vec::new();
         if let Some(old) = settings.orb_library_dir.as_deref() {
             old_orbs_dirs.push(old.join("Orbs"));
@@ -390,24 +417,30 @@ async fn pick_orb_library_impl(
             .count();
         if count > 0 {
             state.pending_library_pick.lock().await.replace(PendingLibraryPick {
-                path: picked.clone(),
-                bookmark,
+                path: picked.path.clone(),
+                bookmark: picked.bookmark,
             });
             return Ok(OrbLibraryPick {
-                path: picked.to_string_lossy().into_owned(),
+                path: picked.path.to_string_lossy().into_owned(),
                 pending: true,
                 orb_count: count,
             });
         }
     }
 
-    settings.orb_library_dir = Some(picked.clone());
-    settings.orb_library_bookmark = Some(bookmark);
+    settings.orb_library_dir = Some(picked.path.clone());
+    settings.orb_library_bookmark = Some(picked.bookmark);
     settings.onboarding_complete = true;
     store.save(&settings).map_err(to_string)?;
 
+    // Same-session consistency, mirroring apply_orb_library_change: repoint
+    // imports at the new folder and keep it sandbox-accessible now.
+    state.registry.set_orbs_dir(picked.path.join("Orbs"));
+    state.library_access.lock().await.replace(picked.guard);
+    state.library_bookmark_stale.store(false, Ordering::Relaxed);
+
     Ok(OrbLibraryPick {
-        path: picked.to_string_lossy().into_owned(),
+        path: picked.path.to_string_lossy().into_owned(),
         pending: false,
         orb_count: 0,
     })
@@ -480,9 +513,21 @@ async fn apply_orb_library_change(
     let mut old_orbs_dirs: Vec<PathBuf> = Vec::new();
     let mut _old_guard: Option<macos_access::AccessGuard> = None;
     if let Some(old_bookmark) = settings.orb_library_bookmark.as_deref() {
-        let (old_path, guard) = macos_access::resolve_bookmark(old_bookmark).map_err(to_string)?;
-        old_orbs_dirs.push(old_path.join("Orbs"));
-        _old_guard = Some(guard);
+        match macos_access::resolve_bookmark(old_bookmark) {
+            Ok((old_path, guard)) => {
+                old_orbs_dirs.push(old_path.join("Orbs"));
+                _old_guard = Some(guard);
+            }
+            Err(error) => {
+                // Bookmarks saved before the panel-URL fix carry no security
+                // scope and cannot be resolved; keep going so the change can
+                // still be applied for the legacy-dir orbs.
+                tracing::warn!(
+                    %error,
+                    "failed to resolve old Orb library bookmark; skipping old library folder"
+                );
+            }
+        }
     }
     let legacy_orbs_dir = default_registry_root().join("Orbs");
     if legacy_orbs_dir != new_orbs_dir && !old_orbs_dirs.contains(&legacy_orbs_dir) {
@@ -512,6 +557,7 @@ async fn apply_orb_library_change(
     // accessible under the sandbox for the rest of this session.
     state.registry.set_orbs_dir(new_orbs_dir);
     state.library_access.lock().await.replace(new_guard);
+    state.library_bookmark_stale.store(false, Ordering::Relaxed);
 
     Ok(OrbLibraryPick {
         path: pending.path.to_string_lossy().into_owned(),
@@ -1264,7 +1310,7 @@ fn default_registry_root() -> PathBuf {
 #[cfg(target_os = "macos")]
 fn resolve_macos_registry(
     settings: &RuntimeSettings,
-) -> (Option<macos_access::AccessGuard>, RegistryStore) {
+) -> (Option<macos_access::AccessGuard>, RegistryStore, bool) {
     let fallback = || RegistryStore::new(default_registry_root());
     match (&settings.orb_library_dir, &settings.orb_library_bookmark) {
         (Some(_), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
@@ -1273,6 +1319,7 @@ fn resolve_macos_registry(
                 (
                     Some(guard),
                     RegistryStore::with_orbs_dir(default_registry_root(), path.join("Orbs")),
+                    false,
                 )
             }
             Err(error) => {
@@ -1280,10 +1327,10 @@ fn resolve_macos_registry(
                     %error,
                     "failed to resolve Orb library bookmark; falling back to app data folder"
                 );
-                (None, fallback())
+                (None, fallback(), true)
             }
         },
-        _ => (None, fallback()),
+        _ => (None, fallback(), false),
     }
 }
 
@@ -1298,8 +1345,27 @@ fn main() {
     // macOS: restore security-scoped access to the user-chosen Orb library
     // folder before anything else — the MCP STDIO proxy child needs it too.
     #[cfg(target_os = "macos")]
-    let (library_access, registry) =
-        resolve_macos_registry(&settings_store.load().unwrap_or_default());
+    let (library_access, registry, bookmark_stale) = {
+        let settings = settings_store.load().unwrap_or_default();
+        let (access, reg, is_stale) = resolve_macos_registry(&settings);
+        
+        // If bookmark is stale (e.g. after TestFlight reinstall), clear BOTH
+        // orb_library_dir and orb_library_bookmark from settings. This prevents
+        // gateway/runtime from attempting to access an inaccessible sandboxed
+        // folder. User must re-select in Settings to restore access.
+        if is_stale {
+            let mut new_settings = settings;
+            new_settings.orb_library_dir = None;
+            new_settings.orb_library_bookmark = None;
+            if settings_store.save(&new_settings).is_err() {
+                tracing::warn!("failed to save settings after clearing stale bookmark");
+            } else {
+                tracing::info!("cleared stale Orb library bookmark and path from settings; reverting to app data folder");
+            }
+        }
+        
+        (access, reg, is_stale)
+    };
     #[cfg(not(target_os = "macos"))]
     let registry = RegistryStore::new(default_registry_root());
 
@@ -1321,6 +1387,8 @@ fn main() {
         pending_library_pick: Arc::new(Mutex::new(None)),
         #[cfg(target_os = "macos")]
         library_access: Arc::new(Mutex::new(library_access)),
+        #[cfg(target_os = "macos")]
+        library_bookmark_stale: Arc::new(AtomicBool::new(bookmark_stale)),
     };
 
     tauri::Builder::default()
@@ -1371,6 +1439,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             get_platform,
+            get_library_health,
             choose_orb_library_dir,
             list_orbs,
             inspect_zip,
@@ -1946,6 +2015,8 @@ mod tests {
                 pending_library_pick: Arc::new(Mutex::new(None)),
                 #[cfg(target_os = "macos")]
                 library_access: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_bookmark_stale: Arc::new(AtomicBool::new(false)),
                 running_orbs: Arc::new(Mutex::new(vec![RunningOrb {
                     orb_id: "orb-1".to_string(),
                     slug: "orb-1".to_string(),

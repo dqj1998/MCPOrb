@@ -1,6 +1,6 @@
 [package]
 name = "mcporb-runtime-app"
-version = "1.2.12"
+version = "1.2.19"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCPOrb Runner — install, search, and run Orb ZIP knowledge bases"
@@ -35,6 +35,11 @@ sha2 = { workspace = true }
 base64 = { workspace = true }
 dirs = "5"
 local-ip-address = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
 
 [dev-dependencies]
 tempfile = { workspace = true }
