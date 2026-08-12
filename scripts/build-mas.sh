@@ -75,17 +75,18 @@ assert_no_application_identifier() {
   fi
 }
 
-# team-identifier alone is sufficient for secinit to build the sandbox profile
-# (verified empirically: sandbox + team-identifier, no app id → process passes
-# secinit; the old crash only occurred when BOTH were absent).
-assert_team_identifier() {
+# Nested executables carry sandbox (Transporter 409) + inherit (secinit on
+# macOS 26.6+ traps in _libsecinit_appsandbox without application-identifier;
+# com.apple.security.inherit makes secinit adopt the parent's sandbox instead
+# of building a new container — verified empirically 2026-08-10).
+assert_inherit() {
   local bin="$1"
   local ent
   ent="$(codesign -d --entitlements :- "$bin" 2>&1 || true)"
 
-  if ! printf '%s' "$ent" | tr -d '\n' | grep -q '<key>com.apple.developer.team-identifier</key>'; then
+  if ! printf '%s' "$ent" | tr -d '\n' | grep -q '<key>com.apple.security.inherit</key>[[:space:]]*<true/>'; then
     echo "$ent" >&2
-    die "team-identifier entitlement missing on $bin (sandboxed processes crash in secinit without it)"
+    die "com.apple.security.inherit missing on nested executable $bin"
   fi
 }
 
@@ -192,28 +193,40 @@ cp "$BASE_ENTITLEMENTS" "$APP_SIGN_ENTITLEMENTS"
 /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $APP_IDENTIFIER" "$APP_SIGN_ENTITLEMENTS"
 /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_IDENTIFIER" "$APP_SIGN_ENTITLEMENTS"
 
-# Nested executables (runtime + gateway) get sandbox + team-identifier ONLY.
-# application-identifier is intentionally omitted: TestFlight rejects nested
-# executables whose signature carries an app id without an embedded
-# provisioning profile (ITMS-90885), and codesign on this machine cannot embed
-# profiles. The runner/bundle keep the app id, validated via the bundle-level
-# Contents/embedded.provisionprofile.
+# Nested executables (runtime + gateways) get sandbox + inherit, NO app id:
+#   - sandbox=true satisfies Transporter (it rejects "App sandbox not enabled"
+#     with a 409 for any bundled executable lacking the entitlement).
+#   - com.apple.security.inherit tells secinit to adopt the runner's sandbox
+#     instead of constructing a new container. This is what makes the sandbox
+#     entitlement survivable WITHOUT application-identifier on macOS 26.6+:
+#     sandbox without inherit traps in secinit (_libsecinit_appsandbox,
+#     SIGTRAP) before main() — verified empirically 2026-08-10.
+#   - NO application-identifier → no ITMS-90885: TestFlight requires an
+#     embedded provisioning profile for any executable claiming an app id, and
+#     a bare Mach-O has no place to embed one (TN3125).
+#   - files/network/bookmarks entitlements are dropped: under inherit they are
+#     ignored (the parent's sandbox applies), and their absence was already
+#     proven functional — nested binaries exec'd by the sandboxed runner.
 cp "$BASE_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"
+/usr/libexec/PlistBuddy -c "Delete :com.apple.security.files.user-selected.read-only" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :com.apple.security.files.user-selected.read-write" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :com.apple.security.files.bookmarks.app-scope" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :com.apple.security.network.client" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :com.apple.security.network.server" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string $TEAM_IDENTIFIER" "$NESTED_SIGN_ENTITLEMENTS"
+/usr/libexec/PlistBuddy -c "Add :com.apple.security.inherit bool true" "$NESTED_SIGN_ENTITLEMENTS"
 
 log "using provisioning app id: $APP_IDENTIFIER"
 log "using provisioning team id: $TEAM_IDENTIFIER"
 
-# MAS requirement: every executable in the app bundle must be sandboxed.
-# The runner and the bundle itself carry application-identifier (matching the
-# embedded.provisionprofile). Nested executables (runtime, gateway) are signed
-# WITHOUT application-identifier — TestFlight rejects any nested executable
-# whose signature carries an app id without an embedded provisioning profile
-# (ITMS-90885), and codesign here cannot embed profiles. team-identifier alone
-# prevents the secinit SIGTRAP crash (verified empirically).
-log "signing mcporb-runtime (sandbox, no app id)..."
+# MAS requirement: every executable in the app bundle must be sandboxed — the
+# runner and the bundle itself carry application-identifier (matching the
+# embedded.provisionprofile). Nested executables (runtime, gateways) carry
+# sandbox + inherit: sandbox satisfies Transporter, inherit satisfies secinit
+# without an app id (ITMS-90885 forbids an app id on a bare Mach-O, which has
+# no place to embed the provisioning profile — TN3125).
+log "signing mcporb-runtime (sandbox + inherit; adopts runner sandbox)..."
 codesign --force --sign "$APP_IDENTITY" \
   --identifier "com.mcporb.runner.runtime" \
   --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
@@ -221,12 +234,10 @@ codesign --force --sign "$APP_IDENTITY" \
   --timestamp \
   "$RUNTIME_BIN"
 assert_sandbox_enabled "$RUNTIME_BIN"
-assert_team_identifier "$RUNTIME_BIN"
+assert_inherit "$RUNTIME_BIN"
 assert_no_application_identifier "$RUNTIME_BIN"
 
-# Sign mcporb-gateway-stdio (Tauri externalBin) with sandbox too — Transporter
-# rejects the package if ANY bundled executable lacks the sandbox entitlement.
-log "signing mcporb-gateway-stdio (sandbox, no app id)..."
+log "signing mcporb-gateway-stdio (sandbox + inherit; adopts runner sandbox)..."
 codesign --force --sign "$APP_IDENTITY" \
   --identifier "com.mcporb.runner.gateway.stdio" \
   --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
@@ -234,14 +245,12 @@ codesign --force --sign "$APP_IDENTITY" \
   --timestamp \
   "$GATEWAY_BIN"
 assert_sandbox_enabled "$GATEWAY_BIN"
-assert_team_identifier "$GATEWAY_BIN"
+assert_inherit "$GATEWAY_BIN"
 assert_no_application_identifier "$GATEWAY_BIN"
 
-# Sign mcporb-gateway-http (also a Tauri externalBin since 1.2.12) with the
-# same sandbox-only profile — Transporter rejects ANY bundled executable
-# without the sandbox entitlement.
+# mcporb-gateway-http is also a Tauri externalBin since 1.2.12 — same treatment.
 if [[ -f "$GATEWAY_HTTP_BIN" ]]; then
-  log "signing mcporb-gateway-http (sandbox, no app id)..."
+  log "signing mcporb-gateway-http (sandbox + inherit; adopts runner sandbox)..."
   codesign --force --sign "$APP_IDENTITY" \
     --identifier "com.mcporb.runner.gateway.http" \
     --entitlements "$NESTED_SIGN_ENTITLEMENTS" \
@@ -249,13 +258,15 @@ if [[ -f "$GATEWAY_HTTP_BIN" ]]; then
     --timestamp \
     "$GATEWAY_HTTP_BIN"
   assert_sandbox_enabled "$GATEWAY_HTTP_BIN"
-  assert_team_identifier "$GATEWAY_HTTP_BIN"
+  assert_inherit "$GATEWAY_HTTP_BIN"
   assert_no_application_identifier "$GATEWAY_HTTP_BIN"
 else
   log "mcporb-gateway-http not bundled; skipping"
 fi
 
-# Sign mcporb-runner WITH sandbox entitlements (the Tauri GUI app)
+# Sign mcporb-runner WITH sandbox entitlements (the Tauri GUI app; it is the
+# only process that needs a sandbox container of its own — nested binaries
+# inherit its sandbox when exec'd).
 log "signing mcporb-runner (with sandbox)..."
 codesign --force --sign "$APP_IDENTITY" \
   --entitlements "$APP_SIGN_ENTITLEMENTS" \
