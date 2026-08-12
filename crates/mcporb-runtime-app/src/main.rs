@@ -664,6 +664,15 @@ async fn start_orb_http(
     if let Some(password) = password.filter(|value| !value.is_empty()) {
         cmd.env(ORB_UNLOCK_PASSWORD_ENV, OsString::from(password));
     }
+    // macOS sandbox: security-scoped bookmarks are not inherited by child
+    // processes; pass the bookmark explicitly so the runtime can resolve access
+    // to the user-picked library folder before reading the Orb ZIP.
+    #[cfg(target_os = "macos")]
+    if let Some(ref bookmark) = settings.orb_library_bookmark {
+        if !bookmark.is_empty() {
+            cmd.arg("--library-bookmark").arg(bookmark);
+        }
+    }
 
     let child = cmd.spawn().map_err(|e| format!("Failed to start Orb: {e}"))?;
     let pid = child.id().unwrap_or(0);
@@ -751,6 +760,12 @@ async fn batch_start_orbs(
 
         if let Some(password) = req.password.filter(|value| !value.is_empty()) {
             cmd.env(ORB_UNLOCK_PASSWORD_ENV, std::ffi::OsString::from(password));
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(ref bookmark) = settings.orb_library_bookmark {
+            if !bookmark.is_empty() {
+                cmd.arg("--library-bookmark").arg(bookmark);
+            }
         }
 
         match cmd.spawn() {
@@ -1373,7 +1388,14 @@ fn main() {
     // Intercept before any Tauri/WebKit init to keep stdio clean and avoid
     // the ~50 MB WebView overhead when launched by an MCP client.
     if std::env::args().any(|a| a == "--mcp-stdio") {
-        run_mcp_stdio_proxy(registry.root_dir());
+        // Re-read settings here (after potential stale-bookmark clear above) to
+        // get the current bookmark. None if stale/missing = no --library-bookmark.
+        let mcp_library_bookmark = settings_store
+            .load()
+            .ok()
+            .and_then(|s| s.orb_library_bookmark)
+            .filter(|b| !b.is_empty());
+        run_mcp_stdio_proxy(registry.root_dir(), mcp_library_bookmark);
     }
     if std::env::args().any(|a| a == "--gateway-stdio") {
         run_gateway_stdio_proxy(registry.root_dir());
@@ -1503,7 +1525,7 @@ fn proxy_exit(code: i32) -> ! {
 /// the runtime; mcporb-runner's AppKit atexit handlers never run.
 ///
 /// On Windows: spawn + wait (no AppKit concern on Windows).
-fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
+fn run_mcp_stdio_proxy(registry_root: &Path, library_bookmark: Option<String>) -> ! {
     let runtime_path = default_runtime_binary().unwrap_or_else(|| {
         eprintln!("mcporb-runner: mcporb-runtime binary not found");
         #[cfg(unix)]
@@ -1525,6 +1547,14 @@ fn run_mcp_stdio_proxy(registry_root: &Path) -> ! {
     if !runtime_args.iter().any(|a| a == "--metrics-dir") {
         runtime_args.push("--metrics-dir".to_string());
         runtime_args.push(metrics_dir.display().to_string());
+    }
+    // macOS sandbox: security-scoped bookmarks are not inherited across exec();
+    // inject the bookmark so the runtime can open the user-picked library folder.
+    if let Some(ref bookmark) = library_bookmark {
+        if !runtime_args.iter().any(|a| a == "--library-bookmark") {
+            runtime_args.push("--library-bookmark".to_string());
+            runtime_args.push(bookmark.clone());
+        }
     }
 
     #[cfg(unix)]
