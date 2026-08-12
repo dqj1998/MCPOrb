@@ -401,8 +401,20 @@ async fn spawn_orb_process(
     config: &crate::registry_reader::GatewayConfig,
 ) -> Result<OrbProcess> {
     let metrics_dir = config.registry_dir.join("metrics");
-    let mut child = tokio::process::Command::new(runtime_binary)
-        .arg("--orb-zip")
+
+    // macOS App Sandbox: the Orb ZIP may live in a user-picked library folder
+    // outside the sandbox container. The security-scoped bookmark for that
+    // folder (persisted in settings.json, which the gateway can read from the
+    // container) must be passed to the child so it can resolve the folder
+    // access itself — consumed extensions do not inherit across fork/exec.
+    let library_bookmark = mcporb_runtime_app_core::SettingsStore::new(config.registry_dir.clone())
+        .load()
+        .ok()
+        .and_then(|settings| settings.orb_library_bookmark)
+        .filter(|bookmark| !bookmark.is_empty());
+
+    let mut cmd = tokio::process::Command::new(runtime_binary);
+    cmd.arg("--orb-zip")
         .arg(&orb.zip_path)
         .arg("--stdio-only")
         .arg("--orb-id")
@@ -414,9 +426,11 @@ async fn spawn_orb_process(
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("failed to spawn mcporb-runtime process")?;
+        .kill_on_drop(true);
+    if let Some(bookmark) = &library_bookmark {
+        cmd.arg("--library-bookmark").arg(bookmark);
+    }
+    let mut child = cmd.spawn().context("failed to spawn mcporb-runtime process")?;
 
     let stdin = child
         .stdin
@@ -669,6 +683,74 @@ mod tests {
         assert!(
             msg.contains("ran with --orb-zip"),
             "expected arg echo in stderr tail, got: {msg}"
+        );
+
+        let _ = std::fs::remove_file(&script);
+    }
+
+    /// A security-scoped bookmark persisted in `<registry_dir>/settings.json`
+    /// (macOS user-picked Orb library) must be forwarded to the runtime child
+    /// as `--library-bookmark`, since consumed sandbox extensions do not
+    /// inherit across fork/exec.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_forwards_library_bookmark_from_settings() {
+        let script = std::env::temp_dir().join("mcporb-fake-runtime-bookmark.sh");
+        std::fs::write(&script, "#!/bin/sh\necho \"P2_MARKER: ran with $*\" >&2\nexit 0\n")
+            .expect("write fake runtime");
+        self::make_executable(&script);
+
+        let registry_dir = tempfile::tempdir().expect("tempdir");
+        let settings = mcporb_runtime_app_core::RuntimeSettings {
+            orb_library_bookmark: Some("c2VjcmV0LWJvb2ttYXJr".to_string()),
+            ..Default::default()
+        };
+        mcporb_runtime_app_core::SettingsStore::new(registry_dir.path().to_path_buf())
+            .save(&settings)
+            .expect("save settings");
+
+        let mut config = GatewayConfig::default();
+        config.runtime_binary = script.clone();
+        config.registry_dir = registry_dir.path().to_path_buf();
+        let orbs = vec![test_orb("orb-a")];
+        let manager = RuntimeManager::new(config, orbs);
+
+        let err = manager.forward_request("orb-a", "tools/call", serde_json::json!({})).await;
+        let err = err.expect_err("spawn of fake runtime should fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--library-bookmark c2VjcmV0LWJvb2ttYXJr"),
+            "expected bookmark arg in child args, got: {msg}"
+        );
+
+        let _ = std::fs::remove_file(&script);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_omits_bookmark_arg_when_settings_have_none() {
+        let script = std::env::temp_dir().join("mcporb-fake-runtime-nobookmark.sh");
+        std::fs::write(&script, "#!/bin/sh\necho \"P3_MARKER: ran with $*\" >&2\nexit 0\n")
+            .expect("write fake runtime");
+        self::make_executable(&script);
+
+        let registry_dir = tempfile::tempdir().expect("tempdir");
+        mcporb_runtime_app_core::SettingsStore::new(registry_dir.path().to_path_buf())
+            .save(&mcporb_runtime_app_core::RuntimeSettings::default())
+            .expect("save settings");
+
+        let mut config = GatewayConfig::default();
+        config.runtime_binary = script.clone();
+        config.registry_dir = registry_dir.path().to_path_buf();
+        let orbs = vec![test_orb("orb-a")];
+        let manager = RuntimeManager::new(config, orbs);
+
+        let err = manager.forward_request("orb-a", "tools/call", serde_json::json!({})).await;
+        let err = err.expect_err("spawn of fake runtime should fail");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("--library-bookmark"),
+            "did not expect bookmark arg, got: {msg}"
         );
 
         let _ = std::fs::remove_file(&script);
