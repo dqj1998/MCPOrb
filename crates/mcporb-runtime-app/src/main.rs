@@ -461,17 +461,29 @@ fn choose_orb_library_dir() -> Result<OrbLibraryPick, String> {
     Err("Orb library folder selection is only available on macOS.".to_string())
 }
 
-/// Opens the folder picker pre-navigated to ~/Documents/MCPOrb (the suggested
-/// default for the first-launch onboarding). On success marks onboarding done.
+/// Opens the folder picker pre-navigated to the previously stored Orb library
+/// folder when one exists (stale-bookmark recovery is then a one-click re-select
+/// of the same folder), falling back to ~/Documents/MCPOrb for first-run
+/// onboarding. On success marks onboarding done.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 async fn choose_orb_library_dir_suggested(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<OrbLibraryPick, String> {
-    let suggested = dirs::document_dir()
-        .map(|d| d.join("MCPOrb"))
-        .or_else(dirs::home_dir);
+    let suggested = state
+        .settings
+        .lock()
+        .await
+        .load()
+        .ok()
+        .and_then(|s| s.orb_library_dir)
+        .filter(|p| p.is_dir())
+        .or_else(|| {
+            dirs::document_dir()
+                .map(|d| d.join("MCPOrb"))
+                .or_else(dirs::home_dir)
+        });
     pick_orb_library_impl(&app, state, suggested).await
 }
 
