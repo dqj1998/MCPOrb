@@ -103,6 +103,8 @@ const locales = {
     'library.password_every_launch': 'Every launch',
     'library.password_remembered': 'Remembered',
     'library.restart_hint': 'If MCP clients (Claude, Cursor, etc.) are running, restart them to apply the updated Orb.',
+    'library.bookmark_stale_banner': 'Orb library folder access has expired (e.g. after an app update). Orbs are unavailable until you re-select the folder.',
+    'library.bookmark_stale_fix_btn': 'Re-select…',
     'library.stats_searches': 'Search: {n}',
     'library.stats_stdio': 'STDIO: {n}',
     'library.stats_http': 'HTTP: {n}',
@@ -318,6 +320,8 @@ const locales = {
     'library.password_every_launch': '起動のたびに',
     'library.password_remembered': '記憶済み',
     'library.restart_hint': 'MCPクライアント（Claude、Cursorなど）が起動中の場合は、再起動してOrbの変更を反映してください。',
+    'library.bookmark_stale_banner': 'Orbライブラリフォルダへのアクセスが無効になりました（例：アプリ更新後）。フォルダを再選択するまでOrbは利用できません。',
+    'library.bookmark_stale_fix_btn': '再選択…',
     'library.page_info': '{page}/{total} ページ',
     'store.title': 'ストア',
     'store.search_placeholder': 'MCP StoreでOrbを検索',
@@ -525,6 +529,8 @@ const locales = {
     'library.password_every_launch': '每次启动',
     'library.password_remembered': '已记住',
     'library.restart_hint': '如有正在运行中的MCP客户端（Claude、Cursor等），请重启该客户端以使用更新后的Orb。',
+    'library.bookmark_stale_banner': 'Orb 库文件夹访问已失效（例如应用更新后）。重新选择文件夹前，Orb 不可用。',
+    'library.bookmark_stale_fix_btn': '重新选择…',
     'library.stats_requests': '请求: {total}',
     'library.stats_searches': '搜索: {n}',
     'library.stats_stdio': 'STDIO: {n}',
@@ -808,6 +814,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadStatus();
   await refreshLibrary();
   await loadSettings();
+  await checkLibraryHealth();
   await refreshRunning();
   await discoverPlatformConfigs();
 
@@ -836,6 +843,8 @@ function bindActions() {
   $('btn-generate-config').addEventListener('click', generateMcpConfig);
   $('btn-save-settings').addEventListener('click', saveSettings);
   $('btn-choose-orb-library').addEventListener('click', chooseOrbLibraryDir);
+  const fixBtn = $('btn-fix-library-bookmark');
+  if (fixBtn) fixBtn.addEventListener('click', fixLibraryBookmark);
   ['settings-download-dir', 'settings-http-port', 'settings-network-binding'].forEach((id) => {
     $(id).addEventListener('input', markSettingsEdited);
   });
@@ -1170,6 +1179,39 @@ async function refreshLibrary() {
     syncOrbSelects();
   } catch (error) {
     $('library-list').innerHTML = `<div class="status-card error">${escapeHtml(error)}</div>`;
+  }
+}
+
+async function checkLibraryHealth() {
+  if (!invoke) return;
+  const banner = $('library-bookmark-stale-banner');
+  if (!banner) return;
+  try {
+    const health = await invoke('get_library_health');
+    $('library-bookmark-stale-text').textContent = t('library.bookmark_stale_banner');
+    banner.style.display = health.bookmark_stale ? '' : 'none';
+  } catch (_) { /* best-effort */ }
+}
+
+async function fixLibraryBookmark() {
+  if (!invoke) return;
+  try {
+    const result = await invoke('choose_orb_library_dir_suggested');
+    if (!result?.path) return;
+    if (result.pending) {
+      state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      showLibraryChangeModal();
+      return;
+    }
+    state.orbLibraryDir = result.path;
+    const dirInput = $('settings-orb-library-dir');
+    if (dirInput) dirInput.value = result.path;
+    await checkLibraryHealth();
+    await refreshLibrary();
+  } catch (error) {
+    const banner = $('library-bookmark-stale-banner');
+    if (banner) banner.style.display = 'none';
+    $('library-list').innerHTML = `<div class="status-card error">${escapeHtml(t('settings.orb_library_choose_error') + ' ' + error)}</div>`;
   }
 }
 

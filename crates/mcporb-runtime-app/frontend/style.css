@@ -327,6 +327,20 @@ h1 { font-size: 20px; font-weight: 700; }
 }
 .restart-hint .btn-small:hover { opacity: 1; }
 
+/* Stale Orb library bookmark banner — stronger than the restart hint because
+   orbs are unreadable until the user re-selects the folder. */
+.restart-hint.warning-banner {
+  background: rgba(229, 57, 53, 0.1);
+  border-color: rgba(229, 57, 53, 0.35);
+  color: var(--color-error-text);
+}
+.restart-hint.warning-banner .btn-small {
+  color: var(--color-error-text);
+  border: 1px solid rgba(229, 57, 53, 0.4);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+}
+
 /* Import password dialog */
 .import-password-card { width: 420px; }
 .import-password-body { display: flex; flex-direction: column; gap: 16px; padding: 24px 20px; }
