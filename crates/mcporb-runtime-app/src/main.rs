@@ -1364,19 +1364,21 @@ fn main() {
         let settings = settings_store.load().unwrap_or_default();
         let (access, reg, is_stale) = resolve_macos_registry(&settings);
         
-        // If bookmark is stale (e.g. after TestFlight reinstall), clear BOTH
-        // orb_library_dir and orb_library_bookmark from settings. This prevents
-        // gateway/runtime from attempting to access an inaccessible sandboxed
-        // folder. User must re-select in Settings to restore access.
+        // A stale/unusable security-scoped bookmark can only be re-created by
+        // the user re-selecting the folder (NSOpenPanel grants a fresh
+        // extension), so DO NOT wipe orb_library_dir / orb_library_bookmark
+        // here. Clearing them silently would permanently orphan every orb in
+        // the registry (their zip_paths still point into the library folder),
+        // hide where the library lives, and turn a recoverable access loss
+        // into a permanent "Operation not permitted" on every launch. Instead
+        // keep the settings intact and let the UI (get_library_health → stale
+        // banner) prompt the user to re-select; the runtime child still
+        // receives the bookmark and reports the actionable "failed to read Orb
+        // ZIP … re-grant folder access" error instead of a bare EPERM.
         if is_stale {
-            let mut new_settings = settings;
-            new_settings.orb_library_dir = None;
-            new_settings.orb_library_bookmark = None;
-            if settings_store.save(&new_settings).is_err() {
-                tracing::warn!("failed to save settings after clearing stale bookmark");
-            } else {
-                tracing::info!("cleared stale Orb library bookmark and path from settings; reverting to app data folder");
-            }
+            tracing::warn!(
+                "Orb library bookmark is stale/unusable; orb access requires re-selecting the folder in Settings (Choose…)"
+            );
         }
         
         (access, reg, is_stale)
