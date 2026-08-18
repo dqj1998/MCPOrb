@@ -1343,7 +1343,7 @@ fn resolve_macos_registry(
 ) -> (Option<macos_access::AccessGuard>, RegistryStore, bool) {
     let fallback = || RegistryStore::new(default_registry_root());
     match (&settings.orb_library_dir, &settings.orb_library_bookmark) {
-        (Some(_), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
+        (Some(dir), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
             Ok((path, guard)) => {
                 tracing::info!(path = %path.display(), "using user-selected Orb library folder");
                 (
@@ -1357,7 +1357,29 @@ fn resolve_macos_registry(
                     %error,
                     "failed to resolve Orb library bookmark; falling back to app data folder"
                 );
-                (None, fallback(), true)
+                // macOS 26.6: a security-scoped bookmark created by the GUI is
+                // unusable by every other process (verified empirically
+                // 2026-08-18 — even the GUI's own sandbox-inherited children
+                // get "resolved security-scoped bookmark is stale" +
+                // "startAccessingSecurityScopedResource failed"). With
+                // com.apple.security.files.documents.read-write the library
+                // folder under ~/Documents is still directly readable, so
+                // treat an unreadable-bookmark-but-readable-folder as healthy
+                // instead of stale: orb access works and the UI stops nagging.
+                let readable = settings
+                    .orb_library_dir
+                    .as_deref()
+                    .map(std::fs::read_dir)
+                    .is_some_and(|r| r.is_ok());
+                if readable {
+                    (
+                        None,
+                        RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
+                        false,
+                    )
+                } else {
+                    (None, fallback(), true)
+                }
             }
         },
         _ => (None, fallback(), false),
