@@ -25,6 +25,9 @@ const state = {
   orbLibraryDir: null,
   pendingLibraryChange: null,
   pendingLibraryDelete: false,
+  // True while the library-change modal was opened from the first-launch
+  // onboarding flow; cancelling then returns the user to onboarding.
+  fromOnboarding: false,
 };
 
 const importState = {
@@ -1746,7 +1749,10 @@ async function cancelLibraryChange() {
     await invoke('cancel_orb_library_change');
   } catch (_) { /* best-effort */ }
   state.pendingLibraryChange = null;
+  const fromOnboarding = state.fromOnboarding;
+  state.fromOnboarding = false;
   hideLibraryChangeModal();
+  if (fromOnboarding) showOnboardingModal();
 }
 
 async function migrateLibraryChange() {
@@ -1759,6 +1765,7 @@ async function migrateLibraryChange() {
     captureSettingsSnapshot();
     updateUnsavedHint();
     hideLibraryChangeModal();
+    state.fromOnboarding = false;
     state.pendingLibraryChange = null;
     $('settings-status').textContent = t('librarychange.migrated', { count: result.orb_count });
     $('settings-status').classList.remove('error');
@@ -1793,6 +1800,7 @@ async function doDeleteLibraryChange() {
     syncOrbSelects();
     refreshRunning();
     hideLibraryChangeModal();
+    state.fromOnboarding = false;
     state.pendingLibraryChange = null;
     $('settings-status').textContent = t('librarychange.deleted', { count: result.orb_count });
     $('settings-status').classList.remove('error');
@@ -1831,6 +1839,11 @@ async function onboardingUseDefault() {
     if (!result?.path) return;
     if (result.pending) {
       state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      state.fromOnboarding = true;
+      // Close the onboarding modal first: both overlays share z-index 1000 and
+      // the onboarding modal sits later in the DOM, so it would otherwise cover
+      // the migrate/delete confirmation and leave the user stuck on Skip.
+      hideOnboardingModal();
       showLibraryChangeModal();
       return;
     }
@@ -1855,6 +1868,8 @@ async function onboardingChooseDifferent() {
     if (!result?.path) return;
     if (result.pending) {
       state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
+      state.fromOnboarding = true;
+      hideOnboardingModal();
       showLibraryChangeModal();
       return;
     }
