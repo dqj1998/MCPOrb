@@ -350,6 +350,9 @@ fn merge_settings(current: RuntimeSettings, mut incoming: RuntimeSettings) -> Ru
     if incoming.gateway_token.as_deref().map_or(true, str::is_empty) {
         incoming.gateway_token = current.gateway_token;
     }
+    // The form has no onboarding flag; preserve the stored one or every
+    // unrelated save re-opens the onboarding modal on next launch.
+    incoming.onboarding_complete = current.onboarding_complete;
     incoming
 }
 
