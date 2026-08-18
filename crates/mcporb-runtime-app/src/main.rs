@@ -1879,6 +1879,58 @@ mod tests {
     }
 
     #[test]
+    fn merge_settings_preserves_onboarding_flag() {
+        // The form has no onboarding flag, so any save arrives with the
+        // default false; dropping the stored true would re-open onboarding.
+        let mut current = RuntimeSettings::default();
+        current.onboarding_complete = true;
+        let merged = merge_settings(current, RuntimeSettings::default());
+        assert!(merged.onboarding_complete);
+    }
+
+    #[test]
+    fn merge_settings_keeps_stored_onboarding_state_when_incoming_differs() {
+        // "Preserve the stored value" is not "force true": an untouched
+        // store must stay false even if the incoming payload claims true.
+        let mut current = RuntimeSettings::default();
+        current.onboarding_complete = false;
+        let mut incoming = RuntimeSettings::default();
+        incoming.onboarding_complete = true;
+        let merged = merge_settings(current, incoming);
+        assert!(!merged.onboarding_complete);
+    }
+
+    // ── macOS library registry resolution tests ─────────────────────────────
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolve_macos_registry_uses_readable_library_without_working_bookmark() {
+        // The GUI-created bookmark is unusable by any other process on
+        // macOS 26.6; a library folder readable via the documents entitlement
+        // must stay healthy (no stale flag, orbs_dir at the library).
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = RuntimeSettings::default();
+        settings.orb_library_dir = Some(dir.path().to_path_buf());
+        settings.orb_library_bookmark = Some("not-a-valid-bookmark".to_string());
+        let (access, registry, stale) = resolve_macos_registry(&settings);
+        assert!(access.is_none());
+        assert!(!stale, "readable library must not be flagged stale");
+        assert_eq!(registry.orbs_dir(), dir.path().join("Orbs"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn resolve_macos_registry_falls_back_when_library_is_missing() {
+        let mut settings = RuntimeSettings::default();
+        settings.orb_library_dir = Some(PathBuf::from("/nonexistent/mcporb-test-library"));
+        settings.orb_library_bookmark = Some("not-a-valid-bookmark".to_string());
+        let (access, registry, stale) = resolve_macos_registry(&settings);
+        assert!(access.is_none());
+        assert!(stale, "unreadable library must keep the stale banner + re-select flow");
+        assert_eq!(registry.orbs_dir(), default_registry_root().join("Orbs"));
+    }
+
+    #[test]
     fn generate_gateway_token_is_url_safe_and_random() {
         let a = generate_gateway_token();
         let b = generate_gateway_token();
