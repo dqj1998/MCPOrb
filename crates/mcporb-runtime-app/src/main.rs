@@ -1366,6 +1366,10 @@ fn resolve_macos_registry(
                 // folder under ~/Documents is still directly readable, so
                 // treat an unreadable-bookmark-but-readable-folder as healthy
                 // instead of stale: orb access works and the UI stops nagging.
+                // (The MAS build cannot use that restricted entitlement — it is
+                // absent from the provisioning profile, so Transporter rejects
+                // it with 409 — and there the readability check is the only
+                // compensation.)
                 let readable = match settings.orb_library_dir.as_deref().map(std::fs::read_dir) {
                     Some(Ok(_)) => true,
                     Some(Err(ref e)) => {
