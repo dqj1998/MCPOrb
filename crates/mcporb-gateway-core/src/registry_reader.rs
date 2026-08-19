@@ -16,7 +16,11 @@ use crate::GatewayTool;
 #[derive(Debug, Clone)]
 pub struct GatewayOrb {
     pub id: String,
+    /// Original slug from the registry (used for display and ZIP-path lookup).
     pub slug: String,
+    /// Slug used in MCP tool names and process routing. Equal to `slug` when
+    /// the slug fits within the MCP tool-name limit; truncated otherwise.
+    pub mcp_slug: String,
     pub display_name: String,
     pub description: String,
     pub zip_path: PathBuf,
@@ -101,11 +105,13 @@ pub fn discover_orbs_from_registry(store: &RegistryStore) -> Result<Vec<GatewayO
 
 /// Build a `GatewayOrb` from a registry `InstalledOrb`.
 fn build_gateway_orb(installed: &InstalledOrb) -> Result<GatewayOrb> {
-    let tools = build_tools_from_manifest(installed);
+    let mcp_slug = compute_mcp_slug(&installed.slug);
+    let tools = build_tools_from_manifest(&mcp_slug, installed);
 
     Ok(GatewayOrb {
         id: installed.id.clone(),
         slug: installed.slug.clone(),
+        mcp_slug,
         display_name: installed.display_name.clone(),
         description: installed.description.clone(),
         zip_path: installed.zip_path.clone(),
@@ -114,31 +120,40 @@ fn build_gateway_orb(installed: &InstalledOrb) -> Result<GatewayOrb> {
     })
 }
 
+/// Compute the slug used in MCP tool names. Truncates to the maximum prefix
+/// length that leaves room for `__{method}` within the 64-char MCP limit.
+fn compute_mcp_slug(slug: &str) -> String {
+    let suffix_len = crate::router::NAMESPACE_SEP.len() + "search_knowledge".len();
+    let max = MAX_MCP_TOOL_NAME_LEN.saturating_sub(suffix_len);
+    if slug.len() > max {
+        slug[..max].to_string()
+    } else {
+        slug.to_string()
+    }
+}
+
 /// Claude Desktop enforces tool names ≤ 64 chars; truncate slug to ensure
 /// `{slug}__search_knowledge` fits.
 const MAX_MCP_TOOL_NAME_LEN: usize = 64;
 
 /// Build the `GatewayTool` list from the installed orb's manifest.
 ///
-/// All Orbs expose a `search_knowledge` tool (with appropriate description
-/// and available search methods based on the manifest's capabilities).
-fn build_tools_from_manifest(installed: &InstalledOrb) -> Vec<GatewayTool> {
-    let slug = &installed.slug;
+/// `mcp_slug` is the already-computed (and possibly truncated) slug used in
+/// MCP tool names; callers must derive it via [`compute_mcp_slug`].
+fn build_tools_from_manifest(mcp_slug: &str, installed: &InstalledOrb) -> Vec<GatewayTool> {
     let manifest = &installed.manifest;
 
-    let namespaced_suffix_len = crate::router::NAMESPACE_SEP.len() + "search_knowledge".len();
-    let max_slug_for_mcp = MAX_MCP_TOOL_NAME_LEN.saturating_sub(namespaced_suffix_len);
-    let truncated_slug: &str = if slug.len() > max_slug_for_mcp {
+    if installed.slug != mcp_slug {
+        let suffix_len = crate::router::NAMESPACE_SEP.len() + "search_knowledge".len();
+        let max_slug_for_mcp = MAX_MCP_TOOL_NAME_LEN.saturating_sub(suffix_len);
         tracing::warn!(
-            orb = %slug,
-            slug_len = slug.len(),
+            orb = %installed.slug,
+            slug_len = installed.slug.len(),
             max_slug_len = max_slug_for_mcp,
+            mcp_slug = %mcp_slug,
             "Orb slug too long for MCP tool name (max {max_slug_for_mcp} chars), truncating"
         );
-        &slug[..max_slug_for_mcp]
-    } else {
-        slug
-    };
+    }
 
     // Build the search method enum from enabled capabilities
     let method_enum: Vec<&str> = {
@@ -180,7 +195,7 @@ fn build_tools_from_manifest(installed: &InstalledOrb) -> Vec<GatewayTool> {
 
     let method_description = build_method_description(&method_enum);
 
-    let namespaced_tool_name = router::build_namespaced_tool_name(truncated_slug, "search_knowledge");
+    let namespaced_tool_name = router::build_namespaced_tool_name(mcp_slug, "search_knowledge");
 
     vec![GatewayTool {
         original_name: "search_knowledge".to_string(),
@@ -439,6 +454,12 @@ mod tests {
         // Slug portion must be 46 chars (64 - 2 for __ - 16 for search_knowledge = 46)
         let slug_part = namespaced.trim_end_matches("__search_knowledge");
         assert_eq!(slug_part.len(), 46, "slug part should be truncated to 46 chars, got {}: {slug_part}", slug_part.len());
+        // mcp_slug must match the tool-name prefix exactly — this is the
+        // invariant that was broken (find_orb looked up the full slug while
+        // the tool call provided the truncated one).
+        assert_eq!(gateway_orb.mcp_slug, slug_part, "mcp_slug must equal the tool-name prefix");
+        // Original slug is preserved unchanged for display/zip-path lookup.
+        assert_eq!(gateway_orb.slug, long_slug);
     }
 
     #[test]

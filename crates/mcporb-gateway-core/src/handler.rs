@@ -158,7 +158,7 @@ async fn handle_tool_call(
     // Check the orb exists
     manager.find_orb(slug).ok_or_else(|| {
         format!("Unknown Orb: '{slug}'. Available Orbs: {}", {
-            let names: Vec<&str> = manager.list_orbs().iter().map(|o| o.slug.as_str()).collect();
+            let names: Vec<&str> = manager.list_orbs().iter().map(|o| o.mcp_slug.as_str()).collect();
             names.join(", ")
         })
     })?;
@@ -217,7 +217,7 @@ fn handle_list_resources(manager: &RuntimeManager, id: Value) -> Value {
         // We can't get document-level info without reading the zip,
         // so for v1 we just return an informational resource.
         resources.push(json!({
-            "uri": format!("orb://{}/", orb.slug),
+            "uri": format!("orb://{}/", orb.mcp_slug),
             "name": format!("{} Knowledge Base", orb.display_name),
             "description": format!("Access the full knowledge base of {}", orb.display_name),
             "mimeType": "text/plain"
@@ -401,6 +401,7 @@ mod tests {
             crate::registry_reader::GatewayOrb {
                 id: "id1".to_string(),
                 slug: "orb-a".to_string(),
+                mcp_slug: "orb-a".to_string(),
                 display_name: "Orb A".to_string(),
                 description: "First test orb".to_string(),
                 zip_path: std::path::PathBuf::from("/tmp/orb-a.zip"),
@@ -410,6 +411,7 @@ mod tests {
             crate::registry_reader::GatewayOrb {
                 id: "id2".to_string(),
                 slug: "orb-b".to_string(),
+                mcp_slug: "orb-b".to_string(),
                 display_name: "Orb B".to_string(),
                 description: "Second test orb".to_string(),
                 zip_path: std::path::PathBuf::from("/tmp/orb-b.zip"),

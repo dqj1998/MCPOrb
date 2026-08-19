@@ -78,7 +78,7 @@ impl RuntimeManager {
     pub fn new(config: GatewayConfig, orbs: Vec<GatewayOrb>) -> Self {
         let mut processes = HashMap::new();
         for orb in &orbs {
-            processes.insert(orb.slug.clone(), OrbStatus::Idle);
+            processes.insert(orb.mcp_slug.clone(), OrbStatus::Idle);
         }
         Self {
             config,
@@ -100,9 +100,9 @@ impl RuntimeManager {
 
         for orb in &new_orbs {
             let status = processes
-                .remove(&orb.slug)
+                .remove(&orb.mcp_slug)
                 .unwrap_or(OrbStatus::Idle);
-            new_processes.insert(orb.slug.clone(), status);
+            new_processes.insert(orb.mcp_slug.clone(), status);
         }
 
         // Any remaining entries in `processes` are for deleted Orbs.
@@ -121,9 +121,9 @@ impl RuntimeManager {
         &self.orbs
     }
 
-    /// Find an Orb by slug.
+    /// Find an Orb by its MCP slug (the slug used in tool names).
     pub fn find_orb(&self, slug: &str) -> Option<&GatewayOrb> {
-        self.orbs.iter().find(|o| o.slug == slug)
+        self.orbs.iter().find(|o| o.mcp_slug == slug)
     }
 
     /// Return the list of all known Orbs with their status.
@@ -132,7 +132,7 @@ impl RuntimeManager {
         self.orbs
             .iter()
             .map(|orb| {
-                let status = match processes.get(&orb.slug) {
+                let status = match processes.get(&orb.mcp_slug) {
                     Some(OrbStatus::Running(_)) => "running",
                     Some(OrbStatus::Failed(_)) => "failed",
                     _ => "idle",
@@ -162,7 +162,7 @@ impl RuntimeManager {
         let orb = self
             .orbs
             .iter()
-            .find(|o| o.slug == slug)
+            .find(|o| o.mcp_slug == slug)
             .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
 
         // Spawn OUTSIDE any lock so the reaper and other readers are not
@@ -375,9 +375,9 @@ impl RuntimeManager {
         }
     }
 
-    /// Check if an Orb slug exists in our registry.
+    /// Check if an MCP slug exists in our registry.
     pub fn has_orb(&self, slug: &str) -> bool {
-        self.orbs.iter().any(|o| o.slug == slug)
+        self.orbs.iter().any(|o| o.mcp_slug == slug)
     }
 
     /// Generate the gateway internal request ID.
@@ -581,6 +581,7 @@ mod tests {
         GatewayOrb {
             id: format!("{slug}_id"),
             slug: slug.to_string(),
+            mcp_slug: slug.to_string(),
             display_name: slug.to_string(),
             description: format!("{slug} test orb"),
             zip_path: PathBuf::from(format!("/tmp/orbs/{slug}.zip")),

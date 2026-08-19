@@ -43,6 +43,7 @@ fn make_gateway_orb(slug: &str, tool_count: usize) -> GatewayOrb {
     GatewayOrb {
         id: format!("{slug}_id"),
         slug: slug.to_string(),
+        mcp_slug: slug.to_string(),
         display_name: slug.to_string(),
         description: format!("{slug} test orb"),
         zip_path: PathBuf::from(format!("/tmp/orbs/{slug}.zip")),
