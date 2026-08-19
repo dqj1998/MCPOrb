@@ -1366,11 +1366,18 @@ fn resolve_macos_registry(
                 // folder under ~/Documents is still directly readable, so
                 // treat an unreadable-bookmark-but-readable-folder as healthy
                 // instead of stale: orb access works and the UI stops nagging.
-                let readable = settings
-                    .orb_library_dir
-                    .as_deref()
-                    .map(std::fs::read_dir)
-                    .is_some_and(|r| r.is_ok());
+                let readable = match settings.orb_library_dir.as_deref().map(std::fs::read_dir) {
+                    Some(Ok(_)) => true,
+                    Some(Err(ref e)) => {
+                        tracing::warn!(
+                            error = %e,
+                            dir = ?settings.orb_library_dir,
+                            "Orb library folder not directly readable (bookmark stale and entitlement insufficient)"
+                        );
+                        false
+                    }
+                    None => false,
+                };
                 if readable {
                     (
                         None,
