@@ -19,7 +19,7 @@ use tracing;
     about = "MCPOrb Gateway — single STDIO MCP endpoint routing to multiple Orbs"
 )]
 struct Args {
-    /// Registry directory (default: ~/Library/Application Support/MCPOrb/Runtime)
+    /// Registry directory (default: ~/.mcporb)
     #[arg(long)]
     registry_dir: Option<PathBuf>,
 

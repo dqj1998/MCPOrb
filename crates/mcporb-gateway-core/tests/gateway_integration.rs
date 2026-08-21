@@ -373,8 +373,8 @@ async fn runtime_manager_default_config_contains_runtime_dir() {
     let config = GatewayConfig::default();
     let path = config.registry_dir.to_string_lossy();
     assert!(
-        path.contains("MCPOrb") && path.contains("Runtime"),
-        "expected config path to contain MCPOrb/Runtime, got: {path}"
+        path.contains(".mcporb"),
+        "expected config path to contain .mcporb, got: {path}"
     );
 }
 

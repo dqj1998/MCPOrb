@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 
 const SETTINGS_FILE: &str = "settings.json";
 
+/// Canonical user-accessible settings directory: `~/.mcporb/`.
+/// This replaces the sandbox-container path so settings remain user-readable
+/// (App Store Guideline 2.4.5(i) compliance).
+fn user_settings_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("could not resolve home directory")?;
+    Ok(home.join(".mcporb"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeSettings {
     #[serde(default = "default_download_dir")]
@@ -74,6 +82,22 @@ fn default_http_port() -> u16 {
     5599
 }
 
+/// Check legacy settings locations for migration (non-destructive).
+fn old_settings_path() -> Option<PathBuf> {
+    // 1. macOS sandbox container: ~/Library/Containers/com.mcporb.runner/…/Runtime/settings.json
+    if let Some(home) = dirs::home_dir() {
+        let sandboxed = home
+            .join("Library/Containers/com.mcporb.runner/Data/Library/Application Support/MCPOrb/Runtime");
+        if sandboxed.join(SETTINGS_FILE).is_file() {
+            return Some(sandboxed.join(SETTINGS_FILE));
+        }
+    }
+    // 2. Non-sandbox ~/Library/Application Support/MCPOrb/Runtime/settings.json
+    dirs::data_dir()
+        .map(|d| d.join("MCPOrb").join("Runtime").join(SETTINGS_FILE))
+        .filter(|p| p.is_file())
+}
+
 pub struct SettingsStore {
     root_dir: PathBuf,
 }
@@ -84,10 +108,21 @@ impl SettingsStore {
     }
 
     pub fn default() -> Result<Self> {
-        let base = dirs::data_dir()
-            .or_else(dirs::config_dir)
-            .context("could not resolve user data directory for MCPOrb Runner")?;
-        Ok(Self::new(base.join("MCPOrb").join("Runtime")))
+        let target = user_settings_dir()?;
+
+        // Migration: if settings exist in the old sandbox-container or
+        // ~/Library/Application Support location, move them to ~/.mcporb/.
+        if !target.join(SETTINGS_FILE).is_file() {
+            if let Some(old) = old_settings_path() {
+                if old.is_file() {
+                    let _ = fs::create_dir_all(&target);
+                    let _ = fs::copy(&old, target.join(SETTINGS_FILE));
+                    // Do not delete old file — non-destructive migration.
+                }
+            }
+        }
+
+        Ok(Self::new(target))
     }
 
     pub fn load(&self) -> Result<RuntimeSettings> {

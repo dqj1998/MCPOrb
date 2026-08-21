@@ -138,9 +138,9 @@ fn load_orb_zip_data(zip_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
             "failed to read Orb ZIP at {}: {} (this usually means the file is in a user folder outside the sandbox; either move it to {} or re-grant folder access via MCPOrb Runner Settings)",
             zip_path.display(),
             e,
-            dirs::data_dir()
-                .map(|p| p.join("MCPOrb/Runtime/Orbs").display().to_string())
-                .unwrap_or_else(|| "~/.mcporb-runtime/Orbs".to_string())
+            dirs::home_dir()
+                .map(|p| p.join(".mcporb/Orbs").display().to_string())
+                .unwrap_or_else(|| "~/.mcporb/Orbs".to_string())
         )
     })?;
     let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
@@ -647,9 +647,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     let _library_guard = config.library_bookmark.as_deref().and_then(|bookmark| {
         match macos_access::resolve_bookmark(bookmark) {
-            Ok((path, guard)) => {
-                tracing::info!(path = %path.display(), "resolved Orb library bookmark");
-                Some(guard)
+            Ok(resolved) => {
+                tracing::info!(path = %resolved.path.display(), "resolved Orb library bookmark");
+                resolved.guard
             }
             Err(error) => {
                 tracing::warn!(%error, "failed to resolve Orb library bookmark");

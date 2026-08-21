@@ -521,17 +521,19 @@ async fn apply_orb_library_change(
     // covers orbs in the previous library folder, while orbs imported before
     // any library folder existed live in the legacy app-data Orbs dir, which
     // needs no bookmark.
-    let (new_path, new_guard) =
-        macos_access::resolve_bookmark(&pending.bookmark).map_err(to_string)?;
-    let new_orbs_dir = new_path.join("Orbs");
+    let resolved_new = macos_access::resolve_bookmark(&pending.bookmark).map_err(to_string)?;
+    let new_guard = resolved_new.guard.ok_or_else(|| {
+        "The picked folder did not grant sandbox access; please pick it again.".to_string()
+    })?;
+    let new_orbs_dir = resolved_new.path.join("Orbs");
 
     let mut old_orbs_dirs: Vec<PathBuf> = Vec::new();
     let mut _old_guard: Option<macos_access::AccessGuard> = None;
     if let Some(old_bookmark) = settings.orb_library_bookmark.as_deref() {
         match macos_access::resolve_bookmark(old_bookmark) {
-            Ok((old_path, guard)) => {
-                old_orbs_dirs.push(old_path.join("Orbs"));
-                _old_guard = Some(guard);
+            Ok(resolved) => {
+                old_orbs_dirs.push(resolved.path.join("Orbs"));
+                _old_guard = resolved.guard;
             }
             Err(error) => {
                 // Bookmarks saved before the panel-URL fix carry no security
@@ -1178,13 +1180,9 @@ fn build_merged_platform_config(
     platform: &PlatformConfig,
     orbs: &[InstalledOrb],
 ) -> String {
-    let registry_dir = PathBuf::from(
-        // Best-effort: use the same default as RegistryStore::default().
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("MCPOrb")
-            .join("Runtime"),
-    );
+    let registry_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".mcporb");
 
     // Use gateway binary if available, fall back to per-orb for empty registries
 
@@ -1340,18 +1338,60 @@ fn default_registry_root() -> PathBuf {
 #[cfg(target_os = "macos")]
 fn resolve_macos_registry(
     settings: &RuntimeSettings,
-) -> (Option<macos_access::AccessGuard>, RegistryStore, bool) {
+) -> (
+    Option<macos_access::AccessGuard>,
+    RegistryStore,
+    bool,
+    Option<String>,
+) {
     let fallback = || RegistryStore::new(default_registry_root());
+    let readable_library = |settings: &RuntimeSettings| -> bool {
+        match settings.orb_library_dir.as_deref().map(std::fs::read_dir) {
+            Some(Ok(_)) => true,
+            Some(Err(ref e)) => {
+                tracing::warn!(
+                    error = %e,
+                    dir = ?settings.orb_library_dir,
+                    "Orb library folder not directly readable (bookmark stale and entitlement insufficient)"
+                );
+                false
+            }
+            None => false,
+        }
+    };
     match (&settings.orb_library_dir, &settings.orb_library_bookmark) {
         (Some(dir), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
-            Ok((path, guard)) => {
-                tracing::info!(path = %path.display(), "using user-selected Orb library folder");
-                (
-                    Some(guard),
-                    RegistryStore::with_orbs_dir(default_registry_root(), path.join("Orbs")),
-                    false,
-                )
-            }
+            Ok(resolved) => match resolved.guard {
+                Some(guard) => {
+                    tracing::info!(path = %resolved.path.display(), "using user-selected Orb library folder");
+                    (
+                        Some(guard),
+                        RegistryStore::with_orbs_dir(default_registry_root(), resolved.path.join("Orbs")),
+                        false,
+                        resolved.refreshed,
+                    )
+                }
+                None => {
+                    // The bookmark resolved but access was not granted this
+                    // session (stale after app update). The refresh may still
+                    // repair the next launch; treat the folder like the
+                    // Err-path: readable → healthy, else stale banner.
+                    tracing::warn!(
+                        path = %resolved.path.display(),
+                        "resolved Orb library bookmark without access; checking direct readability"
+                    );
+                    if readable_library(settings) {
+                        (
+                            None,
+                            RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
+                            false,
+                            resolved.refreshed,
+                        )
+                    } else {
+                        (None, fallback(), true, resolved.refreshed)
+                    }
+                }
+            },
             Err(error) => {
                 tracing::warn!(
                     %error,
@@ -1370,30 +1410,20 @@ fn resolve_macos_registry(
                 // absent from the provisioning profile, so Transporter rejects
                 // it with 409 — and there the readability check is the only
                 // compensation.)
-                let readable = match settings.orb_library_dir.as_deref().map(std::fs::read_dir) {
-                    Some(Ok(_)) => true,
-                    Some(Err(ref e)) => {
-                        tracing::warn!(
-                            error = %e,
-                            dir = ?settings.orb_library_dir,
-                            "Orb library folder not directly readable (bookmark stale and entitlement insufficient)"
-                        );
-                        false
-                    }
-                    None => false,
-                };
+                let readable = readable_library(settings);
                 if readable {
                     (
                         None,
                         RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
                         false,
+                        None,
                     )
                 } else {
-                    (None, fallback(), true)
+                    (None, fallback(), true, None)
                 }
             }
         },
-        _ => (None, fallback(), false),
+        _ => (None, fallback(), false, None),
     }
 }
 
@@ -1408,31 +1438,72 @@ fn main() {
     // macOS: restore security-scoped access to the user-chosen Orb library
     // folder before anything else — the MCP STDIO proxy child needs it too.
     #[cfg(target_os = "macos")]
-    let (library_access, registry, bookmark_stale) = {
-        let settings = settings_store.load().unwrap_or_default();
-        let (access, reg, is_stale) = resolve_macos_registry(&settings);
-        
-        // A stale/unusable security-scoped bookmark can only be re-created by
-        // the user re-selecting the folder (NSOpenPanel grants a fresh
-        // extension), so DO NOT wipe orb_library_dir / orb_library_bookmark
-        // here. Clearing them silently would permanently orphan every orb in
-        // the registry (their zip_paths still point into the library folder),
-        // hide where the library lives, and turn a recoverable access loss
-        // into a permanent "Operation not permitted" on every launch. Instead
-        // keep the settings intact and let the UI (get_library_health → stale
-        // banner) prompt the user to re-select; the runtime child still
-        // receives the bookmark and reports the actionable "failed to read Orb
-        // ZIP … re-grant folder access" error instead of a bare EPERM.
+    let (library_access, registry, bookmark_stale, refreshed_bookmark) = {
+        let mut settings = settings_store.load().unwrap_or_default();
+        let (mut access, reg, mut is_stale, mut refreshed) = resolve_macos_registry(&settings);
+
+        // First launch (no library configured) or stale bookmark after app
+        // update: auto-open NSOpenPanel so the user can (re-)select the folder
+        // in one click.  Only in GUI mode — headless (--mcp-stdio) cannot
+        // show AppKit panels.
+        let is_headless = std::env::args().any(|a| a == "--mcp-stdio" || a == "--gateway-stdio");
+        let needs_pick = !is_headless && (settings.orb_library_dir.is_none() || is_stale);
+        if needs_pick {
+            let suggested = settings.orb_library_dir.clone();
+            tracing::info!(
+                ?suggested,
+                "opening folder picker (library not configured or bookmark stale)"
+            );
+            match unsafe { crate::macos_panel::pick_library_folder(suggested) } {
+                Ok(Some(picked)) => {
+                    settings.orb_library_dir = Some(picked.path);
+                    settings.orb_library_bookmark = Some(picked.bookmark);
+                    let _ = settings_store.save(&settings);
+                    access = Some(picked.guard);
+                    is_stale = false;
+                    refreshed = None;
+                    tracing::info!("folder picker succeeded; library access restored");
+                }
+                Ok(None) => {
+                    tracing::info!("folder picker cancelled by user");
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "folder picker failed");
+                }
+            }
+        }
+
         if is_stale {
             tracing::warn!(
                 "Orb library bookmark is stale/unusable; orb access requires re-selecting the folder in Settings (Choose…)"
             );
         }
-        
-        (access, reg, is_stale)
+
+        (access, reg, is_stale, refreshed)
     };
     #[cfg(not(target_os = "macos"))]
     let registry = RegistryStore::new(default_registry_root());
+
+    // macOS: when the stored bookmark resolved as stale and CoreFoundation
+    // renewed it (kCFURLBookmarkResolutionWithoutUIModalPrompts), persist the
+    // refreshed bookmark so the next launch starts from a non-stale one
+    // instead of repeating the renewal dance. The updated value is also what
+    // the MCP stdio proxy forwards to runtime children below.
+    #[cfg(target_os = "macos")]
+    if let Some(refreshed) = &refreshed_bookmark {
+        match settings_store.load() {
+            Ok(mut settings) => {
+                if settings.orb_library_bookmark.as_deref() != Some(refreshed.as_str()) {
+                    tracing::info!("persisting refreshed Orb library bookmark");
+                    settings.orb_library_bookmark = Some(refreshed.clone());
+                    if let Err(error) = settings_store.save(&settings) {
+                        tracing::warn!(%error, "failed to persist refreshed Orb library bookmark");
+                    }
+                }
+            }
+            Err(error) => tracing::warn!(%error, "failed to reload settings for bookmark refresh"),
+        }
+    }
 
     // --- MCP STDIO proxy mode ---
     // Intercept before any Tauri/WebKit init to keep stdio clean and avoid
@@ -1923,9 +1994,10 @@ mod tests {
         let mut settings = RuntimeSettings::default();
         settings.orb_library_dir = Some(dir.path().to_path_buf());
         settings.orb_library_bookmark = Some("not-a-valid-bookmark".to_string());
-        let (access, registry, stale) = resolve_macos_registry(&settings);
+        let (access, registry, stale, refreshed) = resolve_macos_registry(&settings);
         assert!(access.is_none());
         assert!(!stale, "readable library must not be flagged stale");
+        assert!(refreshed.is_none());
         assert_eq!(registry.orbs_dir(), dir.path().join("Orbs"));
     }
 
@@ -1935,7 +2007,7 @@ mod tests {
         let mut settings = RuntimeSettings::default();
         settings.orb_library_dir = Some(PathBuf::from("/nonexistent/mcporb-test-library"));
         settings.orb_library_bookmark = Some("not-a-valid-bookmark".to_string());
-        let (access, registry, stale) = resolve_macos_registry(&settings);
+        let (access, registry, stale, _) = resolve_macos_registry(&settings);
         assert!(access.is_none());
         assert!(stale, "unreadable library must keep the stale banner + re-select flow");
         assert_eq!(registry.orbs_dir(), default_registry_root().join("Orbs"));

@@ -68,10 +68,21 @@ impl RegistryStore {
     }
 
     pub fn default() -> Result<Self> {
-        let base = dirs::data_dir()
-            .or_else(dirs::config_dir)
-            .context("could not resolve user data directory for MCPOrb Runner")?;
-        Ok(Self::new(base.join("MCPOrb").join("Runtime")))
+        let home = dirs::home_dir().context("could not resolve home directory")?;
+        let target = home.join(".mcporb");
+
+        // Migration: if registry exists in the old sandbox-container or
+        // ~/Library/Application Support location, move it to ~/.mcporb/.
+        if !target.join(REGISTRY_FILE).is_file() {
+            if let Some(old) = old_registry_path() {
+                if old.is_file() {
+                    let _ = std::fs::create_dir_all(&target);
+                    let _ = std::fs::copy(&old, target.join(REGISTRY_FILE));
+                }
+            }
+        }
+
+        Ok(Self::new(target))
     }
 
     pub fn root_dir(&self) -> &Path {
@@ -288,6 +299,19 @@ impl RegistryStore {
     fn registry_path(&self) -> PathBuf {
         self.root_dir.join(REGISTRY_FILE)
     }
+}
+
+fn old_registry_path() -> Option<PathBuf> {
+    if let Some(home) = dirs::home_dir() {
+        let sandboxed = home
+            .join("Library/Containers/com.mcporb.runner/Data/Library/Application Support/MCPOrb/Runtime");
+        if sandboxed.join(REGISTRY_FILE).is_file() {
+            return Some(sandboxed.join(REGISTRY_FILE));
+        }
+    }
+    dirs::data_dir()
+        .map(|d| d.join("MCPOrb").join("Runtime").join(REGISTRY_FILE))
+        .filter(|p| p.is_file())
 }
 
 fn upsert_orb(registry: &mut OrbRegistry, installed: InstalledOrb) {

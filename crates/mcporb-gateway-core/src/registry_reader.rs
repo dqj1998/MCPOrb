@@ -53,10 +53,9 @@ pub registry_dir: PathBuf,
 
 impl Default for GatewayConfig {
     fn default() -> Self {
-        let registry_dir = dirs::data_dir()
+        let registry_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("MCPOrb")
-            .join("Runtime");
+            .join(".mcporb");
 
         // Try to find mcporb-runtime next to the running binary, or fall back.
         let runtime_binary = default_runtime_binary().unwrap_or_else(|| {

@@ -14,6 +14,7 @@ use base64::Engine;
 
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
 const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
 
 #[repr(C)]
 struct __CFURL(c_void);
@@ -114,10 +115,17 @@ pub unsafe fn create_bookmark_from_url(url: *const c_void) -> Result<String, Str
     Ok(encoded)
 }
 
+/// Result of resolving a persisted security-scoped bookmark.
+pub struct ResolvedBookmark {
+    pub path: PathBuf,
+    /// Live access handle. `None` when access could not be granted this
+    /// session (stale bookmark after app update/reinstall).
+    pub guard: Option<AccessGuard>,
+}
+
 /// Resolves a persisted base64 bookmark back to a folder path and starts
-/// security-scoped access to it. Returns the path and a guard that must stay
-/// alive while the folder is in use.
-pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String> {
+/// security-scoped access to it.
+pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
     unsafe {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
@@ -127,10 +135,14 @@ pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String>
             return Err("CFDataCreate failed".to_string());
         }
         let mut is_stale: Boolean = 0;
+        // WithoutUIModalPrompts: without it, resolution may attempt a consent
+        // UI when the extension needs renewal and fail headless.
+        let options = K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE
+            | K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS;
         let url = CFURLCreateByResolvingBookmarkData(
             std::ptr::null(),
             bookmark,
-            K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE,
+            options,
             std::ptr::null(),
             std::ptr::null(),
             &mut is_stale,
@@ -146,11 +158,17 @@ pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String>
             tracing::warn!("resolved security-scoped bookmark is stale");
         }
         let path = path_from_url(url)?;
-        if CFURLStartAccessingSecurityScopedResource(url) == 0 {
+
+        let guard = if CFURLStartAccessingSecurityScopedResource(url) != 0 {
+            Some(AccessGuard { url })
+        } else {
+            tracing::warn!(
+                "startAccessingSecurityScopedResource failed; folder not accessible this session"
+            );
             CFRelease(url.cast());
-            return Err("startAccessingSecurityScopedResource failed".to_string());
-        }
-        Ok((path, AccessGuard { url }))
+            None
+        };
+        Ok(ResolvedBookmark { path, guard })
     }
 }
 

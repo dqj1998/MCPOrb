@@ -59,9 +59,12 @@ pub unsafe fn pick_library_folder(
         // bookmark from it, then re-resolve to validate and get a live guard.
         let bookmark =
             macos_access::create_bookmark_from_url((&*url as *const NSURL).cast())?;
-        let (path, guard) = macos_access::resolve_bookmark(&bookmark)?;
+        let resolved = macos_access::resolve_bookmark(&bookmark)?;
+        let guard = resolved.guard.ok_or_else(|| {
+            "The picked folder did not grant sandbox access; please try picking it again.".to_string()
+        })?;
         Ok(Some(PickedLibrary {
-            path,
+            path: resolved.path,
             bookmark,
             guard,
         }))

@@ -14,6 +14,7 @@ use base64::Engine;
 
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
 const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
 
 #[repr(C)]
 struct __CFURL(c_void);
@@ -113,10 +114,26 @@ pub unsafe fn create_bookmark_from_url(url: *const c_void) -> Result<String, Str
     Ok(encoded)
 }
 
+/// Result of resolving a persisted security-scoped bookmark.
+pub struct ResolvedBookmark {
+    /// Folder the bookmark points at.
+    pub path: PathBuf,
+    /// Live access handle. `None` when access could not be granted this
+    /// session (stale bookmark after app update/reinstall).
+    pub guard: Option<AccessGuard>,
+    /// Rebuilt base64 bookmark from the resolved URL when the stored one was
+    /// stale — Apple's documented recovery. Returned even when this session's
+    /// access failed; persisting it makes the NEXT launch start healthy.
+    pub refreshed: Option<String>,
+}
+
 /// Resolves a persisted base64 bookmark back to a folder path and starts
-/// security-scoped access to it. Returns the path and a guard that must stay
-/// alive while the folder is in use.
-pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String> {
+/// security-scoped access to it.
+///
+/// Stale recovery is never skipped: even when `startAccessing` fails, the
+/// fresh bookmark is still rebuilt from the resolved URL so the caller can
+/// persist it for the next launch.
+pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
     unsafe {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded)
@@ -126,10 +143,18 @@ pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String>
             return Err("CFDataCreate failed".to_string());
         }
         let mut is_stale: Boolean = 0;
+        // kCFURLBookmarkResolutionWithoutUIModalPrompts: resolving with only
+        // the security-scope flag makes CoreFoundation attempt a consent UI
+        // when the extension needs renewal and fail headless (empirically the
+        // "startAccessingSecurityScopedResource failed" + is_stale combo seen
+        // on relaunch). The silent-renewal flag is what Apple's samples use
+        // for relaunch restoration; it is required here for the same reason.
+        let options = K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE
+            | K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS;
         let url = CFURLCreateByResolvingBookmarkData(
             std::ptr::null(),
             bookmark,
-            K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE,
+            options,
             std::ptr::null(),
             std::ptr::null(),
             &mut is_stale,
@@ -145,11 +170,40 @@ pub fn resolve_bookmark(encoded: &str) -> Result<(PathBuf, AccessGuard), String>
             tracing::warn!("resolved security-scoped bookmark is stale");
         }
         let path = path_from_url(url)?;
-        if CFURLStartAccessingSecurityScopedResource(url) == 0 {
+
+        // Stale recovery FIRST, before any access handling: the resolved URL
+        // is the only handle that still points at the renewal, and the rebuild
+        // must happen whether or not this session can start access.
+        let refreshed = if is_stale != 0 {
+            match create_bookmark_from_url(url.cast()) {
+                Ok(fresh) => Some(fresh),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "failed to refresh stale Orb library bookmark"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let guard = if CFURLStartAccessingSecurityScopedResource(url) != 0 {
+            Some(AccessGuard { url })
+        } else {
+            tracing::warn!(
+                "startAccessingSecurityScopedResource failed; folder not accessible this session (stale bookmark) — a rebuilt bookmark was persisted for the next launch"
+            );
+            // No guard owns the URL; release it here.
             CFRelease(url.cast());
-            return Err("startAccessingSecurityScopedResource failed".to_string());
-        }
-        Ok((path, AccessGuard { url }))
+            None
+        };
+        Ok(ResolvedBookmark {
+            path,
+            guard,
+            refreshed,
+        })
     }
 }
 
