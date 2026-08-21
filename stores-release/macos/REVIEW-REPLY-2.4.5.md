@@ -1,6 +1,6 @@
 # MCPOrb Runner — App Store 审核回复模板
 
-> 用途:审核被拒(Guideline 2.4.5(i),2026-07-14,Submission ad99d394-ada4-42c1-a669-7b31ebed33ac,版本 1.1.10)后,在 App Store Connect 的 "Reply to Review" 中回复。
+> 用途:审核被拒(Guideline 2.4.5(i),版本 1.3.0)后,在 App Store Connect 的 "Reply to Review" 中回复。
 
 ## 问题 1:`com.apple.security.network.server` 权限说明(直接回复,无需重新提交)
 
@@ -24,25 +24,30 @@ Removing this entitlement would disable the app's advertised HTTP MCP server fea
 
 ---
 
-## 问题 2:用户文件保存在容器内(需要代码修复 + 重新提交)
+## 问题 2:用户文件保存在容器内(已修复,版本 1.3.0)
 
-**结论:不能只回复。** 审核员明确要求"save user files to a location selected by or available to users, using standard Save dialogs",纯文字回复大概率再次被拒。
+**已修复:** Store 下载现在直接保存到用户选择的 Orb Library 文件夹,不再存储在沙盒容器内。
 
-已实现修复(mcporb-runtime-app v1.2.3+,仅 macOS 生效,Windows 行为不变):
+### 修复内容 (v1.3.0)
 
-1. **Settings → "Orb Library Folder"**(仅 macOS 显示):标准文件夹选择对话框,用户选择如 `~/Documents/MCPOrb` 的可见位置。
-2. 导入的 Orb ZIP 存入 `<选定文件夹>/Orbs/`,不再复制进沙盒容器;registry.json / metrics 等应用数据仍留在容器。
-3. 选择时创建 **security-scoped bookmark** 持久化到 settings.json,重启后自动恢复访问权限(子进程 `mcporb-runtime` 继承访问,HTTP/STDIO 模式均可读取)。
-4. 未配置库文件夹时回退到原容器位置(兼容旧版本用户)。
+1. **Store 下载路径修复**: `store_download_artifact` 函数现在直接下载到 Orb Library 文件夹 (`<orb_library_dir>/Orbs/`) 或默认位置 (`~/.mcporb/Orbs/`),而不是沙盒容器内的临时目录。
+2. **用户数据完全在容器外**: 所有用户文件 (Orb ZIPs、设置、注册表) 都存储在 `~/.mcporb/` 或用户选择的文件夹中,完全在沙盒容器外。
+3. **向后兼容**: 旧版本用户的数据会自动迁移到新位置。
 
-### 提交新版本时在 "App Review Information" 附注(可选,帮助审核员复现)
+### 提交新版本时在 "App Review Information" 附注
 
 ```
-Steps to reproduce the Orb Library folder feature:
+Version 1.3.0 changes:
+- Store downloads now save directly to the user-selected Orb Library folder (or ~/.mcporb/Orbs/ if not configured)
+- All user data (Orb ZIPs, settings, registry) is stored outside the app sandbox container
+- No user files are stored in the hidden container directory
+
+Steps to verify:
 1. Launch MCPOrb Runner.
 2. Open the Settings tab → "Orb Library Folder" → "Choose…".
 3. Pick a folder such as ~/Documents/MCPOrb.
-4. Import an Orb ZIP. The file is stored inside the chosen folder (visible in Finder).
+4. Download an Orb from the Store. The file is saved directly to the chosen folder.
+5. Import an Orb ZIP. The file is stored inside the chosen folder (visible in Finder).
 ```
 
 ### 本地验证清单(重新提交前)
@@ -52,11 +57,12 @@ Steps to reproduce the Orb Library folder feature:
 cargo test --workspace
 
 # 2. 构建 + 签名 + 打包(版本号自定)
-scripts/build-mas.sh 1.2.3
+scripts/build-mas.sh 1.3.0
 
 # 3. 安装 pkg 后手动验证
 #    - 设置页可见 "Orb Library Folder" 行(仅 macOS)
-#    - 选择文件夹 → 导入 ZIP → Finder 中可见该 ZIP
+#    - 选择文件夹 → 从 Store 下载 Orb → Finder 中可见该 ZIP (不在容器内)
+#    - 选择文件夹 → 导入本地 ZIP → Finder 中可见该 ZIP
 #    - 完全退出 App 后重启 → 导入的 Orb 仍可搜索/启动(bookmark 生效)
 #    - HTTP 标签页启动 Orb → 局域网绑定选项仍可用
 ```
@@ -65,8 +71,8 @@ scripts/build-mas.sh 1.2.3
 
 | 文件 | 改动 |
 |---|---|
-| `crates/mcporb-runtime-app/src/macos_access.rs` | 新增:CoreFoundation FFI(bookmark 创建/解析/访问守卫,仅 macOS) |
-| `crates/mcporb-runtime-app/src/main.rs` | `choose_orb_library_dir` / `get_platform` 命令;启动时恢复 bookmark 访问;`save_settings` 合并库字段 |
-| `crates/mcporb-runtime-app-core/src/settings.rs` | `RuntimeSettings` 新增 `orb_library_dir` / `orb_library_bookmark`(serde default,旧配置兼容) |
-| `crates/mcporb-runtime-app-core/src/registry.rs` | `RegistryStore::with_orbs_dir`(注册表元数据与 Orbs 目录分离) |
-| `crates/mcporb-runtime-app/frontend/{index.html,app.js,style.css}` | Settings 页 Orb Library 文件夹选择(macOS 仅显示,三语 i18n) |
+| `crates/mcporb-runtime-app/src/main.rs` | `store_download_artifact` 下载到 Orb Library 文件夹而非沙盒容器 |
+| `crates/mcporb-runtime-app/src/macos_access.rs` | CoreFoundation FFI (bookmark 创建/解析/访问守卫, 仅 macOS) |
+| `crates/mcporb-runtime-app-core/src/settings.rs` | `RuntimeSettings` 包含 `orb_library_dir` / `orb_library_bookmark` |
+| `crates/mcporb-runtime-app-core/src/registry.rs` | `RegistryStore::with_orbs_dir` (注册表元数据与 Orbs 目录分离) |
+| `crates/mcporb-runtime-app/frontend/{index.html,app.js,style.css}` | Settings 页 Orb Library 文件夹选择 (macOS 仅显示, 三语 i18n) |
