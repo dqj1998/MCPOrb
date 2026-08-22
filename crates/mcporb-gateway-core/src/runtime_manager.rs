@@ -413,10 +413,32 @@ async fn spawn_orb_process(
         .and_then(|settings| settings.orb_library_bookmark)
         .filter(|bookmark| !bookmark.is_empty());
 
+    // macOS App Sandbox: when the Orb ZIP lives outside the sandbox container,
+    // fork+exec child processes cannot access it (sandbox extensions don't
+    // inherit). The gateway (exec'd from Runner.app) retains read access, so
+    // it reads the ZIP and pipes it to the child via stdin.
+    #[cfg(target_os = "macos")]
+    let zip_via_stdin = {
+        let sandbox_container = config
+            .registry_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        match sandbox_container {
+            Some(container) => !orb.zip_path.starts_with(&container) && orb.zip_path.exists(),
+            None => false,
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let zip_via_stdin = false;
+
     let mut cmd = tokio::process::Command::new(runtime_binary);
-    cmd.arg("--orb-zip")
-        .arg(&orb.zip_path)
-        .arg("--stdio-only")
+    if zip_via_stdin {
+        cmd.arg("--orb-zip-stdin");
+    } else {
+        cmd.arg("--orb-zip").arg(&orb.zip_path);
+    }
+    cmd.arg("--stdio-only")
         .arg("--orb-id")
         .arg(&orb.id)
         .arg("--metrics-dir")
@@ -432,10 +454,29 @@ async fn spawn_orb_process(
     }
     let mut child = cmd.spawn().context("failed to spawn mcporb-runtime process")?;
 
-    let stdin = child
+    let mut stdin = child
         .stdin
         .take()
         .context("failed to capture child stdin")?;
+
+    // When piping the ZIP via stdin, read it in the gateway process (which
+    // retains sandbox read access via exec()) and write it to the child.
+    // The child reads the ZIP first, then switches to serving MCP requests
+    // on the same stdin.
+    if zip_via_stdin {
+        let zip_bytes = std::fs::read(&orb.zip_path).context(format!(
+            "gateway: failed to read Orb ZIP for stdin pipe: {}",
+            orb.zip_path.display()
+        ))?;
+        let len_bytes = (zip_bytes.len() as u64).to_le_bytes();
+        stdin.write_all(&len_bytes).await.context(
+            "failed to write ZIP length header to child stdin",
+        )?;
+        stdin
+            .write_all(&zip_bytes)
+            .await
+            .context("failed to write Orb ZIP to child stdin")?;
+    }
     let stdout = child
         .stdout
         .take()
