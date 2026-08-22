@@ -67,6 +67,11 @@ pub struct OrbArgs {
     /// non-macOS platforms.
     #[arg(long, hide = true)]
     pub library_bookmark: Option<String>,
+    /// Read the Orb ZIP from stdin instead of a file path. Used by the
+    /// gateway when the Orb ZIP lives outside the sandbox container and
+    /// the child process cannot access it directly (macOS App Sandbox).
+    #[arg(long, hide = true)]
+    pub orb_zip_stdin: bool,
 }
 
 pub struct StartupConfig {
@@ -76,6 +81,7 @@ pub struct StartupConfig {
     pub token: Option<String>,
     pub assets_path: Option<std::path::PathBuf>,
     pub orb_zip_path: Option<std::path::PathBuf>,
+    pub orb_zip_stdin: bool,
     pub orb_id: Option<String>,
     pub metrics_dir: Option<std::path::PathBuf>,
     pub bind_external: bool,
@@ -113,6 +119,7 @@ pub fn detect_startup(args: &OrbArgs) -> StartupConfig {
         token: args.token.clone(),
         assets_path: args.assets.clone(),
         orb_zip_path: args.orb_zip.clone(),
+        orb_zip_stdin: args.orb_zip_stdin,
         orb_id: args.orb_id.clone(),
         metrics_dir: args.metrics_dir.clone(),
         bind_external: args.bind_external,

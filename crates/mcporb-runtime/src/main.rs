@@ -147,6 +147,21 @@ fn load_orb_zip_data(zip_path: &std::path::Path) -> anyhow::Result<LoadedOrb> {
     load_orb_from_archive(&mut archive)
 }
 
+fn load_orb_zip_from_stdin() -> anyhow::Result<LoadedOrb> {
+    use std::io::Read;
+    let mut header = [0u8; 8];
+    std::io::stdin()
+        .read_exact(&mut header)
+        .map_err(|e| anyhow::anyhow!("failed to read ZIP length header from stdin: {e}"))?;
+    let zip_len = u64::from_le_bytes(header) as usize;
+    let mut bundle_bytes = vec![0u8; zip_len];
+    std::io::stdin()
+        .read_exact(&mut bundle_bytes)
+        .map_err(|e| anyhow::anyhow!("failed to read Orb ZIP from stdin ({zip_len} bytes): {e}"))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bundle_bytes))?;
+    load_orb_from_archive(&mut archive)
+}
+
 /// Shared bundle reader for appended and sidecar `.orb` layouts. Reads the
 /// optional `orb_security.json` first (plan §4.2), then the plaintext knowledge
 /// assets. (Asset-encryption — skipping the plaintext reads in favor of
@@ -607,7 +622,7 @@ fn sidecar_bundle_path(binary_path: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn detect_orb_binary_path(config: &startup::StartupConfig) -> Option<String> {
-    if config.assets_path.is_some() || config.orb_zip_path.is_some() {
+    if config.assets_path.is_some() || config.orb_zip_path.is_some() || config.orb_zip_stdin {
         return None;
     }
 
@@ -660,6 +675,8 @@ async fn main() -> anyhow::Result<()> {
 
     let loaded = if let Some(ref p) = config.assets_path {
         load_orb_data(p)?
+    } else if config.orb_zip_stdin {
+        load_orb_zip_from_stdin()?
     } else if let Some(ref p) = config.orb_zip_path {
         load_orb_zip_data(p)?
     } else if embedded_orb::HAS_EMBEDDED_ORB {
