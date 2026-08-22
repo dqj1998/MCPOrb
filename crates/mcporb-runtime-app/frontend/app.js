@@ -36,6 +36,10 @@ const importState = {
 
 const $ = (id) => document.getElementById(id);
 
+function isMacPlatform(platform) {
+  return ['macos', 'darwin', 'osx'].includes(String(platform || '').toLowerCase());
+}
+
 // ── Theme (Light / Dark / System) ─────────────────────────────────────────
 
 const THEME_KEY = 'mcporb-runner-theme';
@@ -172,10 +176,10 @@ const locales = {
     'running.gateway_resetting': 'Resetting…',
     'running.gateway_token_copied': 'Connection string copied.',
     'running.gateway_reset_confirm': 'Reset the gateway token? Connected MCP clients will lose access until you update their connection string.',
+    'running.gateway_reset_failed': 'Failed to reset gateway token: {error}',
     /* settings */
     'settings.title': 'Settings',
     'settings.save_btn': 'Save',
-    'settings.download_dir_label': 'Download Directory',
     'settings.http_port_label': 'HTTP MCP Port',
     'settings.network_binding_label': 'Network Binding',
     'settings.localhost_opt': 'Localhost (127.0.0.1) — Recommended',
@@ -385,9 +389,9 @@ const locales = {
     'running.gateway_resetting': '再発行中…',
     'running.gateway_token_copied': '接続文字列をコピーしました。',
     'running.gateway_reset_confirm': 'ゲートウェイトークンを再発行しますか？ 接続中のMCPクライアントは、接続文字列を更新するまでアクセスできなくなります。',
+    'running.gateway_reset_failed': 'ゲートウェイトークンの再発行に失敗しました: {error}',
     /* settings */
     'settings.save_btn': '保存',
-    'settings.download_dir_label': 'ダウンロードディレクトリ',
     'settings.http_port_label': 'HTTP MCPポート',
     'settings.network_binding_label': 'ネットワークバインディング',
     'settings.localhost_opt': 'ローカルホスト (127.0.0.1) — 推奨',
@@ -598,9 +602,9 @@ const locales = {
     'running.gateway_resetting': '重置中…',
     'running.gateway_token_copied': '连接字符串已复制。',
     'running.gateway_reset_confirm': '确定重置网关令牌吗？已连接的 MCP 客户端在更新连接字符串之前将无法访问。',
+    'running.gateway_reset_failed': '重置网关令牌失败: {error}',
     'settings.title': '设置',
     'settings.save_btn': '保存',
-    'settings.download_dir_label': '下载目录',
     'settings.http_port_label': 'HTTP MCP端口',
     'settings.network_binding_label': '网络绑定',
     'settings.localhost_opt': '本地主机 (127.0.0.1) — 推荐',
@@ -850,8 +854,9 @@ function bindActions() {
   $('btn-choose-orb-library').addEventListener('click', chooseOrbLibraryDir);
   const fixBtn = $('btn-fix-library-bookmark');
   if (fixBtn) fixBtn.addEventListener('click', fixLibraryBookmark);
-  ['settings-download-dir', 'settings-http-port', 'settings-network-binding'].forEach((id) => {
-    $(id).addEventListener('input', markSettingsEdited);
+  ['settings-http-port', 'settings-network-binding'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('input', markSettingsEdited);
   });
   $('btn-onboarding-default').addEventListener('click', onboardingUseDefault);
   $('btn-onboarding-choose').addEventListener('click', onboardingChooseDifferent);
@@ -1168,6 +1173,7 @@ async function loadStatus() {
     $('app-version').textContent = `v${status.version}`;
   } catch (error) {
     console.error(error);
+    $('app-version').textContent = t('status.static_preview');
   }
 }
 
@@ -1671,7 +1677,6 @@ async function loadSettings() {
   if (!invoke) return;
   try {
     const settings = await invoke('get_settings');
-    $('settings-download-dir').value = settings.download_dir || '';
     $('settings-http-port').value = settings.http_port || 5599;
     $('settings-network-binding').value = settings.network_binding || 'localhost';
     try {
@@ -1680,17 +1685,17 @@ async function loadSettings() {
       state.platform = 'unknown';
     }
     const libraryGroup = $('orb-library-group');
-    if (libraryGroup) libraryGroup.style.display = state.platform === 'macos' ? '' : 'none';
+    if (libraryGroup) libraryGroup.style.display = isMacPlatform(state.platform) ? '' : 'none';
     if (settings.orb_library_dir) {
       state.orbLibraryDir = settings.orb_library_dir;
       $('settings-orb-library-dir').value = settings.orb_library_dir;
     }
     // Show first-launch onboarding on macOS when user hasn't set a folder yet.
-    if (state.platform === 'macos' && !settings.onboarding_complete && !settings.orb_library_dir) {
+    if (isMacPlatform(state.platform) && !settings.onboarding_complete && !settings.orb_library_dir) {
       showOnboardingModal();
     }
     // Warn if the saved bookmark is stale (e.g. after a TestFlight reinstall).
-    if (state.platform === 'macos' && settings.orb_library_dir) {
+    if (isMacPlatform(state.platform) && settings.orb_library_dir) {
       try {
         const health = await invoke('get_library_health');
         const statusEl = $('settings-status');
@@ -1710,7 +1715,7 @@ async function loadSettings() {
 async function chooseOrbLibraryDir() {
   if (!invoke) return;
   try {
-    const result = await invoke('choose_orb_library_dir');
+    const result = await invoke('choose_orb_library_dir_suggested');
     if (!result?.path) return;
     if (result.pending) {
       state.pendingLibraryChange = { path: result.path, orbCount: result.orb_count };
@@ -1902,7 +1907,6 @@ let savedSettingsSnapshot = null;
 
 function captureSettingsSnapshot() {
   savedSettingsSnapshot = {
-    download_dir: $('settings-download-dir').value,
     http_port: $('settings-http-port').value,
     network_binding: $('settings-network-binding').value,
     orb_library_dir: state.orbLibraryDir || '',
@@ -1912,7 +1916,6 @@ function captureSettingsSnapshot() {
 function settingsHaveUnsavedChanges() {
   if (!savedSettingsSnapshot) return false;
   return (
-    savedSettingsSnapshot.download_dir !== $('settings-download-dir').value ||
     savedSettingsSnapshot.http_port !== $('settings-http-port').value ||
     savedSettingsSnapshot.network_binding !== $('settings-network-binding').value ||
     savedSettingsSnapshot.orb_library_dir !== (state.orbLibraryDir || '')
@@ -1943,7 +1946,6 @@ async function saveSettings() {
   if (!invoke) return;
   feedbackBtn($('btn-save-settings'), 'feedback.saved');
   const settings = {
-    download_dir: $('settings-download-dir').value,
     http_port: parseInt($('settings-http-port').value, 10) || 5599,
     network_binding: $('settings-network-binding').value,
     orb_library_dir: state.orbLibraryDir || null,
@@ -1989,6 +1991,7 @@ function renderRunning(running) {
         <button class="btn btn-secondary btn-sm" id="copy-gateway-http-config">${t('running.copy_config_btn')}</button>
       </div>
       <div id="gateway-status-line" class="status-line muted-card">${t('running.loading')}</div>
+      <div id="gateway-note" class="note-card hidden"></div>
       <button class="btn btn-primary btn-sm hidden" id="btn-gateway-toggle"></button>
       <div id="gateway-conn-row" class="hidden">
         <div class="conn-string-title">${t('running.gateway_conn_title')}</div>
@@ -2035,6 +2038,15 @@ async function refreshGatewayStatus() {
   if (!line || !btn) return;
   try {
     const s = await invoke('unified_gateway_status');
+    const noteEl = $('gateway-note');
+    if (noteEl) {
+      if (s.note) {
+        noteEl.textContent = s.note;
+        noteEl.classList.remove('hidden');
+      } else {
+        noteEl.classList.add('hidden');
+      }
+    }
     const connRow = $('gateway-conn-row');
     if (s.running) {
       line.textContent = t('running.gateway_status_running', { url: s.url });
@@ -2081,6 +2093,9 @@ async function refreshGatewayStatus() {
           resetBtn.disabled = true;
           try {
             await invoke('reset_gateway_token');
+          } catch (err) {
+            console.error('reset_gateway_token failed:', err);
+            alert(t('running.gateway_reset_failed', { error: String(err) }));
           } finally {
             refreshGatewayStatus();
             refreshGatewayHttpConfig();

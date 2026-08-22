@@ -256,6 +256,7 @@ h1 { font-size: 20px; font-weight: 700; }
 
 .status-line { min-height: 20px; color: var(--color-text-dim); margin-bottom: 8px; overflow-wrap: break-word; word-break: break-all; }
 .status-line.error, .status-card.error { color: var(--color-accent-text); border-color: rgba(244, 67, 54, 0.45); }
+.note-card { color: var(--color-text); background: rgba(255, 179, 0, 0.12); border: 1px solid rgba(255, 179, 0, 0.5); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; overflow-wrap: break-word; word-break: break-all; }
 .hidden { display: none; }
 
 .result-list, .orb-grid, .config-list, .settings-grid, .config-cards { display: grid; gap: 10px; }
