@@ -94,6 +94,9 @@ struct UnifiedGatewayStatus {
     port: u16,
     url: String,
     token: Option<String>,
+    /// Non-blocking notice for the UI, e.g. when the configured port was
+    /// occupied by another process and the gateway fell back to a different one.
+    note: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -880,21 +883,142 @@ async fn is_port_listening(port: u16) -> bool {
         .is_ok()
 }
 
+/// Probe whether a gateway is already listening on `port` AND will accept
+/// `token`. Returns true only if the endpoint answers an MCP `initialize`
+/// with HTTP 200 — a foreign listener rejects our token with 401, and an
+/// unrelated service won't speak MCP. Used so repeated app launches reuse an
+/// existing gateway instead of spawning a new one on a fresh port each time.
+async fn gateway_accepts_token(port: u16, token: &str) -> bool {
+    let body = match serde_json::to_string(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "mcporb-runner-probe", "version": "1.0"}
+        }
+    })) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    let request = format!(
+        "POST /mcp?token={token} HTTP/1.1\r\n\
+         Host: 127.0.0.1:{port}\r\n\
+         Content-Type: application/json\r\n\
+         Accept: application/json, text/event-stream\r\n\
+         Content-Length: {len}\r\n\
+         Connection: close\r\n\
+         \r\n{body}",
+        token = token,
+        port = port,
+        len = body.len(),
+        body = body,
+    );
+
+    let probe = async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+        stream.write_all(request.as_bytes()).await?;
+        let mut buf = [0u8; 256];
+        let n = stream.read(&mut buf).await?;
+        let head = String::from_utf8_lossy(&buf[..n]);
+        Ok::<_, std::io::Error>(
+            head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200"),
+        )
+    };
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_millis(800), probe).await,
+        Ok(Ok(true))
+    )
+}
+
 async fn unified_gateway_status_impl(state: &AppState) -> Result<UnifiedGatewayStatus, String> {
     let settings = state.settings.lock().await.load().map_err(to_string)?;
     let port = settings.http_port;
-    let running = state
-        .running_children
-        .lock()
-        .await
-        .contains_key(UNIFIED_GATEWAY_KEY)
-        && is_port_listening(port).await;
+    // A foreign process could be answering `port` while our child is dead, so we
+    // gate on OUR child being alive. A dead child is reaped so it can restart.
+    let running = {
+        let mut children = state.running_children.lock().await;
+        let alive = match children.get_mut(UNIFIED_GATEWAY_KEY) {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => false,
+        };
+        if alive {
+            is_port_listening(port).await
+        } else {
+            children.remove(UNIFIED_GATEWAY_KEY);
+            // No child we own, but a previous launch may have left a gateway
+            // running with our token. Report it as running so the UI stays
+            // consistent with ensure_unified_gateway_impl (which reuses it).
+            let token = settings.gateway_token.clone().unwrap_or_default();
+            gateway_accepts_token(port, &token).await
+        }
+    };
     Ok(UnifiedGatewayStatus {
         running,
         port,
         url: unified_gateway_url(port, settings.network_binding),
         token: settings.gateway_token.clone(),
+        note: None,
     })
+}
+
+/// Wait for a port to become free (stop being listened on).
+/// Used after killing a gateway process to ensure the port is released
+/// before spawning a new one (avoids `EADDRINUSE` on immediate restart).
+async fn wait_for_port_free(port: u16, timeout_ms: u64) -> bool {
+    let step = 100u64;
+    let mut elapsed = 0u64;
+    while elapsed < timeout_ms {
+        if !is_port_listening(port).await {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(step)).await;
+        elapsed += step;
+    }
+    !is_port_listening(port).await
+}
+
+/// How many ports above the configured `http_port` to try when the base port
+/// is already occupied by another process (e.g. another MCPOrb instance).
+const GATEWAY_PORT_FALLBACK_RANGE: u16 = 10;
+
+/// Pure, testable port selection: the first port in
+/// `[base, base + GATEWAY_PORT_FALLBACK_RANGE]` that `is_occupied` reports as
+/// free. Mirrors the async selection done in `ensure_unified_gateway_impl`.
+#[cfg(test)]
+fn choose_gateway_port(base: u16, is_occupied: impl Fn(u16) -> bool) -> Option<u16> {
+    let end = base.saturating_add(GATEWAY_PORT_FALLBACK_RANGE);
+    (base..=end).find(|&p| !is_occupied(p))
+}
+
+#[cfg(test)]
+mod gateway_port_selection_tests {
+    use super::*;
+
+    #[test]
+    fn uses_base_port_when_free() {
+        assert_eq!(choose_gateway_port(5599, |_| false), Some(5599));
+    }
+
+    #[test]
+    fn falls_back_when_base_occupied() {
+        assert_eq!(choose_gateway_port(5599, |p| p == 5599), Some(5600));
+    }
+
+    #[test]
+    fn falls_back_past_multiple_occupied() {
+        assert_eq!(
+            choose_gateway_port(5599, |p| p == 5599 || p == 5600),
+            Some(5601)
+        );
+    }
+
+    #[test]
+    fn none_when_all_occupied() {
+        assert_eq!(choose_gateway_port(5599, |_| true), None);
+    }
 }
 
 async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayStatus, String> {
@@ -910,7 +1034,7 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
     let gateway_bin = default_gateway_http_binary()
         .ok_or_else(|| "mcporb-gateway-http binary not found next to mcporb-runner".to_string())?;
 
-    let (port, token, bind_addr) = {
+    let (base_port, token, binding) = {
         let store = state.settings.lock().await;
         let mut settings = store.load().map_err(to_string)?;
         if settings.gateway_token.as_deref().map_or(true, str::is_empty) {
@@ -920,28 +1044,90 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
         (
             settings.http_port,
             settings.gateway_token.clone().unwrap_or_default(),
-            unified_gateway_bind_addr(settings.network_binding),
+            settings.network_binding,
         )
     };
+    // Reuse an existing gateway if one is already running with OUR token.
+    // Without this, every launch would see the previous launch's gateway as
+    // "occupied" and spawn a fresh one on a new port (port proliferation).
+    {
+        let end = base_port.saturating_add(GATEWAY_PORT_FALLBACK_RANGE);
+        let mut reuse: Option<u16> = None;
+        for p in base_port..=end {
+            if gateway_accepts_token(p, &token).await {
+                reuse = Some(p);
+                break;
+            }
+        }
+        if let Some(port) = reuse {
+            // Persist the port so future launches keep reusing the same one.
+            let store = state.settings.lock().await;
+            let mut settings = store.load().map_err(to_string)?;
+            if settings.http_port != port {
+                settings.http_port = port;
+                store.save(&settings).map_err(to_string)?;
+            }
+            return Ok(UnifiedGatewayStatus {
+                running: true,
+                port,
+                url: unified_gateway_url(port, binding),
+                token: Some(token),
+                note: None,
+            });
+        }
+    }
+
     let registry_root = state.registry.root_dir().to_path_buf();
 
+    // Choose a port, falling back from `base_port` when it is occupied by a
+    // foreign process. Below we verify that OUR child actually comes up on the
+    // chosen port; if it dies on bind (EADDRINUSE) we would otherwise mistake a
+    // foreign listener for success.
+    let candidate = {
+        let mut found = None;
+        let end = base_port.saturating_add(GATEWAY_PORT_FALLBACK_RANGE);
+        for p in base_port..=end {
+            if !is_port_listening(p).await {
+                found = Some(p);
+                break;
+            }
+        }
+        found
+    };
+    let candidate = match candidate {
+        Some(p) => p,
+        None => {
+            return Err(format!(
+                "unified gateway could not find a free port in {base_port}..={}",
+                base_port.saturating_add(GATEWAY_PORT_FALLBACK_RANGE)
+            ))
+        }
+    };
+
+    // Let a just-released port leave TIME_WAIT before binding.
+    wait_for_port_free(candidate, 1000).await;
+
+    let bind_addr = unified_gateway_bind_addr(binding.clone());
     let mut cmd = tokio::process::Command::new(&gateway_bin);
     cmd.arg("--registry-dir")
         .arg(&registry_root)
         .arg("--port")
-        .arg(port.to_string())
+        .arg(candidate.to_string())
         .arg("--bind")
-        .arg(bind_addr)
+        .arg(&bind_addr)
         .arg("--token")
         .arg(&token)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn {gateway_bin:?}: {e}"))?;
 
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return Err(format!("Failed to launch gateway binary: {e}")),
+    };
+
+    // Drain child stderr for diagnostics (also prevents pipe-buffer deadlock).
     if let Some(stderr) = child.stderr.take() {
         let reader = tokio::io::BufReader::new(stderr);
         tokio::spawn(async move {
@@ -953,33 +1139,67 @@ async fn ensure_unified_gateway_impl(state: &AppState) -> Result<UnifiedGatewayS
         });
     }
 
+    // Confirm OUR child came up: it must still be alive AND the port must
+    // answer. A foreign listener would make the port answer while our child is
+    // already dead (EADDRINUSE), so child liveness is the decisive signal.
+    let mut started = false;
+    for _ in 0..30 {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if is_port_listening(candidate).await {
+                    started = true;
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "gateway child wait error");
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    if !started {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Err(format!(
+            "gateway failed to start on port {candidate} (port may be occupied by another process)"
+        ));
+    }
+
     state
         .running_children
         .lock()
         .await
         .insert(UNIFIED_GATEWAY_KEY.to_string(), child);
 
-    for _ in 0..30 {
-        if is_port_listening(port).await {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    // Persist the resolved port so the copy link + client config stay stable
+    // across restarts, and so we don't fall back again on the next launch.
+    let note = if candidate != base_port {
+        let store = state.settings.lock().await;
+        let mut settings = store.load().map_err(to_string)?;
+        settings.http_port = candidate;
+        store.save(&settings).map_err(to_string)?;
+        Some(format!(
+            "Port {base_port} was occupied by another process; gateway is using {candidate}."
+        ))
+    } else {
+        None
+    };
 
-    if !is_port_listening(port).await {
-        if let Some(mut c) = state.running_children.lock().await.remove(UNIFIED_GATEWAY_KEY) {
-            let _ = c.kill().await;
-        }
-        return Err(format!(
-            "unified gateway failed to listen on {port} (check for a port conflict)"
-        ));
-    }
-
-    tracing::info!(%port, registry_root = %registry_root.display(), "unified HTTP gateway started");
-    unified_gateway_status_impl(state).await
+    tracing::info!(port = candidate, "unified HTTP gateway started");
+    Ok(UnifiedGatewayStatus {
+        running: true,
+        port: candidate,
+        url: unified_gateway_url(candidate, binding),
+        token: Some(token),
+        note,
+    })
 }
 
 async fn stop_unified_gateway_impl(state: &AppState) -> Result<(), String> {
+    // 1. If we own the child process, kill it directly.
     if let Some(mut child) = state
         .running_children
         .lock()
@@ -988,8 +1208,35 @@ async fn stop_unified_gateway_impl(state: &AppState) -> Result<(), String> {
     {
         let _ = child.kill().await;
         let _ = child.wait().await;
+        return Ok(());
+    }
+    // 2. Otherwise we may have adopted a gateway from a previous launch that we
+    //    don't own as a child. Kill it by port — but only if it's OURS (it
+    //    accepts our token), never a foreign listener (e.g. the debug gateway).
+    let settings = state.settings.lock().await.load().map_err(to_string)?;
+    let port = settings.http_port;
+    let token = settings.gateway_token.clone().unwrap_or_default();
+    if gateway_accepts_token(port, &token).await {
+        kill_listener_on_port(port).await;
     }
     Ok(())
+}
+
+/// Best-effort kill of whatever process is listening on `port`, used to stop a
+/// gateway we adopted from a previous launch (we don't own its child handle).
+/// No-op on platforms without `lsof`/signals.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+async fn kill_listener_on_port(port: u16) {
+    use std::process::Command;
+    let i_arg = format!("-iTCP:{port}");
+    if let Ok(out) = Command::new("lsof").args(["-n", &i_arg, "-sTCP:LISTEN"]).output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for pid in text.split_whitespace() {
+                let _ = Command::new("kill").args(["-TERM", pid]).status();
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -1940,9 +2187,21 @@ fn resolve_gateway_http_binary_in(dir: &std::path::Path) -> Option<PathBuf> {
 
 /// The path to the `mcporb-gateway-http` binary, resolved relative to the
 /// current executable.
+///
+/// Walks up a few parent directories so the binary is also located when the
+/// current executable lives in a subdirectory of the binaries folder — e.g.
+/// `target/debug/deps/<test>` while the gateway binary sits in `target/debug`
+/// under `cargo test`. Bounded to avoid escaping the workspace.
 fn default_gateway_http_binary() -> Option<PathBuf> {
-    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    resolve_gateway_http_binary_in(&dir)
+    let exe = std::env::current_exe().ok()?;
+    let mut dir = exe.parent()?.to_path_buf();
+    for _ in 0..4 {
+        if let Some(path) = resolve_gateway_http_binary_in(&dir) {
+            return Some(path);
+        }
+        dir = dir.parent()?.to_path_buf();
+    }
+    None
 }
 
 /// The path to the `mcporb-gateway-stdio` binary, resolved relative to the
@@ -2465,5 +2724,319 @@ mod tests {
         assert!(url.starts_with("http://"), "unexpected url: {url}");
         assert!(url.ends_with(":5599/mcp"), "unexpected url: {url}");
         assert!(!url.contains("0.0.0.0"), "external url must not be 0.0.0.0: {url}");
+    }
+
+    // ── unified gateway port-fallback E2E ──────────────────────────────────
+
+    #[test]
+    fn gateway_status_ui_renders_fallback_note() {
+        let app_js = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend/app.js"),
+        )
+        .expect("frontend/app.js must exist next to the crate");
+        assert!(
+            app_js.contains("gateway-note"),
+            "gateway status UI must render a note element for port fallback"
+        );
+        assert!(
+            app_js.contains("s.note"),
+            "gateway status UI must surface the backend `note` field"
+        );
+    }
+
+    #[test]
+    fn ensure_unified_gateway_falls_back_when_base_port_occupied() {
+        tauri::async_runtime::block_on(async {
+            // Occupy the configured base port (5599) so the gateway cannot bind
+            // there and must fall back. If a foreign process already holds 5599
+            // (the exact production collision this fixes), we reuse that — either
+            // way the port reads as occupied for the rest of the test.
+            let _blocker = tokio::net::TcpListener::bind(("127.0.0.1", 5599)).await.ok();
+
+            let settings_dir = tempfile::tempdir().unwrap();
+            let registry_dir = tempfile::tempdir().unwrap();
+
+            let settings_store = SettingsStore::new(settings_dir.path().to_path_buf());
+            let mut settings = RuntimeSettings::default();
+            settings.http_port = 5599;
+            settings.gateway_token = Some("test-token-e2e".to_string());
+            settings_store.save(&settings).unwrap();
+
+            let state = AppState {
+                registry: RegistryStore::new(registry_dir.path().to_path_buf()),
+                settings: Arc::new(Mutex::new(settings_store)),
+                running_orbs: Arc::new(Mutex::new(vec![])),
+                running_children: Arc::new(Mutex::new(HashMap::new())),
+                pending_library_pick: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_access: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_bookmark_stale: Arc::new(AtomicBool::new(false)),
+            };
+
+            let status = ensure_unified_gateway_impl(&state)
+                .await
+                .expect("ensure_unified_gateway_impl failed");
+
+            assert!(status.running, "gateway should be running after fallback");
+            assert_ne!(
+                status.port, 5599,
+                "gateway must not bind the occupied base port"
+            );
+            assert!(
+                status.port >= 5600,
+                "gateway should fall back to a higher port, got {}",
+                status.port
+            );
+            assert_eq!(
+                status.url,
+                format!("http://127.0.0.1:{}/mcp", status.port)
+            );
+            assert_eq!(status.token.as_deref(), Some("test-token-e2e"));
+
+            let note = status
+                .note
+                .expect("note should explain the port fallback");
+            assert!(
+                note.contains("5599"),
+                "note should mention the occupied port: {note}"
+            );
+            assert!(
+                note.contains(&status.port.to_string()),
+                "note should mention the chosen port: {note}"
+            );
+
+            let reloaded = state.settings.lock().await.load().unwrap();
+            assert_eq!(
+                reloaded.http_port, status.port,
+                "resolved port must be persisted to settings"
+            );
+
+            stop_unified_gateway_impl(&state).await.unwrap();
+            let after = unified_gateway_status_impl(&state).await.unwrap();
+            assert!(!after.running, "gateway should be stopped after teardown");
+        });
+    }
+
+    // ── unified gateway reuse (no port proliferation) ──────────────────────
+
+    #[test]
+    fn ensure_unified_gateway_reuses_existing_gateway_with_same_token() {
+        tauri::async_runtime::block_on(async {
+            let port = 5611;
+            let token = "reuse-token-e2e".to_string();
+
+            let bin = default_gateway_http_binary()
+                .expect("gateway binary must be discoverable for the test");
+            let registry_dir = tempfile::tempdir().unwrap();
+            let mut gw = tokio::process::Command::new(&bin)
+                .arg("--registry-dir")
+                .arg(registry_dir.path())
+                .arg("--port")
+                .arg(port.to_string())
+                .arg("--bind")
+                .arg("127.0.0.1")
+                .arg("--token")
+                .arg(&token)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .expect("spawn existing gateway");
+
+            let mut up = false;
+            for _ in 0..50 {
+                if is_port_listening(port).await {
+                    up = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            assert!(up, "existing gateway must be listening before reuse test");
+
+            let settings_dir = tempfile::tempdir().unwrap();
+            let settings_store = SettingsStore::new(settings_dir.path().to_path_buf());
+            let mut settings = RuntimeSettings::default();
+            settings.http_port = port;
+            settings.gateway_token = Some(token.clone());
+            settings_store.save(&settings).unwrap();
+
+            let state = AppState {
+                registry: RegistryStore::new(registry_dir.path().to_path_buf()),
+                settings: Arc::new(Mutex::new(settings_store)),
+                running_orbs: Arc::new(Mutex::new(vec![])),
+                running_children: Arc::new(Mutex::new(HashMap::new())),
+                pending_library_pick: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_access: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_bookmark_stale: Arc::new(AtomicBool::new(false)),
+            };
+
+            let status = ensure_unified_gateway_impl(&state)
+                .await
+                .expect("ensure_unified_gateway_impl failed");
+            assert!(status.running, "gateway should be running after reuse");
+            assert_eq!(status.port, port, "should reuse the existing port");
+            assert_eq!(status.token.as_deref(), Some(token.as_str()));
+            assert!(
+                status.note.is_none(),
+                "reuse must not produce a fallback note"
+            );
+            // Crucially: no NEW child was spawned — we adopted the existing one.
+            assert!(
+                state
+                    .running_children
+                    .lock()
+                    .await
+                    .get(UNIFIED_GATEWAY_KEY)
+                    .is_none(),
+                "reuse must not spawn a new tracked child"
+            );
+
+            let _ = gw.kill().await;
+        });
+    }
+
+    #[test]
+    fn ensure_unified_gateway_spawns_when_existing_gateway_has_wrong_token() {
+        tauri::async_runtime::block_on(async {
+            let occupied = 5612;
+            let wrong = "wrong-token-e2e".to_string();
+            let right = "right-token-e2e".to_string();
+
+            let bin = default_gateway_http_binary()
+                .expect("gateway binary must be discoverable for the test");
+            let registry_dir = tempfile::tempdir().unwrap();
+            let mut foreign = tokio::process::Command::new(&bin)
+                .arg("--registry-dir")
+                .arg(registry_dir.path())
+                .arg("--port")
+                .arg(occupied.to_string())
+                .arg("--bind")
+                .arg("127.0.0.1")
+                .arg("--token")
+                .arg(&wrong)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .expect("spawn foreign gateway");
+
+            let mut up = false;
+            for _ in 0..50 {
+                if is_port_listening(occupied).await {
+                    up = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            assert!(up, "foreign gateway must be listening before spawn test");
+
+            let settings_dir = tempfile::tempdir().unwrap();
+            let settings_store = SettingsStore::new(settings_dir.path().to_path_buf());
+            let mut settings = RuntimeSettings::default();
+            settings.http_port = occupied;
+            settings.gateway_token = Some(right.clone());
+            settings_store.save(&settings).unwrap();
+
+            let state = AppState {
+                registry: RegistryStore::new(registry_dir.path().to_path_buf()),
+                settings: Arc::new(Mutex::new(settings_store)),
+                running_orbs: Arc::new(Mutex::new(vec![])),
+                running_children: Arc::new(Mutex::new(HashMap::new())),
+                pending_library_pick: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_access: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_bookmark_stale: Arc::new(AtomicBool::new(false)),
+            };
+
+            let status = ensure_unified_gateway_impl(&state)
+                .await
+                .expect("ensure_unified_gateway_impl failed");
+            assert!(status.running, "gateway should be running after spawn");
+            assert_ne!(
+                status.port, occupied,
+                "must not adopt the wrong-token gateway's port"
+            );
+            assert_eq!(status.token.as_deref(), Some(right.as_str()));
+
+            // A new child was spawned (tracked), not adopted.
+            assert!(
+                state
+                    .running_children
+                    .lock()
+                    .await
+                    .get(UNIFIED_GATEWAY_KEY)
+                    .is_some(),
+                "must spawn a new tracked child when no reusable gateway exists"
+            );
+
+            stop_unified_gateway_impl(&state).await.unwrap();
+            let _ = foreign.kill().await;
+        });
+    }
+
+    #[test]
+    fn ensure_unified_gateway_does_not_proliferate_on_repeated_calls() {
+        tauri::async_runtime::block_on(async {
+            let port = 5621;
+            let token = "repeat-token-e2e".to_string();
+
+            let registry_dir = tempfile::tempdir().unwrap();
+            let settings_dir = tempfile::tempdir().unwrap();
+            let settings_store = SettingsStore::new(settings_dir.path().to_path_buf());
+            let mut settings = RuntimeSettings::default();
+            settings.http_port = port;
+            settings.gateway_token = Some(token.clone());
+            settings_store.save(&settings).unwrap();
+
+            let state = AppState {
+                registry: RegistryStore::new(registry_dir.path().to_path_buf()),
+                settings: Arc::new(Mutex::new(settings_store)),
+                running_orbs: Arc::new(Mutex::new(vec![])),
+                running_children: Arc::new(Mutex::new(HashMap::new())),
+                pending_library_pick: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_access: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                library_bookmark_stale: Arc::new(AtomicBool::new(false)),
+            };
+
+            // First launch: should spawn a fresh tracked gateway.
+            let r1 = ensure_unified_gateway_impl(&state)
+                .await
+                .expect("first ensure failed");
+            assert!(r1.running, "first launch should run");
+            let p1 = r1.port;
+            assert_eq!(
+                state.running_children.lock().await.len(),
+                1,
+                "exactly one tracked child after first launch"
+            );
+
+            // Second launch (e.g. GUI reopened / relaunched): must reuse the same
+            // port and must NOT spawn another child — this is the user's exact bug.
+            let r2 = ensure_unified_gateway_impl(&state)
+                .await
+                .expect("second ensure failed");
+            assert!(r2.running, "second launch should run");
+            assert_eq!(
+                r2.port, p1,
+                "repeated launch must reuse the same port (no proliferation)"
+            );
+            assert_eq!(
+                state.running_children.lock().await.len(),
+                1,
+                "still exactly one tracked child after repeated launch"
+            );
+
+            stop_unified_gateway_impl(&state).await.unwrap();
+            let after = unified_gateway_status_impl(&state).await.unwrap();
+            assert!(!after.running, "gateway should be stopped after teardown");
+        });
     }
 }
