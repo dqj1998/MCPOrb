@@ -14,3 +14,29 @@ jobs:
         run: cargo check --workspace
       - name: Cargo test
         run: cargo test --workspace
+
+  windows-nongating:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Capture environment versions
+        shell: pwsh
+        run: |
+          Write-Host "Runner OS: $env:RUNNER_OS"
+          Write-Host "Rust: $(rustc --version)"
+          Write-Host "Cargo: $(cargo --version)"
+          $webview2 = Get-ItemProperty -Path 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
+          if ($webview2 -and $webview2.pv) {
+            Write-Host "WebView2 Runtime: $($webview2.pv)"
+          } else {
+            Write-Host "WebView2 Runtime: not-found"
+          }
+          if (Get-Command msedgedriver -ErrorAction SilentlyContinue) {
+            Write-Host "EdgeDriver: $(msedgedriver --version)"
+          } else {
+            Write-Host "EdgeDriver: not-found"
+          }
+      - name: Cargo check (non-gating)
+        run: cargo check --workspace
