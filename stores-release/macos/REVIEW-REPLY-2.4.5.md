@@ -12,13 +12,15 @@
 
 The `com.apple.security.network.server` entitlement is actively used by core, user-facing functionality of MCPOrb Runner.
 
-MCPOrb Runner installs "Orb" knowledge bases and serves them to AI assistants (Claude Desktop, Cursor, VS Code, etc.) over the Model Context Protocol (MCP). The app bundles a helper executable, `mcporb-runtime`, which implements the MCP "Streamable HTTP" transport. When the user opens the app's "HTTP" tab and starts an Orb (the "Start HTTP" action), the app launches `mcporb-runtime` as a sandboxed child process with a `--port` argument. The runtime then creates a TCP listener and serves the Orb's search/tools endpoints over HTTP to connected MCP clients.
+/sessMCPOrb Runner installs "Orb" knowledge bases and serves them to AI assistants (Claude Desktop, Cursor, VS Code, etc.) over the Model Context Protocol (MCP). The app bundles a helper executable, `mcporb-gateway-http`, which implements the MCP "Streamable HTTP" transport. When the app starts its HTTP MCP gateway, it launches `mcporb-gateway-http` as a sandboxed child process with a `--port` and `--bind` argument. That helper then creates a TCP listener and serves the Orb routing endpoint over HTTP to connected MCP clients.
 
 Details:
-- The server socket is opened by the bundled `mcporb-runtime` executable, which is code-signed with the same entitlements (including `com.apple.security.network.server`) so it can bind the listening port inside the sandbox.
+- The server socket is opened by the bundled `mcporb-gateway-http` executable at `Contents/MacOS/mcporb-gateway-http`. The `com.apple.security.network.server` entitlement is declared by the app executable (`mcporb-runner`); the gateway helper is code-signed with `com.apple.security.inherit`, so it runs inside the app's sandbox — including the server-socket allowance that the app's entitlement grants. The helper is the nested executable that performs the `TcpListener::bind` call.
 - By default the server binds to the loopback interface (127.0.0.1, default port 5599) for local MCP clients.
-- The Settings tab includes a "Network binding" option. When set to "External", the app passes `--bind-external` to the runtime, which then binds 0.0.0.0 to accept incoming connections from other devices on the user's LAN — this is the inbound-connection functionality the entitlement covers.
+- The Settings tab includes a "Network binding" option. When set to "External", the app passes `--bind 0.0.0.0` to the gateway, which accepts incoming connections from other devices on the user's LAN — this is the inbound-connection functionality the entitlement covers.
 - Outbound connections (Store API, metrics) are covered by `com.apple.security.network.client`.
+
+To verify: launch MCPOrb Runner, open Settings, enable the HTTP MCP gateway, and observe the local endpoint shown by the app (for example, `http://127.0.0.1:5599/mcp`). Send an MCP `initialize` request to that endpoint; the bundled `mcporb-gateway-http` process accepts the incoming connection and returns the JSON-RPC response.
 
 Removing this entitlement would disable the app's advertised HTTP MCP server feature. We confirm it is not vestigial and is required for the app to function as described in its App Store listing.
 
