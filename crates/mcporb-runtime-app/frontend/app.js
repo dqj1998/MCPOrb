@@ -1279,7 +1279,7 @@ function renderLibrary(orbs) {
       ? `<span class="store-pill">🔒 ${escapeHtml(t('library.password_badge'))}${orb.password_persistence ? ` · ${escapeHtml(orb.password_persistence === 'remember_on_this_device' ? t('library.password_remembered') : t('library.password_every_launch'))}` : ''}</span>`
       : '';
     return `
-    <article class="orb-card">
+    <article class="orb-card" data-testid="library-orb-card" data-orb-id="${escapeHtml(orb.id)}">
       <div>
         <div class="orb-title">${escapeHtml(orb.display_name)}</div>
         <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? 'encrypted' : 'plaintext'}${passwordBadge ? ` ${passwordBadge}` : ''}</div>
@@ -1288,9 +1288,9 @@ function renderLibrary(orbs) {
         <div class="orb-stats-row" id="stats-${escapeHtml(orb.id)}"><span class="muted">—</span></div>
       </div>
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" data-search-orb="${escapeHtml(orb.id)}">${t('library.search_btn')}</button>
-        <button class="btn btn-secondary" data-qa-orb="${escapeHtml(orb.id)}">${t('library.qa_btn')}</button>
-        <button class="btn btn-danger" data-delete-orb="${escapeHtml(orb.id)}">${t('library.delete_btn')}</button>
+        <button class="btn btn-secondary" data-search-orb="${escapeHtml(orb.id)}" data-testid="orb-search-btn">${t('library.search_btn')}</button>
+        <button class="btn btn-secondary" data-qa-orb="${escapeHtml(orb.id)}" data-testid="orb-qa-btn">${t('library.qa_btn')}</button>
+        <button class="btn btn-danger" data-delete-orb="${escapeHtml(orb.id)}" data-testid="orb-delete-btn">${t('library.delete_btn')}</button>
       </div>
     </article>`;
   }).join('');
@@ -1458,7 +1458,7 @@ function renderOrbSearchResults(hits) {
     return;
   }
   $('orb-search-results').innerHTML = hits.map((hit) => `
-    <article class="result-item">
+    <article class="result-item" data-testid="orb-search-hit">
       <div class="result-meta">${escapeHtml(hit.document_title)}${hit.page ? ` · p.${hit.page}` : ''} · ${escapeHtml(hit.method)} · ${Number(hit.score).toFixed(3)}</div>
       <div class="result-text">${escapeHtml(hit.text)}</div>
     </article>
@@ -1565,7 +1565,7 @@ function renderQaHistory(response) {
     const transportLabel = entry.transport === 'http' ? 'HTTP' : 'STDIO';
 
     return `
-      <article class="qa-entry">
+      <article class="qa-entry" data-testid="qa-entry">
         <div class="qa-entry-header">
           <span>
             <span class="qa-entry-transport ${transportClass}">${transportLabel}</span>
@@ -1634,9 +1634,9 @@ async function generateMcpConfig() {
   feedbackBtn($('btn-generate-config'), 'feedback.generated');
   try {
     const snippets = await invoke('gateway_mcp_config_snippets');
-    $('mcp-config-list').innerHTML = snippets.map((snippet) => `
-      <article class="config-card">
-        <div class="config-card-header">
+  $('mcp-config-list').innerHTML = snippets.map((snippet) => `
+    <article class="config-card" data-testid="mcp-config-card">
+      <div class="config-card-header">
           <div class="config-meta">${escapeHtml(snippet.label)}</div>
           <button class="btn btn-secondary btn-sm" data-copy-config="${escapeHtml(snippet.client)}">${t('mcp.copy_config_btn')}</button>
         </div>
@@ -1985,7 +1985,7 @@ function renderRunning(running) {
   }
   // Show gateway HTTP config
   $('running-list').innerHTML = `
-    <article class="config-card">
+    <article class="config-card" data-testid="gateway-card">
       <div class="config-card-header">
         <div class="config-meta">MCPOrb Gateway HTTP</div>
         <button class="btn btn-secondary btn-sm" id="copy-gateway-http-config">${t('running.copy_config_btn')}</button>
@@ -2153,7 +2153,7 @@ function renderPlatformConfigs(configs) {
     const isSame = currentContent.trim() === generatedContent.trim();
 
     return `
-      <article class="platform-config-card">
+      <article class="platform-config-card" data-testid="platform-config-card" data-platform="${escapeHtml(cfg.platform)}">
         <div class="platform-config-header">
           <div>
             <div class="platform-config-name">${escapeHtml(cfg.display_name)}</div>
@@ -2172,7 +2172,7 @@ function renderPlatformConfigs(configs) {
           </div>
         </div>
         <div class="platform-config-actions">
-          <button class="btn btn-primary" data-apply-config="${escapeHtml(cfg.config_path)}" data-platform="${escapeHtml(cfg.platform)}" data-restart-hint-key="${escapeHtml(cfg.restart_hint || '')}" ${!cfg.exists || isSame || !generatedContent ? 'disabled' : ''}>${t('mcp.apply_btn')}</button>
+          <button class="btn btn-primary" data-apply-config="${escapeHtml(cfg.config_path)}" data-platform="${escapeHtml(cfg.platform)}" data-restart-hint-key="${escapeHtml(cfg.restart_hint || '')}" data-testid="apply-config-btn" ${!cfg.exists || isSame || !generatedContent ? 'disabled' : ''}>${t('mcp.apply_btn')}</button>
           ${cfg.restart_hint ? `<span class="platform-config-restart-hint">${escapeHtml(t(cfg.restart_hint))}</span>` : ''}
         </div>
         <div id="apply-status-${escapeHtml(cfg.platform)}" class="status-line"></div>
@@ -2509,7 +2509,7 @@ function renderStoreResults(response) {
                       orb.password_status === 'partial' ? t('store.password_status_partial') :
                       t('store.password_status_none');
     return `
-    <article class="orb-card" style="cursor:pointer;" onclick="showStoreDetail('${escapeHtml(orb.slug)}')">
+    <article class="orb-card" style="cursor:pointer;" data-testid="store-orb-card" data-slug="${escapeHtml(orb.slug)}" onclick="showStoreDetail('${escapeHtml(orb.slug)}')">
       <div>
         <h3 class="orb-title" style="margin:0 0 4px 0;">${escapeHtml(orb.display_name || orb.slug)}</h3>
         <div class="orb-meta" style="margin-bottom:8px;">

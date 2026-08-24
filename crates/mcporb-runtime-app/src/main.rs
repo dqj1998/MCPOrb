@@ -1843,10 +1843,18 @@ fn main() {
         library_bookmark_stale: Arc::new(AtomicBool::new(bookmark_stale)),
     };
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_clipboard_manager::init());
+    // E2E only: embedded WebDriver server for @wdio/tauri-service. Gated to
+    // the `webdriver` feature so it never ships in release / MAS (plan §5 / §13).
+    #[cfg(feature = "webdriver")]
+    {
+        builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    }
+
+    builder
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let state = window.app_handle().state::<AppState>().inner().clone();

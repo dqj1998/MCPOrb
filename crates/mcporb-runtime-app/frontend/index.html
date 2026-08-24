@@ -7,21 +7,21 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header id="app-header">
+  <header id="app-header" data-testid="app-header">
     <div class="header-left">
       <img class="app-logo" src="app-icon.png" alt="MCPOrb Runner" />
       <div class="app-brand">
         <span class="app-title">MCPOrb Runner</span>
-        <span id="app-version" class="app-version"></span>
+        <span id="app-version" class="app-version" data-testid="app-version"></span>
       </div>
     </div>
     <div class="header-right">
-      <select id="theme-select" class="theme-select">
+      <select id="theme-select" class="theme-select" data-testid="theme-select">
         <option value="system" data-i18n="theme.system">System</option>
         <option value="light" data-i18n="theme.light">Light</option>
         <option value="dark" data-i18n="theme.dark">Dark</option>
       </select>
-      <select id="lang-select" class="lang-select">
+      <select id="lang-select" class="lang-select" data-testid="lang-select">
         <option value="en">English</option>
         <option value="ja">日本語</option>
         <option value="zh">简体中文</option>
@@ -29,75 +29,75 @@
     </div>
   </header>
 
-  <nav id="tab-nav">
-    <button class="tab-item active" data-tab="library" data-i18n="tab.library">Library</button>
-    <button class="tab-item" data-tab="store" data-i18n="tab.store">Store</button>
-    <button class="tab-item" data-tab="mcp" data-i18n="tab.mcp">MCP Config</button>
-    <button class="tab-item" data-tab="running" data-i18n="tab.http">HTTP</button>
-    <button class="tab-item" data-tab="settings" data-i18n="tab.settings">Settings</button>
+  <nav id="tab-nav" data-testid="tab-nav">
+    <button class="tab-item active" data-tab="library" data-testid="tab-library" data-i18n="tab.library">Library</button>
+    <button class="tab-item" data-tab="store" data-testid="tab-store" data-i18n="tab.store">Store</button>
+    <button class="tab-item" data-tab="mcp" data-testid="tab-mcp" data-i18n="tab.mcp">MCP Config</button>
+    <button class="tab-item" data-tab="running" data-testid="tab-running" data-i18n="tab.http">HTTP</button>
+    <button class="tab-item" data-tab="settings" data-testid="tab-settings" data-i18n="tab.settings">Settings</button>
   </nav>
 
-  <main id="main-content">
+  <main id="main-content" data-testid="main-content">
     <!-- Merged Library: orb list + inline search + inline import -->
-    <section id="tab-library" class="tab-panel active">
+    <section id="tab-library" class="tab-panel active" data-testid="panel-library">
       <div class="panel-header">
         <h1 data-i18n="library.title">Library</h1>
         <div class="panel-actions">
-          <button id="btn-show-import" class="btn btn-secondary" data-i18n="library.import">Import</button>
-          <button id="btn-refresh-library" class="btn btn-secondary" data-i18n="library.refresh">Refresh</button>
+          <button id="btn-show-import" class="btn btn-secondary" data-testid="btn-show-import" data-i18n="library.import">Import</button>
+          <button id="btn-refresh-library" class="btn btn-secondary" data-testid="btn-refresh-library" data-i18n="library.refresh">Refresh</button>
         </div>
       </div>
 
       <!-- Filter bar — searches Orb list by name/description -->
       <div class="search-bar filter-bar">
-        <input id="filter-query" class="text-input" data-i18n-placeholder="library.filter_placeholder" placeholder="Search orbs by name or description…" />
-        <button id="btn-filter-library" class="btn btn-primary" data-i18n="library.filter_btn">Filter</button>
+        <input id="filter-query" class="text-input" data-testid="filter-query" data-i18n-placeholder="library.filter_placeholder" placeholder="Search orbs by name or description…" />
+        <button id="btn-filter-library" class="btn btn-primary" data-testid="btn-filter-library" data-i18n="library.filter_btn">Filter</button>
       </div>
 
       <hr class="section-divider">
 
       <!-- Restart hint banner (shown after import/delete) -->
-      <div id="library-restart-hint" class="restart-hint" style="display:none;">
+      <div id="library-restart-hint" class="restart-hint" data-testid="library-restart-hint" style="display:none;">
         <span id="library-restart-hint-text"></span>
-        <button id="btn-dismiss-restart-hint" class="btn-small" aria-label="Dismiss">&times;</button>
+        <button id="btn-dismiss-restart-hint" class="btn-small" data-testid="btn-dismiss-restart-hint" aria-label="Dismiss">&times;</button>
       </div>
 
       <!-- Stale Orb library bookmark banner (access lost after app update) -->
-      <div id="library-bookmark-stale-banner" class="restart-hint warning-banner" style="display:none;">
+      <div id="library-bookmark-stale-banner" class="restart-hint warning-banner" data-testid="library-bookmark-stale-banner" style="display:none;">
         <span id="library-bookmark-stale-text"></span>
-        <button id="btn-fix-library-bookmark" class="btn-small" data-i18n="library.bookmark_stale_fix_btn">Re-select…</button>
+        <button id="btn-fix-library-bookmark" class="btn-small" data-testid="btn-fix-library-bookmark" data-i18n="library.bookmark_stale_fix_btn">Re-select…</button>
       </div>
 
       <!-- Orb list -->
-      <div id="library-list" class="orb-grid"></div>
-      <div id="library-pagination" class="library-pagination"></div>
+      <div id="library-list" class="orb-grid" data-testid="library-list"></div>
+      <div id="library-pagination" class="library-pagination" data-testid="library-pagination"></div>
 
     </section>
 
-    <section id="tab-store" class="tab-panel">
+    <section id="tab-store" class="tab-panel" data-testid="panel-store">
       <div class="panel-header">
         <h1 data-i18n="store.title">Store</h1>
       </div>
-      <div id="store-browse-view">
+      <div id="store-browse-view" data-testid="store-browse-view">
         <div class="card">
           <div class="row">
-            <input id="store-search-query" type="search" class="text-input" data-i18n-placeholder="store.search_placeholder" placeholder="Search Orbs in MCP Store" title="Cmd/Ctrl+K to focus" />
+            <input id="store-search-query" type="search" class="text-input" data-testid="store-search-query" data-i18n-placeholder="store.search_placeholder" placeholder="Search Orbs in MCP Store" title="Cmd/Ctrl+K to focus" />
           </div>
           <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;">
             <div class="tag-filter-wrapper">
-              <button id="store-tag-filter-trigger" class="select-input tag-filter-trigger" type="button">
+              <button id="store-tag-filter-trigger" class="select-input tag-filter-trigger" type="button" data-testid="store-tag-filter-trigger">
                 <span id="store-tag-filter-label" class="tag-filter-label" data-i18n="store.tag_all">All tags</span>
                 <span class="tag-filter-arrow">▾</span>
               </button>
-              <div id="store-tag-filter-dropdown" class="tag-filter-dropdown" style="display:none">
+              <div id="store-tag-filter-dropdown" class="tag-filter-dropdown" data-testid="store-tag-filter-dropdown" style="display:none">
                 <div class="tag-filter-dropdown-header">
-                  <input id="store-tag-filter-input" class="text-input tag-filter-input" type="text" placeholder="Filter tags..." />
-                  <button id="store-tag-filter-clear" class="tag-filter-clear-btn" type="button" title="Clear filter">✕</button>
+                  <input id="store-tag-filter-input" class="text-input tag-filter-input" type="text" data-testid="store-tag-filter-input" placeholder="Filter tags..." />
+                  <button id="store-tag-filter-clear" class="tag-filter-clear-btn" type="button" data-testid="store-tag-filter-clear" title="Clear filter">✕</button>
                 </div>
-                <div id="store-tag-filter-list" class="tag-filter-list"></div>
+                <div id="store-tag-filter-list" class="tag-filter-list" data-testid="store-tag-filter-list"></div>
               </div>
             </div>
-            <select id="store-method-filter" class="select-input">
+            <select id="store-method-filter" class="select-input" data-testid="store-method-filter">
               <option value="" data-i18n="store.method_all">All methods</option>
               <option value="bm25">bm25</option>
               <option value="tfidf">tfidf</option>
@@ -108,94 +108,94 @@
             </select>
           </div>
         </div>
-        <div id="store-search-status" class="status-line"></div>
-        <div id="store-search-results" class="orb-grid"></div>
-        <div id="store-pagination" class="store-pagination"></div>
+        <div id="store-search-status" class="status-line" data-testid="store-search-status"></div>
+        <div id="store-search-results" class="orb-grid" data-testid="store-search-results"></div>
+        <div id="store-pagination" class="store-pagination" data-testid="store-pagination"></div>
       </div>
-      <div id="store-detail-view" class="store-detail-view" style="display:none"></div>
-      <div id="store-password-dialog" class="modal-overlay" style="display:none">
+      <div id="store-detail-view" class="store-detail-view" data-testid="store-detail-view" style="display:none"></div>
+      <div id="store-password-dialog" class="modal-overlay" data-testid="store-password-dialog" style="display:none">
         <div class="store-password-card">
           <h3 class="store-password-title" data-i18n="store.password_required_title">Password Required</h3>
           <label class="store-password-text" for="store-password-input" data-i18n="store.password_required_label">Enter password for this artifact:</label>
-          <input type="password" id="store-password-input" class="text-input" data-i18n-placeholder="store.password_placeholder" placeholder="Password" />
-          <p id="store-password-status" class="status-line"></p>
+          <input type="password" id="store-password-input" class="text-input" data-testid="store-password-input" data-i18n-placeholder="store.password_placeholder" placeholder="Password" />
+          <p id="store-password-status" class="status-line" data-testid="store-password-status"></p>
           <div class="store-password-actions">
-            <button id="btn-store-password-submit" class="btn btn-primary" data-i18n="store.password_submit">Submit</button>
-            <button id="btn-store-password-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
+            <button id="btn-store-password-submit" class="btn btn-primary" data-testid="btn-store-password-submit" data-i18n="store.password_submit">Submit</button>
+            <button id="btn-store-password-cancel" class="btn btn-secondary" data-testid="btn-store-password-cancel" data-i18n="import.cancel_btn">Cancel</button>
           </div>
         </div>
       </div>
     </section>
 
-    <section id="tab-mcp" class="tab-panel">
+    <section id="tab-mcp" class="tab-panel" data-testid="panel-mcp">
       <div class="panel-header">
         <h1 data-i18n="mcp.title">MCP Config</h1>
       </div>
-      <button id="btn-generate-config" class="btn btn-primary" data-i18n="mcp.generate_btn">Generate STDIO Config</button>
+      <button id="btn-generate-config" class="btn btn-primary" data-testid="btn-generate-config" data-i18n="mcp.generate_btn">Generate STDIO Config</button>
       <p class="section-desc" data-i18n="mcp.generate_note_windows" style="margin-top:8px"></p>
-      <div id="mcp-config-list" class="config-list"></div>
+      <div id="mcp-config-list" class="config-list" data-testid="mcp-config-list"></div>
 
       <hr id="mcp-section-divider" class="section-divider" style="display:none">
 
-      <div id="mcp-platform-configs-section" style="display:none">
+      <div id="mcp-platform-configs-section" data-testid="mcp-platform-configs-section" style="display:none">
         <div class="panel-header">
           <h1 data-i18n="mcp.platform_config_title">Platform MCP Configs</h1>
-          <button id="btn-discover-configs" class="btn btn-secondary" data-i18n="mcp.discover_btn">Discover</button>
+          <button id="btn-discover-configs" class="btn btn-secondary" data-testid="btn-discover-configs" data-i18n="mcp.discover_btn">Discover</button>
         </div>
         <p class="section-desc" data-i18n="mcp.platform_config_desc">Discover and configure MCP servers in LLM platform config files (Claude Desktop, Cursor, VS Code, etc.)</p>
-        <div id="platform-config-status" class="status-line"></div>
-        <div id="platform-config-list" class="config-cards"></div>
+        <div id="platform-config-status" class="status-line" data-testid="platform-config-status"></div>
+        <div id="platform-config-list" class="config-cards" data-testid="platform-config-list"></div>
       </div>
     </section>
 
-    <section id="tab-running" class="tab-panel">
+    <section id="tab-running" class="tab-panel" data-testid="panel-running">
       <div class="panel-header">
         <h1 data-i18n="running.title">HTTP</h1>
-        <button id="btn-refresh-running" class="btn btn-secondary" data-i18n="running.refresh">Refresh</button>
+        <button id="btn-refresh-running" class="btn btn-secondary" data-testid="btn-refresh-running" data-i18n="running.refresh">Refresh</button>
       </div>
       <p class="section-desc" data-i18n="running.section_desc">Orbs running an HTTP server — listed here so you can check the port, PID, or stop the process. STDIO (CLI-mode) usage does not require the HTTP server and is configured under the MCP Config tab.</p>
-      <div id="running-list" class="orb-grid"></div>
+      <div id="running-list" class="orb-grid" data-testid="running-list"></div>
     </section>
 
-    <section id="tab-settings" class="tab-panel">
+    <section id="tab-settings" class="tab-panel" data-testid="panel-settings">
       <div class="panel-header">
         <h1 data-i18n="settings.title">Settings</h1>
-        <button id="btn-save-settings" class="btn btn-primary" data-i18n="settings.save_btn">Save</button>
+        <button id="btn-save-settings" class="btn btn-primary" data-testid="btn-save-settings" data-i18n="settings.save_btn">Save</button>
       </div>
       <div class="settings-grid">
-        <div class="form-group" id="orb-library-group" style="display:none;">
+        <div class="form-group" id="orb-library-group" style="display:none;" data-testid="orb-library-group">
           <label for="settings-orb-library-dir" data-i18n="settings.orb_library_label">Orb Library Folder</label>
           <div class="input-row">
-            <input id="settings-orb-library-dir" class="text-input" readonly placeholder="/path/to/MCPOrb" />
-            <button id="btn-choose-orb-library" class="btn btn-secondary" data-i18n="settings.orb_library_choose_btn">Choose…</button>
+            <input id="settings-orb-library-dir" class="text-input" data-testid="settings-orb-library-dir" readonly placeholder="/path/to/MCPOrb" />
+            <button id="btn-choose-orb-library" class="btn btn-secondary" data-testid="btn-choose-orb-library" data-i18n="settings.orb_library_choose_btn">Choose…</button>
           </div>
           <p class="field-hint" data-i18n="settings.orb_library_hint">Imported Orb ZIPs are stored in this folder so the files stay accessible to you.</p>
         </div>
         <div class="form-group">
           <label for="settings-http-port" data-i18n="settings.http_port_label">HTTP MCP Port</label>
-          <input id="settings-http-port" class="text-input" type="number" placeholder="5599" />
+          <input id="settings-http-port" class="text-input" data-testid="settings-http-port" type="number" placeholder="5599" />
         </div>
         <div class="form-group">
           <label for="settings-network-binding" data-i18n="settings.network_binding_label">Network Binding</label>
-          <select id="settings-network-binding" class="select-input">
+          <select id="settings-network-binding" class="select-input" data-testid="settings-network-binding">
             <option value="localhost" data-i18n="settings.localhost_opt">Localhost (127.0.0.1) — Recommended</option>
             <option value="external" data-i18n="settings.external_opt">External (0.0.0.0) — Requires caution</option>
           </select>
         </div>
-        <div id="settings-status" class="status-line"></div>
+        <div id="settings-status" class="status-line" data-testid="settings-status"></div>
       </div>
     </section>
   </main>
 
   <!-- Import Modal -->
-  <div id="import-modal" class="modal-overlay" style="display:none;">
+  <div id="import-modal" class="modal-overlay" data-testid="import-modal" style="display:none;">
     <div class="modal-card">
       <div class="modal-header">
         <h2 data-i18n="import.title">Import Orb ZIP</h2>
-        <button id="btn-modal-close" class="btn-close" aria-label="Close">&times;</button>
+        <button id="btn-modal-close" class="btn-close" data-testid="btn-modal-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <div id="drop-zone" class="drop-zone">
+        <div id="drop-zone" class="drop-zone" data-testid="drop-zone">
           <div class="drop-zone-content">
             <div class="drop-icon">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -207,139 +207,139 @@
             <p class="drop-text" data-i18n="import.drop_text">Drop Orb ZIP file here</p>
           </div>
         </div>
-        <div id="selected-file" class="selected-file" style="display:none;">
+        <div id="selected-file" class="selected-file" data-testid="selected-file" style="display:none;">
           <span class="file-icon">&#128196;</span>
           <span id="selected-file-name" class="file-name"></span>
-          <button id="btn-clear-file" class="btn-small">&times;</button>
+          <button id="btn-clear-file" class="btn-small" data-testid="btn-clear-file">&times;</button>
         </div>
         <div class="browse-row">
-          <button id="btn-browse" class="btn btn-secondary" data-i18n="import.browse_btn">Browse Files</button>
+          <button id="btn-browse" class="btn btn-secondary" data-testid="btn-browse" data-i18n="import.browse_btn">Browse Files</button>
           <span class="browse-hint" data-i18n="import.browse_hint">or drag &amp; drop a .zip file above</span>
         </div>
-        <div id="modal-import-status" class="status-card muted-card"></div>
+        <div id="modal-import-status" class="status-card muted-card" data-testid="modal-import-status"></div>
       </div>
       <div class="modal-footer">
-        <button id="btn-modal-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
-        <button id="btn-modal-import" class="btn btn-primary" disabled data-i18n="import.import_btn">Import</button>
+        <button id="btn-modal-cancel" class="btn btn-secondary" data-testid="btn-modal-cancel" data-i18n="import.cancel_btn">Cancel</button>
+        <button id="btn-modal-import" class="btn btn-primary" data-testid="btn-modal-import" disabled data-i18n="import.import_btn">Import</button>
       </div>
     </div>
   </div>
 
   <!-- Search in Orb Modal -->
-  <div id="orb-search-modal" class="modal-overlay" style="display:none;">
+  <div id="orb-search-modal" class="modal-overlay" data-testid="orb-search-modal" style="display:none;">
     <div class="modal-card orb-search-modal-card">
       <div class="modal-header">
         <h2 id="orb-search-title" data-i18n="orbsearch.title">Search in Orb</h2>
-        <button id="btn-orb-search-close" class="btn-close" aria-label="Close">&times;</button>
+        <button id="btn-orb-search-close" class="btn-close" data-testid="btn-orb-search-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body orb-search-body">
         <div class="orb-search-fixed">
           <div class="search-bar orb-search-bar">
-            <input id="orb-search-query" class="text-input" data-i18n-placeholder="orbsearch.search_placeholder" placeholder="Search inside this Orb…" />
-            <select id="orb-search-method" class="select-input method-select">
+            <input id="orb-search-query" class="text-input" data-testid="orb-search-query" data-i18n-placeholder="orbsearch.search_placeholder" placeholder="Search inside this Orb…" />
+            <select id="orb-search-method" class="select-input method-select" data-testid="orb-search-method">
               <option value="auto">Auto</option>
               <option value="bm25">BM25</option>
               <option value="tfidf">TF-IDF</option>
               <option value="trigram">Trigram</option>
               <option value="hybrid">Hybrid</option>
             </select>
-            <button id="btn-orb-search-go" class="btn btn-primary" data-i18n="orbsearch.search_btn">Search</button>
+            <button id="btn-orb-search-go" class="btn btn-primary" data-testid="btn-orb-search-go" data-i18n="orbsearch.search_btn">Search</button>
           </div>
-          <div id="orb-search-pw-area" class="orb-search-pw-area" style="display:none">
-            <input id="orb-search-pw-input" type="password" class="text-input orb-search-pw-input" placeholder="Password" />
-            <button id="btn-orb-search-pw-submit" class="btn btn-primary btn-sm">Submit</button>
+          <div id="orb-search-pw-area" class="orb-search-pw-area" data-testid="orb-search-pw-area" style="display:none">
+            <input id="orb-search-pw-input" type="password" class="text-input orb-search-pw-input" data-testid="orb-search-pw-input" placeholder="Password" />
+            <button id="btn-orb-search-pw-submit" class="btn btn-primary btn-sm" data-testid="btn-orb-search-pw-submit">Submit</button>
           </div>
-          <div id="orb-search-status" class="status-line"></div>
+          <div id="orb-search-status" class="status-line" data-testid="orb-search-status"></div>
         </div>
-        <div id="orb-search-results" class="result-list orb-search-scroll"></div>
+        <div id="orb-search-results" class="result-list orb-search-scroll" data-testid="orb-search-results"></div>
       </div>
       <div class="modal-footer">
-        <button id="btn-orb-search-cancel" class="btn btn-secondary" data-i18n="orbsearch.close_btn">Close</button>
+        <button id="btn-orb-search-cancel" class="btn btn-secondary" data-testid="btn-orb-search-cancel" data-i18n="orbsearch.close_btn">Close</button>
       </div>
     </div>
   </div>
 
   <!-- Orb library folder change: migrate or delete the old folder's orbs -->
-  <div id="library-change-modal" class="modal-overlay" style="display:none;">
+  <div id="library-change-modal" class="modal-overlay" data-testid="library-change-modal" style="display:none;">
     <div class="modal-card library-change-card">
       <div class="modal-header">
         <h2 data-i18n="librarychange.title">Change Orb Library Folder?</h2>
-        <button id="btn-library-change-close" class="btn-close" aria-label="Close">&times;</button>
+        <button id="btn-library-change-close" class="btn-close" data-testid="btn-library-change-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <p id="library-change-message" class="library-change-message"></p>
-        <p id="library-change-status" class="status-line"></p>
+        <p id="library-change-message" class="library-change-message" data-testid="library-change-message"></p>
+        <p id="library-change-status" class="status-line" data-testid="library-change-status"></p>
       </div>
       <div class="modal-footer">
-        <button id="btn-library-change-cancel" class="btn btn-secondary" data-i18n="librarychange.cancel_btn">Cancel</button>
-        <button id="btn-library-change-delete" class="btn btn-danger" data-i18n="librarychange.delete_btn">Delete Orbs…</button>
-        <button id="btn-library-change-migrate" class="btn btn-primary" data-i18n="librarychange.migrate_btn">Migrate Orbs</button>
+        <button id="btn-library-change-cancel" class="btn btn-secondary" data-testid="btn-library-change-cancel" data-i18n="librarychange.cancel_btn">Cancel</button>
+        <button id="btn-library-change-delete" class="btn btn-danger" data-testid="btn-library-change-delete" data-i18n="librarychange.delete_btn">Delete Orbs…</button>
+        <button id="btn-library-change-migrate" class="btn btn-primary" data-testid="btn-library-change-migrate" data-i18n="librarychange.migrate_btn">Migrate Orbs</button>
       </div>
     </div>
   </div>
 
-  <div id="confirm-modal" class="modal-overlay" style="display:none;">
+  <div id="confirm-modal" class="modal-overlay" data-testid="confirm-modal" style="display:none;">
     <div class="modal-card confirm-modal-card">
       <div class="modal-header">
         <h2 id="confirm-modal-title" data-i18n="library.delete_title">Delete Orb</h2>
-        <button id="btn-confirm-close" class="btn-close" aria-label="Close">&times;</button>
+        <button id="btn-confirm-close" class="btn-close" data-testid="btn-confirm-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <p id="confirm-modal-message" class="confirm-message"></p>
+        <p id="confirm-modal-message" class="confirm-message" data-testid="confirm-modal-message"></p>
       </div>
       <div class="modal-footer">
-        <button id="btn-confirm-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
-        <button id="btn-confirm-delete" class="btn btn-danger" data-i18n="library.delete_btn">Delete</button>
+        <button id="btn-confirm-cancel" class="btn btn-secondary" data-testid="btn-confirm-cancel" data-i18n="import.cancel_btn">Cancel</button>
+        <button id="btn-confirm-delete" class="btn btn-danger" data-testid="btn-confirm-delete" data-i18n="library.delete_btn">Delete</button>
       </div>
     </div>
   </div>
 
   <!-- Import password dialog -->
-  <div id="import-password-dialog" class="modal-overlay" style="display:none">
+  <div id="import-password-dialog" class="modal-overlay" data-testid="import-password-dialog" style="display:none">
     <div class="modal-card import-password-card">
       <div class="modal-header">
         <h2 data-i18n="import.password_title">Import Orb Password</h2>
-        <button id="btn-import-password-close" class="btn-close" aria-label="Close">&times;</button>
+        <button id="btn-import-password-close" class="btn-close" data-testid="btn-import-password-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body import-password-body">
-        <p id="import-password-desc" class="import-password-desc"></p>
-        <input type="password" id="import-password-input" class="text-input" placeholder="Password" />
+        <p id="import-password-desc" class="import-password-desc" data-testid="import-password-desc"></p>
+        <input type="password" id="import-password-input" class="text-input" data-testid="import-password-input" placeholder="Password" />
         <p id="import-password-keychain-hint" class="import-password-keychain-hint" data-i18n="import.password_keychain_hint"></p>
-        <p id="import-password-status" class="status-line import-password-status"></p>
+        <p id="import-password-status" class="status-line import-password-status" data-testid="import-password-status"></p>
       </div>
       <div class="modal-footer">
-        <button id="btn-import-password-cancel" class="btn btn-secondary" data-i18n="import.cancel_btn">Cancel</button>
-        <button id="btn-import-password-submit" class="btn btn-primary" data-i18n="import.password_submit">Submit</button>
+        <button id="btn-import-password-cancel" class="btn btn-secondary" data-testid="btn-import-password-cancel" data-i18n="import.cancel_btn">Cancel</button>
+        <button id="btn-import-password-submit" class="btn btn-primary" data-testid="btn-import-password-submit" data-i18n="import.password_submit">Submit</button>
       </div>
     </div>
   </div>
 
   <!-- Q&A History Modal -->
-  <div id="qa-modal" class="modal-overlay" style="display:none;">
+  <div id="qa-modal" class="modal-overlay" data-testid="qa-modal" style="display:none;">
     <div class="modal-card qa-modal-card">
       <div class="modal-header">
         <h2 id="qa-modal-title" data-i18n="qa.title">Q&A History</h2>
         <div class="modal-header-actions">
-          <button id="btn-qa-refresh" class="btn btn-secondary btn-sm" data-i18n="qa.refresh">Refresh</button>
-          <button id="btn-qa-close" class="btn-close" aria-label="Close">&times;</button>
+          <button id="btn-qa-refresh" class="btn btn-secondary btn-sm" data-testid="btn-qa-refresh" data-i18n="qa.refresh">Refresh</button>
+          <button id="btn-qa-close" class="btn-close" data-testid="btn-qa-close" aria-label="Close">&times;</button>
         </div>
       </div>
       <div class="modal-body qa-modal-body">
         <div class="qa-modal-fixed">
-          <div id="qa-stats-summary" class="qa-stats-summary"></div>
-          <div id="qa-status" class="status-line"></div>
+          <div id="qa-stats-summary" class="qa-stats-summary" data-testid="qa-stats-summary"></div>
+          <div id="qa-status" class="status-line" data-testid="qa-status"></div>
         </div>
-        <div id="qa-list" class="qa-modal-scroll"></div>
-        <div id="qa-pagination" class="qa-pagination"></div>
+        <div id="qa-list" class="qa-modal-scroll" data-testid="qa-list"></div>
+        <div id="qa-pagination" class="qa-pagination" data-testid="qa-pagination"></div>
       </div>
       <div class="modal-footer">
-        <button id="btn-qa-cancel" class="btn btn-secondary" data-i18n="qa.close_btn">Close</button>
+        <button id="btn-qa-cancel" class="btn btn-secondary" data-testid="btn-qa-cancel" data-i18n="qa.close_btn">Close</button>
       </div>
     </div>
   </div>
 
   <!-- Onboarding Modal (macOS only — shown on first launch when no Orb folder is set) -->
-  <div id="onboarding-modal" class="modal-overlay" style="display:none;">
+  <div id="onboarding-modal" class="modal-overlay" data-testid="onboarding-modal" style="display:none;">
     <div class="modal-card onboarding-card">
       <div class="modal-header">
         <h2 data-i18n="onboarding.title">Choose Your Orb Library Location</h2>
@@ -357,12 +357,12 @@
           Click "Open ~/Documents/MCPOrb" — the file picker will open there.
           Use the New Folder button if the folder doesn't exist yet, then click Open.
         </p>
-        <div id="onboarding-status" class="status-line"></div>
+        <div id="onboarding-status" class="status-line" data-testid="onboarding-status"></div>
       </div>
       <div class="modal-footer onboarding-footer">
-        <button id="btn-onboarding-skip" class="btn btn-ghost" data-i18n="onboarding.skip_btn">Skip for now</button>
-        <button id="btn-onboarding-choose" class="btn btn-secondary" data-i18n="onboarding.choose_btn">Choose Different Location…</button>
-        <button id="btn-onboarding-default" class="btn btn-primary" data-i18n="onboarding.default_btn">Open ~/Documents/MCPOrb</button>
+        <button id="btn-onboarding-skip" class="btn btn-ghost" data-testid="btn-onboarding-skip" data-i18n="onboarding.skip_btn">Skip for now</button>
+        <button id="btn-onboarding-choose" class="btn btn-secondary" data-testid="btn-onboarding-choose" data-i18n="onboarding.choose_btn">Choose Different Location…</button>
+        <button id="btn-onboarding-default" class="btn btn-primary" data-testid="btn-onboarding-default" data-i18n="onboarding.default_btn">Open ~/Documents/MCPOrb</button>
       </div>
     </div>
   </div>

@@ -127,9 +127,35 @@ fi
 
 # ── build ───────────────────────────────────────────────────────────────────
 log "building MCPOrb Runner v${VERSION} for Mac App Store..."
-log "  (using default 'mas' feature)"
 
-(cd crates/mcporb-runtime-app && cargo tauri build --bundles app) 2>&1 | tail -20
+PROFILE_PLIST=$(mktemp /tmp/mcporb-mas-profile.XXXXXX)
+APP_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-entitlements.XXXXXX)
+NESTED_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-nested-entitlements.XXXXXX)
+
+# CONSTRAINT: MAS builds must exclude the `webdriver` feature — it embeds an
+# E2E-test WebDriver server into the shipping binary (hidden automation
+# surface, App Review risk; 1.3.6 shipped with it by mistake). tauri-build
+# ACL-validates EVERY file in capabilities/ even when its capability is not
+# enabled, so capabilities/webdriver.json must also be absent from any build
+# that excludes the feature. Swap to a non-.json extension so tauri-build
+# ignores it, and restore it on exit.
+WDIO_CAPABILITY="crates/mcporb-runtime-app/capabilities/webdriver.json"
+WDIO_CAPABILITY_DISABLED="crates/mcporb-runtime-app/capabilities/webdriver.json.disabled"
+if [[ -f "$WDIO_CAPABILITY" ]]; then
+  mv "$WDIO_CAPABILITY" "$WDIO_CAPABILITY_DISABLED"
+fi
+
+cleanup() {
+  rm -f "$PROFILE_PLIST" "$APP_SIGN_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"
+  if [[ -f "$WDIO_CAPABILITY_DISABLED" ]]; then
+    mv -f "$WDIO_CAPABILITY_DISABLED" "$WDIO_CAPABILITY"
+  fi
+}
+trap cleanup EXIT
+
+(
+  cd crates/mcporb-runtime-app && cargo tauri build --bundles app -- --no-default-features --features mas
+) 2>&1 | tail -20
 
 # Find the built .app (prefer deterministic release outputs, never debug)
 if [[ -d "target/universal-apple-darwin/release/bundle/macos/MCPOrb Runner.app" ]]; then
@@ -174,7 +200,6 @@ BASE_ENTITLEMENTS="crates/mcporb-runtime-app/entitlements-mas.plist"
 PROFILE_PLIST=$(mktemp /tmp/mcporb-mas-profile.XXXXXX)
 APP_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-entitlements.XXXXXX)
 NESTED_SIGN_ENTITLEMENTS=$(mktemp /tmp/mcporb-mas-nested-entitlements.XXXXXX)
-trap 'rm -f "$PROFILE_PLIST" "$APP_SIGN_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"' EXIT
 
 security cms -D -i "$MAS_PROFILE" > "$PROFILE_PLIST"
 

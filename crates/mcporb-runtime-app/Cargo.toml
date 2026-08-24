@@ -1,6 +1,6 @@
 [package]
 name = "mcporb-runtime-app"
-version = "1.3.5"
+version = "1.3.7"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCPOrb Runner — install, search, and run Orb ZIP knowledge bases"
@@ -11,9 +11,16 @@ name = "mcporb-runner"
 path = "src/main.rs"
 
 [features]
-default = ["mas"]
+default = ["mas", "webdriver"]
 mas = []
 direct-download = []
+# E2E only: embedded WebDriver server (plan §5 / §13). On by default so local
+# `cargo run` / `cargo test` include it; strip from release / MAS builds with
+# `cargo build --release --no-default-features` (or `--no-default-features
+# --features mas`). The `wdio-webdriver:default` capability in
+# capabilities/default.json is harmless when this feature is off (Tauri only
+# warns about the unregistered permission).
+webdriver = ["dep:tauri-plugin-wdio-webdriver"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -41,6 +48,10 @@ local-ip-address = { workspace = true }
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-foundation = "0.3"
+
+# ── E2E test-only: embedded WebDriver server (plan §5 / §13) ──────────────
+# Optional dep, enabled by the `webdriver` feature (see [features] above).
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
