@@ -242,6 +242,15 @@ cp "$BASE_ENTITLEMENTS" "$NESTED_SIGN_ENTITLEMENTS"
 /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NESTED_SIGN_ENTITLEMENTS" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :com.apple.security.inherit bool true" "$NESTED_SIGN_ENTITLEMENTS"
 
+# CONSTRAINT: every nested executable — including mcporb-gateway-http — must be
+# signed with inherit ONLY. An inheriting executable that declares any
+# additional sandbox entitlement (e.g. network.server) is killed in secinit
+# (_libsecinit_appsandbox, EXC_BREAKPOINT/SIGTRAP) before main(). The
+# port-binding ability of the gateway comes from the runner's network.server
+# via the inherited sandbox, not from the nested signature. Re-adding
+# network.server to the gateway signature crashes every TestFlight build's
+# HTTP gateway at start (empirically verified 2026-08-24, macOS 26.6).
+
 log "using provisioning app id: $APP_IDENTIFIER"
 log "using provisioning team id: $TEAM_IDENTIFIER"
 
