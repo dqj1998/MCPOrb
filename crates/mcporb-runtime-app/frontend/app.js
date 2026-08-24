@@ -168,8 +168,10 @@ const locales = {
     'running.gateway_status_stopped': 'Gateway stopped',
     'running.gateway_start_btn': 'Start Gateway',
     'running.gateway_stop_btn': 'Stop Gateway',
-    'running.gateway_starting': 'Starting…',
-    'running.gateway_stopping': 'Stopping…',
+  'running.gateway_starting': 'Starting…',
+  'running.gateway_stopping': 'Stopping…',
+  'running.gateway_start_failed': 'Gateway failed to start: {error}',
+  'running.gateway_stop_failed': 'Failed to stop gateway: {error}',
     'running.gateway_conn_title': 'Connection String (with auth token)',
     'running.gateway_copy_conn': 'Copy Connection String',
     'running.gateway_reset_token': 'Reset Token',
@@ -381,8 +383,10 @@ const locales = {
     'running.gateway_status_stopped': 'ゲートウェイ停止中',
     'running.gateway_start_btn': 'ゲートウェイを起動',
     'running.gateway_stop_btn': 'ゲートウェイを停止',
-    'running.gateway_starting': '起動中…',
-    'running.gateway_stopping': '停止中…',
+  'running.gateway_starting': '起動中…',
+  'running.gateway_stopping': '停止中…',
+  'running.gateway_start_failed': 'ゲートウェイの起動に失敗しました: {error}',
+  'running.gateway_stop_failed': 'ゲートウェイの停止に失敗しました: {error}',
     'running.gateway_conn_title': '接続文字列（認証トークン付き）',
     'running.gateway_copy_conn': '接続文字列をコピー',
     'running.gateway_reset_token': 'トークンを再発行',
@@ -594,8 +598,10 @@ const locales = {
     'running.gateway_status_stopped': '网关已停止',
     'running.gateway_start_btn': '启动网关',
     'running.gateway_stop_btn': '停止网关',
-    'running.gateway_starting': '启动中…',
-    'running.gateway_stopping': '停止中…',
+  'running.gateway_starting': '启动中…',
+  'running.gateway_stopping': '停止中…',
+  'running.gateway_start_failed': '网关启动失败: {error}',
+  'running.gateway_stop_failed': '停止网关失败: {error}',
     'running.gateway_conn_title': '连接字符串（含认证令牌）',
     'running.gateway_copy_conn': '复制连接字符串',
     'running.gateway_reset_token': '重置令牌',
@@ -2054,7 +2060,13 @@ async function refreshGatewayStatus() {
       btn.className = 'btn btn-secondary btn-sm';
       btn.onclick = async () => {
         btn.textContent = t('running.gateway_stopping');
-        await invoke('stop_unified_gateway');
+        btn.disabled = true;
+        try {
+          await invoke('stop_unified_gateway');
+        } catch (error) {
+          line.textContent = t('running.gateway_stop_failed', { error: String(error) });
+        }
+        btn.disabled = false;
         refreshGatewayStatus();
       };
       if (connRow) {
@@ -2108,7 +2120,13 @@ async function refreshGatewayStatus() {
       btn.className = 'btn btn-primary btn-sm';
       btn.onclick = async () => {
         btn.textContent = t('running.gateway_starting');
-        await invoke('ensure_unified_gateway');
+        btn.disabled = true;
+        try {
+          await invoke('ensure_unified_gateway');
+        } catch (error) {
+          line.textContent = t('running.gateway_start_failed', { error: String(error) });
+        }
+        btn.disabled = false;
         refreshGatewayStatus();
       };
       if (connRow) connRow.classList.add('hidden');
