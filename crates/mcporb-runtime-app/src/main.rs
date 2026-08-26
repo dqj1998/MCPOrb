@@ -1224,7 +1224,7 @@ async fn stop_unified_gateway_impl(state: &AppState) -> Result<(), String> {
 
 /// Best-effort kill of whatever process is listening on `port`, used to stop a
 /// gateway we adopted from a previous launch (we don't own its child handle).
-/// No-op on platforms without `lsof`/signals.
+/// No-op on platforms without `lsof`/signals (Windows stub).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn kill_listener_on_port(port: u16) {
     use std::process::Command;
@@ -1238,6 +1238,9 @@ async fn kill_listener_on_port(port: u16) {
         }
     }
 }
+
+#[cfg(target_os = "windows")]
+async fn kill_listener_on_port(_port: u16) {}
 
 #[tauri::command]
 async fn unified_gateway_status(
