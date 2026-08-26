@@ -1,0 +1,58 @@
+MCPOrb Runner 1.3.5 - What's New
+=================================
+
+---- English ----
+
+More reliable gateway
+------------------------------------------------------------
+- If your HTTP port is busy, the app picks the next available
+  port automatically and shows it in the HTTP tab.
+- Restarting no longer creates duplicate gateways or port
+  errors — your existing gateway is reused.
+
+More reliable on Mac
+------------------------------------------------------------
+- Orbs in ~/Documents or other picked folders now open every
+  time on the Mac App Store build.
+
+Library stays connected
+------------------------------------------------------------
+- If you move or rename your library folder, a banner lets you
+  re-select it in one click. Your theme stays as you set it.
+
+============================================
+MCPOrb Runner 1.3.5 - 日本語
+============================================
+より安定したゲートウェイ
+------------------------------------------------------------
+- HTTPポートが使用中でも自動で次の空きポートに切り替わり、
+  HTTPタブに表示されます。
+- 再起動してもゲートウェイが重複せず、ポートエラーも出ません。
+
+Macでより安定
+------------------------------------------------------------
+- ~/Documents などに置いたOrbも、Mac App Store版で毎回確実に
+  開けるようになりました。
+
+ライブラリが途切れない
+------------------------------------------------------------
+- フォルダを移動してもバナーからワンクリックで再選択できます。
+  テーマ設定もそのまま保持されます。
+
+============================================
+MCPOrb Runner 1.3.5 - 简体中文
+============================================
+
+更稳定的网关
+------------------------------------------------------------
+- HTTP 端口被占用时自动切换到可用端口，并在 HTTP 页中提示。
+- 重启不会再产生重复网关或端口报错。
+
+在 Mac 上更稳定
+------------------------------------------------------------
+- 放在 ~/Documents 等自选文件夹的 Orb，在商店版中每次都能
+  正常打开。
+
+资料库不断连
+------------------------------------------------------------
+- 移动文件夹后，顶部横幅可一键重选，主题保持不变。
