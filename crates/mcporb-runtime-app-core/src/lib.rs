@@ -1,4 +1,6 @@
 pub mod mcp_config;
+#[cfg(target_os = "macos")]
+pub mod macos_access;
 pub mod metrics;
 pub mod platform_config;
 pub mod password;

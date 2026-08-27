@@ -1648,24 +1648,6 @@ fn resolve_macos_registry(
     Option<String>,
 ) {
     let fallback = || RegistryStore::new(default_registry_root());
-    let configured_library_dir = settings
-        .orb_library_dir
-        .as_deref()
-        .filter(|dir| dir.is_dir())
-        .map(|dir| dir.to_path_buf());
-    let readable_library = |dir: &Path| -> bool {
-        match std::fs::read_dir(dir) {
-            Ok(_) => true,
-            Err(ref e) => {
-                tracing::warn!(
-                    error = %e,
-                    dir = ?dir,
-                    "Orb library folder exists but is not directly readable in this process"
-                );
-                false
-            }
-        }
-    };
     match (&settings.orb_library_dir, &settings.orb_library_bookmark) {
         (Some(dir), Some(bookmark)) => match macos_access::resolve_bookmark(bookmark) {
             Ok(resolved) => match resolved.guard {
@@ -1679,54 +1661,25 @@ fn resolve_macos_registry(
                     )
                 }
                 None => {
-                    // The bookmark is unusable this session, but if the user still
-                    // has a valid folder path we must continue using that library
-                    // instead of silently falling back to the default app-data dir.
+                    // The bookmark resolved but startAccessing failed — the
+                    // sandbox extension is not available this session. Mark as
+                    // stale so the UI prompts the user to re-select the folder.
                     tracing::warn!(
                         path = %resolved.path.display(),
-                        "resolved Orb library bookmark without access; checking configured library path"
+                        "resolved Orb library bookmark without access; marking stale for re-selection"
                     );
-                    if configured_library_dir.as_ref().is_some_and(|configured| configured == dir) && dir.is_dir() {
-                        (
-                            None,
-                            RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
-                            false,
-                            resolved.refreshed,
-                        )
-                    } else if readable_library(dir) {
-                        (
-                            None,
-                            RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
-                            false,
-                            resolved.refreshed,
-                        )
-                    } else {
-                        (None, fallback(), true, resolved.refreshed)
-                    }
+                    (None, fallback(), true, resolved.refreshed)
                 }
             },
             Err(error) => {
+                // Bookmark resolution failed entirely (corrupted data, folder
+                // deleted, etc.). Mark stale so the user is prompted to
+                // re-select the Orb library folder.
                 tracing::warn!(
                     %error,
-                    "failed to resolve Orb library bookmark; keeping the configured library path when it still exists"
+                    "failed to resolve Orb library bookmark; marking stale for re-selection"
                 );
-                if configured_library_dir.as_ref().is_some_and(|configured| configured == dir) && dir.is_dir() {
-                    (
-                        None,
-                        RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
-                        false,
-                        None,
-                    )
-                } else if readable_library(dir) {
-                    (
-                        None,
-                        RegistryStore::with_orbs_dir(default_registry_root(), dir.join("Orbs")),
-                        false,
-                        None,
-                    )
-                } else {
-                    (None, fallback(), true, None)
-                }
+                (None, fallback(), true, None)
             }
         },
         _ => (None, fallback(), false, None),
@@ -2366,19 +2319,17 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn resolve_macos_registry_uses_readable_library_without_working_bookmark() {
-        // The GUI-created bookmark is unusable by any other process on
-        // macOS 26.6; a library folder readable via the documents entitlement
-        // must stay healthy (no stale flag, orbs_dir at the library).
+    fn resolve_macos_registry_marks_stale_when_bookmark_invalid() {
+        // An invalid bookmark means the sandbox extension cannot be acquired.
+        // Mark stale so the UI prompts the user to re-select the folder.
         let dir = tempfile::tempdir().unwrap();
         let mut settings = RuntimeSettings::default();
         settings.orb_library_dir = Some(dir.path().to_path_buf());
         settings.orb_library_bookmark = Some("not-a-valid-bookmark".to_string());
-        let (access, registry, stale, refreshed) = resolve_macos_registry(&settings);
+        let (access, _registry, stale, refreshed) = resolve_macos_registry(&settings);
         assert!(access.is_none());
-        assert!(!stale, "readable library must not be flagged stale");
+        assert!(stale, "invalid bookmark must be flagged stale for re-selection");
         assert!(refreshed.is_none());
-        assert_eq!(registry.orbs_dir(), dir.path().join("Orbs"));
     }
 
     #[cfg(target_os = "macos")]

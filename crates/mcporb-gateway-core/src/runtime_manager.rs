@@ -459,11 +459,36 @@ async fn spawn_orb_process(
         .take()
         .context("failed to capture child stdin")?;
 
-    // When piping the ZIP via stdin, read it in the gateway process (which
-    // retains sandbox read access via exec()) and write it to the child.
-    // The child reads the ZIP first, then switches to serving MCP requests
-    // on the same stdin.
+    // When piping the ZIP via stdin, read it in the gateway process and
+    // write it to the child. The child reads the ZIP first, then switches
+    // to serving MCP requests on the same stdin.
+    //
+    // On macOS the gateway runs in a sandbox. When the Orb ZIP lives
+    // outside the sandbox container (user-chosen library folder), the
+    // gateway must resolve the security-scoped bookmark to regain read
+    // access before reading the file. The AccessGuard must stay alive
+    // until the bytes are fully written to the child.
     if zip_via_stdin {
+        #[cfg(target_os = "macos")]
+        let (_guard, zip_bytes) = if let Some(ref bookmark) = library_bookmark {
+            mcporb_runtime_app_core::macos_access::read_file_via_bookmark(
+                bookmark,
+                &orb.zip_path,
+            )
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "gateway: failed to read Orb ZIP via security-scoped bookmark: {e}: {}",
+                    orb.zip_path.display()
+                )
+            })?
+        } else {
+            return Err(anyhow::anyhow!(
+                "gateway: cannot read Orb ZIP outside sandbox without a \
+                 security-scoped bookmark (set Orb Library folder in Settings): {}",
+                orb.zip_path.display()
+            ));
+        };
+        #[cfg(not(target_os = "macos"))]
         let zip_bytes = std::fs::read(&orb.zip_path).context(format!(
             "gateway: failed to read Orb ZIP for stdin pipe: {}",
             orb.zip_path.display()

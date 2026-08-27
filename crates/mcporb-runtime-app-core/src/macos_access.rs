@@ -1,0 +1,272 @@
+// macOS App Sandbox security-scoped bookmark helpers.
+//
+// Sandboxed apps lose access to user-selected folders after relaunch; a
+// security-scoped bookmark is the only way to regain it. The public
+// CoreFoundation C API (CFURL.h) exposes everything needed, so no third-party
+// dependency is required. This module is only compiled on macOS (the `mod`
+// declaration in lib.rs is gated with #[cfg(target_os = "macos")]).
+
+use std::ffi::{c_void, CStr};
+use std::os::raw::c_char;
+use std::path::{Path, PathBuf};
+
+use base64::Engine;
+
+const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
+
+#[repr(C)]
+struct __CFURL(c_void);
+#[repr(C)]
+struct __CFData(c_void);
+
+type CFURLRef = *const __CFURL;
+type CFDataRef = *const __CFData;
+type CFAllocatorRef = *const c_void;
+type CFIndex = isize;
+type Boolean = u8;
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFURLGetFileSystemRepresentation(
+        url: CFURLRef,
+        resolve_against_base: Boolean,
+        buffer: *mut c_char,
+        buffer_len: CFIndex,
+    ) -> Boolean;
+    fn CFURLCreateBookmarkData(
+        allocator: CFAllocatorRef,
+        url: CFURLRef,
+        options: u32,
+        resource_properties_to_include: *const c_void,
+        relative_to_url: CFURLRef,
+        error: *mut *const c_void,
+    ) -> CFDataRef;
+    fn CFURLCreateByResolvingBookmarkData(
+        allocator: CFAllocatorRef,
+        bookmark_data: CFDataRef,
+        options: u32,
+        relative_to_url: CFURLRef,
+        resource_properties_to_return: *const c_void,
+        is_stale: *mut Boolean,
+        error: *mut *const c_void,
+    ) -> CFURLRef;
+    fn CFURLStartAccessingSecurityScopedResource(url: CFURLRef) -> Boolean;
+    fn CFURLStopAccessingSecurityScopedResource(url: CFURLRef);
+    fn CFDataCreate(allocator: CFAllocatorRef, bytes: *const u8, length: CFIndex) -> CFDataRef;
+    fn CFDataGetBytePtr(data: CFDataRef) -> *const u8;
+    fn CFDataGetLength(data: CFDataRef) -> CFIndex;
+    fn CFRelease(cf: *const c_void);
+}
+
+/// Holds a security-scoped URL and stops access when dropped. Keep it alive
+/// for as long as the resolved folder must remain readable.
+pub struct AccessGuard {
+    url: CFURLRef,
+}
+
+// Safety: the guard is only ever passed around and stopped on drop; the
+// underlying CFURL is immutable and CoreFoundation's start/stop access calls
+// are thread-safe, so sharing the guard across threads is sound.
+unsafe impl Send for AccessGuard {}
+unsafe impl Sync for AccessGuard {}
+
+impl Drop for AccessGuard {
+    fn drop(&mut self) {
+        unsafe {
+            CFURLStopAccessingSecurityScopedResource(self.url);
+            CFRelease(self.url.cast());
+        }
+    }
+}
+
+/// Creates a security-scoped bookmark from an existing CFURL and returns it
+/// base64-encoded for persistence.
+///
+/// The URL MUST carry an attached security-scoped extension — i.e. the
+/// toll-free-bridged `NSURL` returned by `NSOpenPanel`. A URL rebuilt from a
+/// plain path string (the old `create_bookmark(&Path)` approach) has no
+/// attached extension, so the resulting bookmark contains no usable security
+/// scope: resolving it later succeeds but `CFURLStartAccessingSecurityScopedResource`
+/// returns false ("startAccessingSecurityScopedResource failed").
+///
+/// # Safety
+///
+/// `url` must be a valid CFURLRef (or toll-free-bridged NSURL pointer).
+pub unsafe fn create_bookmark_from_url(url: *const c_void) -> Result<String, String> {
+    let bookmark = CFURLCreateBookmarkData(
+        std::ptr::null(),
+        url as CFURLRef,
+        K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE,
+        std::ptr::null(),
+        std::ptr::null(),
+        std::ptr::null_mut(),
+    );
+    if bookmark.is_null() {
+        return Err("CFURLCreateBookmarkData returned null".to_string());
+    }
+    let len = CFDataGetLength(bookmark) as usize;
+    let ptr = CFDataGetBytePtr(bookmark);
+    let bytes = std::slice::from_raw_parts(ptr, len);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    CFRelease(bookmark.cast());
+    Ok(encoded)
+}
+
+/// Result of resolving a persisted security-scoped bookmark.
+pub struct ResolvedBookmark {
+    /// Folder the bookmark points at.
+    pub path: PathBuf,
+    /// Live access handle. `None` when access could not be granted this
+    /// session (stale bookmark after app update/reinstall).
+    pub guard: Option<AccessGuard>,
+    /// Rebuilt base64 bookmark from the resolved URL when the stored one was
+    /// stale — Apple's documented recovery. Returned even when this session's
+    /// access failed; persisting it makes the NEXT launch start healthy.
+    pub refreshed: Option<String>,
+}
+
+/// Resolves a persisted base64 bookmark back to a folder path and starts
+/// security-scoped access to it.
+///
+/// Stale recovery is never skipped: even when `startAccessing` fails, the
+/// fresh bookmark is still rebuilt from the resolved URL so the caller can
+/// persist it for the next launch.
+pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
+    unsafe {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| format!("invalid bookmark data: {e}"))?;
+        let bookmark = CFDataCreate(std::ptr::null(), bytes.as_ptr(), bytes.len() as CFIndex);
+        if bookmark.is_null() {
+            return Err("CFDataCreate failed".to_string());
+        }
+        let mut is_stale: Boolean = 0;
+        // kCFURLBookmarkResolutionWithoutUIModalPrompts: resolving with only
+        // the security-scope flag makes CoreFoundation attempt a consent UI
+        // when the extension needs renewal and fail headless (empirically the
+        // "startAccessingSecurityScopedResource failed" + is_stale combo seen
+        // on relaunch). The silent-renewal flag is what Apple's samples use
+        // for relaunch restoration; it is required here for the same reason.
+        let options = K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE
+            | K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS;
+        let url = CFURLCreateByResolvingBookmarkData(
+            std::ptr::null(),
+            bookmark,
+            options,
+            std::ptr::null(),
+            std::ptr::null(),
+            &mut is_stale,
+            std::ptr::null_mut(),
+        );
+        CFRelease(bookmark.cast());
+        if url.is_null() {
+            return Err(
+                "bookmark could not be resolved (folder may have been moved or deleted)"
+                    .to_string(),
+            );
+        }
+        if is_stale != 0 {
+            tracing::warn!("resolved security-scoped bookmark is stale");
+        }
+        let path = path_from_url(url)?;
+
+        // Stale recovery FIRST, before any access handling: the resolved URL
+        // is the only handle that still points at the renewal, and the rebuild
+        // must happen whether or not this session can start access.
+        let refreshed = if is_stale != 0 {
+            match create_bookmark_from_url(url.cast()) {
+                Ok(fresh) => Some(fresh),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "failed to refresh stale Orb library bookmark"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let guard = if CFURLStartAccessingSecurityScopedResource(url) != 0 {
+            Some(AccessGuard { url })
+        } else {
+            tracing::warn!(
+                "startAccessingSecurityScopedResource failed; folder not accessible this session \
+                 (stale bookmark) — a rebuilt bookmark was persisted for the next launch"
+            );
+            // No guard owns the URL; release it here.
+            CFRelease(url.cast());
+            None
+        };
+        Ok(ResolvedBookmark {
+            path,
+            guard,
+            refreshed,
+        })
+    }
+}
+
+/// Resolve a security-scoped bookmark, start access, and read a file.
+///
+/// Returns `(guard, bytes)` — the caller MUST keep the `AccessGuard` alive
+/// for as long as `bytes` is used. Dropping the guard revokes the sandbox
+/// extension, making further I/O on the resolved path fail with EPERM.
+///
+/// Used by the gateway process (launched by an external MCP client) to read
+/// Orb ZIPs that live outside the app sandbox container.
+pub fn read_file_via_bookmark(
+    encoded_bookmark: &str,
+    path: &Path,
+) -> Result<(AccessGuard, Vec<u8>), String> {
+    let resolved = resolve_bookmark(encoded_bookmark)?;
+    let guard = resolved.guard.ok_or_else(|| {
+        "security-scoped bookmark did not grant access (may be stale after app update)".to_string()
+    })?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    Ok((guard, bytes))
+}
+
+unsafe fn path_from_url(url: CFURLRef) -> Result<PathBuf, String> {
+    let mut buffer = [0 as c_char; 4096];
+    if CFURLGetFileSystemRepresentation(url, 1, buffer.as_mut_ptr(), buffer.len() as CFIndex) == 0 {
+        return Err("CFURLGetFileSystemRepresentation failed".to_string());
+    }
+    let c_str = CStr::from_ptr(buffer.as_ptr());
+    Ok(PathBuf::from(c_str.to_string_lossy().into_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_file_via_bookmark_rejects_invalid_bookmark() {
+        let result = read_file_via_bookmark("not-a-valid-bookmark", Path::new("/tmp/nonexistent"));
+        match result {
+            Ok(_) => panic!("expected error for invalid bookmark"),
+            Err(err) => {
+                assert!(
+                    err.contains("invalid bookmark data")
+                        || err.contains("bookmark could not be resolved"),
+                    "unexpected error: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn read_file_via_bookmark_rejects_empty_bookmark() {
+        let result = read_file_via_bookmark("", Path::new("/tmp/nonexistent"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_bookmark_rejects_garbage_data() {
+        let result = resolve_bookmark("!!!not-base64!!!");
+        assert!(result.is_err());
+    }
+}
