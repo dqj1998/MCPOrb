@@ -90,6 +90,28 @@ assert_inherit() {
   fi
 }
 
+# ── kill stale processes ────────────────────────────────────────────────────
+# Prevents the old Gateway from blocking the new build's port or confusing
+# test results.  Graceful SIGTERM first; SIGKILL after 3 s if still alive.
+kill_stale_processes() {
+  local pids
+  pids=$(pgrep -f "mcporb-(runner|gateway-http|gateway-stdio|runtime)" 2>/dev/null || true)
+  if [[ -n "$pids" ]]; then
+    log "stopping stale MCPOrb processes: $pids"
+    echo "$pids" | xargs kill -TERM 2>/dev/null || true
+    sleep 3
+    # Force-kill any survivors
+    pids=$(pgrep -f "mcporb-(runner|gateway-http|gateway-stdio|runtime)" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      log "force-killing survivors: $pids"
+      echo "$pids" | xargs kill -9 2>/dev/null || true
+      sleep 1
+    fi
+    log "stale processes cleared"
+  fi
+}
+kill_stale_processes
+
 # ── preconditions ───────────────────────────────────────────────────────────
 [[ "$(uname -s)" == "Darwin" ]] || die "must run on macOS"
 command -v cargo >/dev/null || die "cargo not found"
