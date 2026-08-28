@@ -156,11 +156,10 @@ async fn handle_tool_call(
     }
 
     // Check the orb exists
+    let orb_list = manager.list_orbs();
     manager.find_orb(slug).ok_or_else(|| {
-        format!("Unknown Orb: '{slug}'. Available Orbs: {}", {
-            let names: Vec<&str> = manager.list_orbs().iter().map(|o| o.mcp_slug.as_str()).collect();
-            names.join(", ")
-        })
+        let names: Vec<&str> = orb_list.iter().map(|o| o.mcp_slug.as_str()).collect();
+        format!("Unknown Orb: '{slug}'. Available Orbs: {}", names.join(", "))
     })?;
 
     // Extract the arguments (strip the outer params wrapper)

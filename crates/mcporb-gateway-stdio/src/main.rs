@@ -89,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
         "Gateway ready"
     );
 
+    let _watcher = manager.clone().start_watching()?;
+
     let reaper = manager.clone();
     tokio::spawn(async move {
         reaper.start_reaper().await;

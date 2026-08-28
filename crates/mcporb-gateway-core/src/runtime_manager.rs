@@ -14,10 +14,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
+use tokio_stream::wrappers::ReceiverStream;
 use tracing;
 
 use crate::registry_reader::{GatewayConfig, GatewayOrb};
@@ -50,17 +52,62 @@ struct OrbProcess {
     next_id: u64,
 }
 
-/// The `RuntimeManager` is the central coordinator for Orb child processes.
-///
-/// Thread-safe: all mutable state is behind `RwLock`.
+pub struct RegistryWatcher {
+    _watcher: RecommendedWatcher,
+}
+
+impl RegistryWatcher {
+    pub fn new(registry_dir: PathBuf) -> Result<(Self, ReceiverStream<()>)> {
+        let (change_tx, change_rx) = mpsc::channel(16);
+        let watch_dir = registry_dir.clone();
+
+        let mut watcher = RecommendedWatcher::new(
+            move |result: Result<Event, notify::Error>| {
+                match result {
+                    Ok(event) => {
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) => {
+                                let is_registry = event.paths.iter().any(|p| {
+                                    p.file_name()
+                                        .map(|f| f == "registry.json")
+                                        .unwrap_or(false)
+                                });
+                                if is_registry {
+                                    tracing::debug!("Registry file changed, triggering refresh");
+                                    let _ = change_tx.try_send(());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Registry file watcher error: {}", e);
+                    }
+                }
+            },
+            notify::Config::default().with_poll_interval(Duration::from_secs(2)),
+        )?;
+
+        watcher.watch(&watch_dir, RecursiveMode::NonRecursive)?;
+
+        tracing::info!(
+            registry_dir = %watch_dir.display(),
+            "Registry file watcher started"
+        );
+
+        Ok((
+            Self {
+                _watcher: watcher,
+            },
+            ReceiverStream::new(change_rx),
+        ))
+    }
+}
+
 pub struct RuntimeManager {
     config: GatewayConfig,
-    /// Known Orbs (from registry). Immutable after construction; re-read
-    /// registry explicitly if needed.
-    orbs: Vec<GatewayOrb>,
-    /// Map from slug to runtime status.
+    orbs: RwLock<Vec<GatewayOrb>>,
     processes: RwLock<HashMap<String, OrbStatus>>,
-    /// Global monotonically increasing request id for gateway-internal use.
     next_gw_id: AtomicU64,
 }
 
@@ -68,13 +115,11 @@ impl std::fmt::Debug for RuntimeManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RuntimeManager")
             .field("config", &self.config)
-            .field("orbs_count", &self.orbs.len())
             .finish()
     }
 }
 
 impl RuntimeManager {
-    /// Create a new `RuntimeManager`.
     pub fn new(config: GatewayConfig, orbs: Vec<GatewayOrb>) -> Self {
         let mut processes = HashMap::new();
         for orb in &orbs {
@@ -82,17 +127,40 @@ impl RuntimeManager {
         }
         Self {
             config,
-            orbs,
+            orbs: RwLock::new(orbs),
             processes: RwLock::new(processes),
             next_gw_id: AtomicU64::new(0),
         }
     }
 
-    /// Re-read the registry and update the orb list + process map.
-    ///
-    /// Called when we suspect the registry has changed. Preserves running
-    /// processes for slugs that still exist.
-    pub async fn refresh_registry(&mut self) -> Result<()> {
+    pub fn start_watching(self: Arc<Self>) -> Result<RegistryWatcher> {
+        let registry_dir = self.config.registry_dir.clone();
+        let (watcher, change_stream) = RegistryWatcher::new(registry_dir)?;
+
+        let manager = self.clone();
+        tokio::spawn(async move {
+            use tokio_stream::StreamExt;
+            let mut stream = change_stream;
+            while let Some(()) = stream.next().await {
+                tracing::info!("Registry change detected, refreshing Orb list");
+                if let Err(e) = manager.clone().refresh_registry().await {
+                    tracing::error!("Failed to refresh registry: {}", e);
+                } else {
+                    let orb_count = manager.list_orbs().len();
+                    let tool_count: usize = manager.list_orbs().iter().map(|o| o.tools.len()).sum();
+                    tracing::info!(
+                        orb_count = orb_count,
+                        tool_count = tool_count,
+                        "Orb list refreshed successfully"
+                    );
+                }
+            }
+        });
+
+        Ok(watcher)
+    }
+
+    pub async fn refresh_registry(&self) -> Result<()> {
         let new_orbs = crate::registry_reader::discover_orbs(&self.config)?;
 
         let mut processes = self.processes.write().await;
@@ -105,32 +173,28 @@ impl RuntimeManager {
             new_processes.insert(orb.mcp_slug.clone(), status);
         }
 
-        // Any remaining entries in `processes` are for deleted Orbs.
-        // Killing orphaned processes is handled by Drop (kill_on_drop).
         for (slug, _status) in processes.iter() {
             tracing::info!(orb = %slug, "Tracking orphaned process for removed Orb");
         }
 
-        self.orbs = new_orbs;
+        let mut orbs = self.orbs.write().await;
+        *orbs = new_orbs;
         *processes = new_processes;
         Ok(())
     }
 
-    /// Return the list of known Orbs.
-    pub fn list_orbs(&self) -> &[GatewayOrb] {
-        &self.orbs
+    pub fn list_orbs(&self) -> Vec<GatewayOrb> {
+        self.orbs.try_read().unwrap().clone()
     }
 
-    /// Find an Orb by its MCP slug (the slug used in tool names).
-    pub fn find_orb(&self, slug: &str) -> Option<&GatewayOrb> {
-        self.orbs.iter().find(|o| o.mcp_slug == slug)
+    pub fn find_orb(&self, slug: &str) -> Option<GatewayOrb> {
+        self.orbs.try_read().unwrap().iter().find(|o| o.mcp_slug == slug).cloned()
     }
 
-    /// Return the list of all known Orbs with their status.
     pub async fn list_orb_statuses(&self) -> Vec<(GatewayOrb, &'static str)> {
+        let orbs = self.orbs.try_read().unwrap();
         let processes = self.processes.read().await;
-        self.orbs
-            .iter()
+        orbs.iter()
             .map(|orb| {
                 let status = match processes.get(&orb.mcp_slug) {
                     Some(OrbStatus::Running(_)) => "running",
@@ -158,16 +222,13 @@ impl RuntimeManager {
             }
         }
 
-        // Find the orb config (orbs list is immutable; no lock needed).
-        let orb = self
-            .orbs
+        let orb = self.orbs.try_read().unwrap()
             .iter()
             .find(|o| o.mcp_slug == slug)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("Unknown Orb: {slug}"))?;
 
-        // Spawn OUTSIDE any lock so the reaper and other readers are not
-        // blocked during the ~10-second MCP initialize handshake.
-        let proc_result = spawn_orb_process(&self.config.runtime_binary, orb, &self.config).await;
+        let proc_result = spawn_orb_process(&self.config.runtime_binary, &orb, &self.config).await;
 
         // Insert result under write lock.
         let mut processes = self.processes.write().await;
@@ -321,6 +382,10 @@ impl RuntimeManager {
         loop {
             tokio::time::sleep(check_interval).await;
 
+            if let Err(e) = self.refresh_registry().await {
+                tracing::warn!("Periodic registry refresh failed: {}", e);
+            }
+
             let mut processes = self.processes.write().await;
             let mut to_kill: Vec<String> = Vec::new();
 
@@ -375,9 +440,8 @@ impl RuntimeManager {
         }
     }
 
-    /// Check if an MCP slug exists in our registry.
     pub fn has_orb(&self, slug: &str) -> bool {
-        self.orbs.iter().any(|o| o.mcp_slug == slug)
+        self.orbs.try_read().unwrap().iter().any(|o| o.mcp_slug == slug)
     }
 
     /// Generate the gateway internal request ID.
@@ -830,4 +894,18 @@ mod tests {
     }
     #[cfg(not(unix))]
     fn make_executable(_path: &std::path::Path) {}
+
+    #[tokio::test]
+    async fn registry_watcher_starts_without_error() {
+        let registry_dir = tempfile::tempdir().unwrap();
+        let mut config = GatewayConfig::default();
+        config.registry_dir = registry_dir.path().to_path_buf();
+
+        let orbs = vec![test_orb("orb-a")];
+        let manager = Arc::new(RuntimeManager::new(config, orbs));
+        assert_eq!(manager.list_orbs().len(), 1);
+
+        let result = manager.clone().start_watching();
+        assert!(result.is_ok(), "RegistryWatcher should start without error");
+    }
 }
