@@ -110,11 +110,18 @@ When the Web UI server is running, local MCP clients that support Streamable HTT
 ```
 MCPOrb/
 ├── crates/
-│   ├── mcporb-runtime/        # Orb runtime: MCP stdio + axum Web UI
-│   ├── mcporb-runtime-core/   # Runtime-only data contracts and multi-strategy search logic
-│   └── mcporb-size-spike/     # Runtime binary size spike
-├── public-orb/                # Published showcase Orb artifacts and collateral
-└── scripts/
+│   ├── mcporb-runtime/              # Orb runtime: MCP stdio + axum Web UI (CLI entry point)
+│   ├── mcporb-runtime-core/         # Runtime-only data contracts and multi-strategy search logic
+│   ├── mcporb-runtime-app/          # macOS Runtime App (Tauri-based GUI wrapper)
+│   ├── mcporb-runtime-app-core/     # Shared core for the Runtime App
+│   ├── mcporb-embed/                # Vector search query embedder (tract-onnx)
+│   ├── mcporb-gateway-core/         # Gateway core logic (runtime lifecycle, metrics)
+│   ├── mcporb-gateway-stdio/        # MCP stdio transport for the gateway
+│   ├── mcporb-gateway-http/         # MCP Streamable HTTP transport + axum server
+│   ├── mcporb-gateway-test-mock-runtime/  # Mock runtime for gateway integration tests
+│   └── mcporb-size-spike/           # Runtime binary size spike measurement
+├── public-orb/                      # Published showcase Orb artifacts and collateral
+└── scripts/                         # Build, packaging, and verification scripts
 ```
 
 ## Startup Modes
@@ -127,6 +134,29 @@ MCPOrb/
 | Stdio only | `./orb --stdio-only` | MCP stdio, no HTTP server |
 | All GUI | `./orb --all-gui` | MCP stdio + Web UI + Streamable HTTP |
 | Remember unlock | `./orb --unlock` | Prompt once, store the unlock key in the OS keychain, then exit |
+
+## CLI Reference
+
+| Flag | Description |
+|------|-------------|
+| `--all-gui` | MCP stdio + Web UI + Streamable HTTP |
+| `--gui-only` | Web UI only, no MCP stdio |
+| `--stdio-only` | MCP stdio only, no HTTP server |
+| `--open` | Open Web UI in browser (default for `--gui-only`) |
+| `--no-open` | Suppress auto-open of browser |
+| `--port <PORT>` | HTTP server port (default: random) |
+| `--token <TOKEN>` | Fixed token for HTTP MCP endpoint |
+| `--assets <DIR>` | Load Orb from an assets directory |
+| `--orb-zip <PATH>` | Load Orb ZIP bundle directly |
+| `--orb-zip-stdin` | Read Orb ZIP from stdin (macOS App Sandbox) |
+| `--unlock` | Prompt for password once, remember on device, then exit |
+| `--orb-id <ID>` | Orb identifier for metrics persistence |
+| `--metrics-dir <DIR>` | Directory for persisted metrics files |
+| `--bind-external` | Bind to 0.0.0.0 instead of 127.0.0.1 |
+| `--mcp-transport <LABEL>` | Override transport label for MCP requests |
+| `--library-bookmark <B64>` | macOS App Sandbox security-scoped bookmark |
+
+Hidden flags (`--stdio-gui`, `--mcp-stdio`) are internal aliases and may be removed without notice.
 
 ## Password Protection
 
