@@ -300,6 +300,40 @@ const locales = {
     'onboarding.default_btn': 'Open ~/Documents/MCPOrb',
     'onboarding.success': 'Orb library folder set to: {path}',
     'onboarding.error': 'Could not set Orb library folder: {error}',
+    /* code-region strings */
+    'library.no_description': 'No description',
+    'library.assets_encrypted': 'encrypted',
+    'library.assets_plaintext': 'plaintext',
+    'library.delete_failed': 'Failed to delete Orb: {error}',
+    'store.no_matching_tags': 'No matching tags',
+    'store.pwd_label': 'Pwd: {status}',
+    'store.page_info': 'Page {page}',
+    'store.latest': 'Latest',
+    'store.buy': 'Buy — {price}',
+    'store.buy_hint': 'One purchase unlocks every version. After buying in your browser, download the Orb file, then import it here and enter the unlock key you received.',
+    'store.private': 'Private',
+    'store.methods_label': 'Methods:',
+    'store.tags_label': 'Tags:',
+    'store.no_versions': 'No versions',
+    'store.checkout_failed': 'Failed to open checkout page: {error}',
+    'store.downloading_version': 'Downloading {version}…',
+    'store.importing_version': 'Importing {version}…',
+    'store.imported_version': '✅ Imported {name} v{version}',
+    'store.downloading_generic': 'Downloading…',
+    'store.importing_generic': 'Importing…',
+    'store.download_complete': '✅ Download complete',
+    'orbsearch.hits': '{count} hit(s) · {plan}',
+    'running.gateway_status_error': 'Error: {error}',
+    'running.gateway_config_unavailable': '/* Gateway config unavailable */',
+    'running.gateway_config_error': '/* Error: {error} */',
+    'running.stop_orb_failed': 'Failed to stop Orb: {error}',
+    'running.http_config_copied': 'HTTP MCP config copied to clipboard.',
+    'running.copy_config_failed': 'Failed to copy config: {error}',
+    'mcp.apply_unknown_error': 'Unknown error',
+    /* parity fixes (previously missing from en) */
+    'settings.yes_opt': 'Yes',
+    'settings.no_opt': 'No',
+    'orbsearch.title': 'Search Orb',
   },
   ja: {
     'app.title': 'MCPOrb Runner',
@@ -512,6 +546,42 @@ const locales = {
     'onboarding.default_btn': '~/Documents/MCPOrb を開く',
     'onboarding.success': 'Orbライブラリフォルダを設定しました: {path}',
     'onboarding.error': 'Orbライブラリフォルダを設定できませんでした: {error}',
+    /* code-region strings */
+    'library.no_description': '説明なし',
+    'library.assets_encrypted': '暗号化済み',
+    'library.assets_plaintext': '平文',
+    'library.delete_failed': 'Orbの削除に失敗しました: {error}',
+    'store.no_matching_tags': '一致するタグがありません',
+    'store.pwd_label': 'パスワード: {status}',
+    'store.page_info': '{page} ページ',
+    'store.latest': '最新',
+    'store.buy': '購入 — {price}',
+    'store.buy_hint': '一度の購入で全バージョンが利用可能になります。ブラウザで購入後、Orbファイルをダウンロードし、ここでインポートして受け取ったロック解除キーを入力してください。',
+    'store.private': '非公開',
+    'store.methods_label': 'メソッド:',
+    'store.tags_label': 'タグ:',
+    'store.no_versions': 'バージョンがありません',
+    'store.checkout_failed': '購入ページを開けませんでした: {error}',
+    'store.downloading_version': '{version} をダウンロード中…',
+    'store.importing_version': '{version} をインポート中…',
+    'store.imported_version': '✅ {name} v{version} をインポートしました',
+    'store.downloading_generic': 'ダウンロード中…',
+    'store.importing_generic': 'インポート中…',
+    'store.download_complete': '✅ ダウンロード完了',
+    'orbsearch.hits': '{count} 件ヒット · {plan}',
+    'running.gateway_status_error': 'エラー: {error}',
+    'running.gateway_config_unavailable': '/* ゲートウェイ設定は利用できません */',
+    'running.gateway_config_error': '/* エラー: {error} */',
+    'running.stop_orb_failed': 'Orbの停止に失敗しました: {error}',
+    'running.http_config_copied': 'HTTP MCP設定をクリップボードにコピーしました。',
+    'running.copy_config_failed': '設定のコピーに失敗しました: {error}',
+    'mcp.apply_unknown_error': '不明なエラー',
+    /* parity fixes (previously missing from ja) */
+    'library.stats_searches': '検索: {n}',
+    'library.stats_stdio': 'STDIO: {n}',
+    'library.stats_http': 'HTTP: {n}',
+    'settings.title': '設定',
+    'orbsearch.encrypted_prompt': 'このOrbは暗号化されています。検索するには上にパスワードを入力してください。',
   },
   zh: {
     'app.title': 'MCPOrb Runner',
@@ -727,6 +797,38 @@ const locales = {
     'onboarding.default_btn': '打开 ~/Documents/MCPOrb',
     'onboarding.success': '已设置 Orb 库文件夹：{path}',
     'onboarding.error': '无法设置 Orb 库文件夹：{error}',
+    /* code-region strings */
+    'library.no_description': '无描述',
+    'library.assets_encrypted': '已加密',
+    'library.assets_plaintext': '明文',
+    'library.delete_failed': '删除 Orb 失败: {error}',
+    'store.no_matching_tags': '没有匹配的标签',
+    'store.pwd_label': '密码: {status}',
+    'store.page_info': '第 {page} 页',
+    'store.latest': '最新',
+    'store.buy': '购买 — {price}',
+    'store.buy_hint': '一次购买即可解锁所有版本。在浏览器中购买后，下载 Orb 文件，然后在此处导入并输入你收到的解锁密钥。',
+    'store.private': '私有',
+    'store.methods_label': '方法:',
+    'store.tags_label': '标签:',
+    'store.no_versions': '无版本',
+    'store.checkout_failed': '无法打开结账页面: {error}',
+    'store.downloading_version': '正在下载 {version}…',
+    'store.importing_version': '正在导入 {version}…',
+    'store.imported_version': '✅ 已导入 {name} v{version}',
+    'store.downloading_generic': '正在下载…',
+    'store.importing_generic': '正在导入…',
+    'store.download_complete': '✅ 下载完成',
+    'orbsearch.hits': '{count} 个结果 · {plan}',
+    'running.gateway_status_error': '错误: {error}',
+    'running.gateway_config_unavailable': '/* 网关配置不可用 */',
+    'running.gateway_config_error': '/* 错误: {error} */',
+    'running.stop_orb_failed': '停止 Orb 失败: {error}',
+    'running.http_config_copied': '已将 HTTP MCP 配置复制到剪贴板。',
+    'running.copy_config_failed': '复制配置失败: {error}',
+    'mcp.apply_unknown_error': '未知错误',
+    /* parity fixes (previously missing from zh) */
+    'orbsearch.encrypted_prompt': '此 Orb 已加密。请在上方输入密码以进行搜索。',
   },
 };
 
@@ -1288,8 +1390,8 @@ function renderLibrary(orbs) {
     <article class="orb-card" data-testid="library-orb-card" data-orb-id="${escapeHtml(orb.id)}">
       <div>
         <div class="orb-title">${escapeHtml(orb.display_name)}</div>
-        <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? 'encrypted' : 'plaintext'}${passwordBadge ? ` ${passwordBadge}` : ''}</div>
-        <div class="orb-desc">${escapeHtml(orb.description || 'No description')}</div>
+        <div class="orb-meta">${escapeHtml(orb.install_source)} · ${orb.encrypted_assets ? t('library.assets_encrypted') : t('library.assets_plaintext')}${passwordBadge ? ` ${passwordBadge}` : ''}</div>
+        <div class="orb-desc">${escapeHtml(orb.description || t('library.no_description'))}</div>
         <div class="orb-hash">zip ${escapeHtml(orb.zip_sha256)}<br>assets ${escapeHtml(orb.assets_sha256)}</div>
         <div class="orb-stats-row" id="stats-${escapeHtml(orb.id)}"><span class="muted">—</span></div>
       </div>
@@ -1432,7 +1534,7 @@ async function runOrbSearch() {
       method: $('orb-search-method').value,
       topK: 50,
     });
-    setOrbSearchStatus(`${response.hits.length} hit(s) · ${response.active_plan}`, false);
+    setOrbSearchStatus(t('orbsearch.hits', { count: response.hits.length, plan: response.active_plan }), false);
     renderOrbSearchResults(response.hits);
   } catch (error) {
     const msg = String(error);
@@ -2022,7 +2124,7 @@ async function refreshGatewayHttpConfig() {
     const snippets = await invoke('gateway_http_config_snippets');
     area.value = snippets.length > 0
       ? snippets[0].json
-      : '/* Gateway config unavailable */';
+      : t('running.gateway_config_unavailable');
     const copyBtn = $('copy-gateway-http-config');
     if (copyBtn) {
       copyBtn.onclick = async () => {
@@ -2033,7 +2135,7 @@ async function refreshGatewayHttpConfig() {
       };
     }
   } catch (error) {
-    area.value = `/* Error: ${error} */`;
+    area.value = t('running.gateway_config_error', { error: String(error) });
   }
 }
 
@@ -2133,7 +2235,7 @@ async function refreshGatewayStatus() {
     }
     btn.style.display = '';
   } catch (error) {
-    line.textContent = `Error: ${escapeHtml(error)}`;
+    line.textContent = t('running.gateway_status_error', { error: String(error) });
     btn.style.display = 'none';
   }
 }
@@ -2238,7 +2340,7 @@ async function applyPlatformConfig(configPath, newContent, platform, restartHint
       feedbackBtn(applyBtn, 'feedback.saved');
     } else {
       if (statusEl) {
-        statusEl.textContent = result.error || 'Unknown error';
+        statusEl.textContent = result.error || t('mcp.apply_unknown_error');
         statusEl.className = 'status-line error';
       }
       if (applyBtn) applyBtn.disabled = false;
@@ -2274,7 +2376,7 @@ async function stopOrbHttp(orbId) {
     await invoke('stop_orb_http', { orbId });
     await refreshRunning();
   } catch (error) {
-    alert(`Failed to stop Orb: ${error}`);
+    alert(t('running.stop_orb_failed', { error: String(error) }));
   }
 }
 
@@ -2314,7 +2416,7 @@ async function confirmDeleteOrb() {
     refreshRunning();
     hideConfirmDeleteModal();
   } catch (error) {
-    alert(`Failed to delete Orb: ${error}`);
+    alert(t('library.delete_failed', { error: String(error) }));
     hideConfirmDeleteModal();
   }
 }
@@ -2394,10 +2496,10 @@ async function copyHttpConfig() {
     const snippets = await invoke('gateway_http_config_snippets');
     if (snippets.length > 0) {
       await navigator.clipboard.writeText(snippets[0].json);
-      alert('HTTP MCP config copied to clipboard.');
+      alert(t('running.http_config_copied'));
     }
   } catch (error) {
-    alert(`Failed to copy config: ${error}`);
+    alert(t('running.copy_config_failed', { error: String(error) }));
   }
 }
 
@@ -2418,7 +2520,7 @@ function renderTagFilterList(tags, filterText) {
   }
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="tag-filter-empty">No matching tags</div>`;
+    list.innerHTML = `<div class="tag-filter-empty">${t('store.no_matching_tags')}</div>`;
     return;
   }
 
@@ -2532,10 +2634,10 @@ function renderStoreResults(response) {
         <h3 class="orb-title" style="margin:0 0 4px 0;">${escapeHtml(orb.display_name || orb.slug)}</h3>
         <div class="orb-meta" style="margin-bottom:8px;">
           <span class="store-pill">${escapeHtml(orb.version)}</span>
-          <span class="store-pill">Pwd: ${pwdStatus}</span>
+          <span class="store-pill">${t('store.pwd_label', { status: pwdStatus })}</span>
           ${methodsHtml}
         </div>
-        <p class="orb-desc" style="margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(orb.description || 'No description')}</p>
+        <p class="orb-desc" style="margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(orb.description || t('library.no_description'))}</p>
       </div>
     </article>
   `}).join('');
@@ -2554,7 +2656,7 @@ function renderStorePagination(response) {
   
   $('store-pagination').innerHTML = `
     <button class="btn btn-secondary store-page-btn" data-store-page="${p - 1}" ${p <= 1 ? 'disabled' : ''}>${t('qa.prev')}</button>
-    <span class="store-page-info">Page ${p}</span>
+    <span class="store-page-info">${t('store.page_info', { page: p })}</span>
     <button class="btn btn-secondary store-page-btn" data-store-page="${p + 1}" ${!hasMore ? 'disabled' : ''}>${t('qa.next')}</button>
   `;
   
@@ -2607,48 +2709,80 @@ function renderStoreDetail(orb) {
   const methodsHtml = (orb.methods || []).map(m => `<span class="store-pill">${escapeHtml(m)}</span>`).join('');
   const tagsHtml = (orb.tags || []).map(t => `<span class="store-pill">${escapeHtml(typeof t === 'string' ? t : t.name || t)}</span>`).join('');
   
+  const isPaid = !orb.is_free && (orb.price_cents || 0) > 0;
+  const hasPurchased = !!orb.user_has_purchased;
+
+  // Paid Orbs are bought at the Orb level (one purchase = all versions), so a
+  // per-version "buy" button would misrepresent the model. Version rows only
+  // carry an Import button when the file is actually importable: a free Orb, or
+  // a paid Orb this user already owns (Phase 2, once the Runner has Store auth).
+  // While a paid Orb is unpurchased, the single "Buy — $price" banner above is
+  // the only call to action.
+  const canImportVersions = !isPaid || hasPurchased;
   const versionsHtml = (orb.versions || []).map(v => {
     const firstArtifact = (v.artifacts && v.artifacts.length > 0) ? v.artifacts[0] : null;
     const artifactId = firstArtifact ? escapeHtml(firstArtifact.id) : '';
     const hasPwd = v.has_password;
-    
+    const importBtnHtml = canImportVersions
+      ? `<button class="btn btn-primary store-import-btn" data-artifact-id="${artifactId}" data-version="${escapeHtml(v.version)}" data-has-password="${hasPwd}" ${!artifactId ? 'disabled' : ''}>${t('store.import_btn')}</button>`
+      : '';
+
     return `
       <div class="store-version-item">
         <div class="version-info">
           <strong>${escapeHtml(v.version)}</strong>
           <span class="muted" style="margin-left:8px;">${formatTimestamp(v.published_at)}</span>
-          ${v.is_latest ? `<span class="store-pill" style="margin-left:8px;">Latest</span>` : ''}
-          ${hasPwd ? `<span class="store-pill" style="margin-left:8px;">Password</span>` : ''}
+          ${v.is_latest ? `<span class="store-pill" style="margin-left:8px;">${t('store.latest')}</span>` : ''}
+          ${hasPwd ? `<span class="store-pill" style="margin-left:8px;">${t('store.password_label')}</span>` : ''}
         </div>
-        <button class="btn btn-primary store-import-btn" data-artifact-id="${artifactId}" data-version="${escapeHtml(v.version)}" data-has-password="${hasPwd}" ${!artifactId ? 'disabled' : ''}>
-          Import
-        </button>
+        ${importBtnHtml}
       </div>
     `;
   }).join('');
-  
+
+  const priceBadge = isPaid
+    ? `<span class="store-pill" style="font-weight:700">${escapeHtml(orb.price_display || '')}</span>`
+    : '';
+  const purchaseNoteHtml = orb.purchase_note
+    ? `<div class="store-detail-section" style="background:var(--color-warning-soft, rgba(255,152,0,0.12));border:1px solid var(--color-warning);color:var(--color-text);padding:10px;border-radius:6px;font-size:13px;">${escapeHtml(orb.purchase_note)}</div>`
+    : '';
+  const buyBannerHtml = isPaid && !hasPurchased
+    ? `<div class="store-detail-section">
+         <button class="btn btn-primary" onclick="handleBuyClick('${encodeURIComponent(orb.slug)}','${escapeHtml(orb.price_display || '')}')">
+           ${t('store.buy', { price: escapeHtml(orb.price_display || '') })}
+         </button>
+         <p class="muted" style="margin-top:8px;">${t('store.buy_hint')}</p>
+       </div>`
+    : '';
+
   detailView.innerHTML = `
     <div class="store-detail-header">
       <button class="btn btn-secondary" onclick="showStoreBrowse()">&larr; ${t('store.detail_back_btn')}</button>
       <h2>${escapeHtml(orb.display_name || orb.slug)}</h2>
       <div class="store-detail-meta">
         <span class="store-pill">v${escapeHtml(orb.latest_version)}</span>
-        ${orb.is_private ? `<span class="store-pill">Private</span>` : ''}
+        ${orb.is_private ? `<span class="store-pill">${t('store.private')}</span>` : ''}
+        ${priceBadge}
       </div>
     </div>
     <p class="store-detail-desc">${escapeHtml(orb.description || '')}</p>
-    
-    ${methodsHtml ? `<div class="store-detail-section"><strong>Methods:</strong> ${methodsHtml}</div>` : ''}
-    ${tagsHtml ? `<div class="store-detail-section"><strong>Tags:</strong> ${tagsHtml}</div>` : ''}
-    
+    ${purchaseNoteHtml}
+    ${buyBannerHtml}
+
+    ${methodsHtml ? `<div class="store-detail-section"><strong>${t('store.methods_label')}</strong> ${methodsHtml}</div>` : ''}
+    ${tagsHtml ? `<div class="store-detail-section"><strong>${t('store.tags_label')}</strong> ${tagsHtml}</div>` : ''}
+
     <div class="store-detail-section">
       <h3 style="margin-bottom: 8px;">${t('store.versions_title')}</h3>
       <div class="store-version-list">
-        ${versionsHtml || '<div class="muted">No versions</div>'}
+        ${versionsHtml || `<div class="muted">${t('store.no_versions')}</div>`}
       </div>
     </div>
   `;
-  
+
+  // Import buttons are only rendered for importable versions (free, or a paid
+  // Orb the user owns), so the handler just imports. Paid/unpurchased Orbs route
+  // to browser checkout via the Buy banner above, not from here.
   detailView.querySelectorAll('.store-import-btn').forEach((button) => {
     button.addEventListener('click', () => {
       const artifactId = button.dataset.artifactId;
@@ -2660,6 +2794,19 @@ function renderStoreDetail(orb) {
 }
 
 window.renderStoreDetail = renderStoreDetail;
+
+async function handleBuyClick(slug, priceDisplay) {
+  const url = `https://mcporb.store/checkout?orb=${slug}`;
+  console.log('Opening checkout URL:', url);
+  try {
+    await invoke('open_url', { url: url });
+    console.log('open_url succeeded');
+  } catch (error) {
+    console.error('open_url failed:', error);
+    alert(t('store.checkout_failed', { error: String(error) }));
+  }
+}
+window.handleBuyClick = handleBuyClick;
 
 function showStoreBrowse() {
   state.storeView = 'browse';
@@ -2730,11 +2877,11 @@ async function storeImportOrb(artifactId, hasDownloadPassword, versionLabel) {
   }
   
   setImportBtnState(btn, 'store.import_btn_downloading', true);
-  setStoreSearchStatus(`Downloading ${versionLabel}...`, false);
+  setStoreSearchStatus(t('store.downloading_version', { version: versionLabel }), false);
   try {
     const path = await invoke('store_download_artifact', { artifactId, token: null });
     setImportBtnState(btn, 'store.import_btn_installing', true);
-    setStoreSearchStatus(`Importing ${versionLabel}...`, false);
+    setStoreSearchStatus(t('store.importing_version', { version: versionLabel }), false);
 
     const inspect = await invoke('inspect_zip', { path });
     if (inspect.password_protected) {
@@ -2747,7 +2894,7 @@ async function storeImportOrb(artifactId, hasDownloadPassword, versionLabel) {
     const name = result.report.manifest.display_name || result.report.manifest.name;
     const ver = result.report.manifest.version;
     setImportBtnState(btn, 'store.import_btn_done', false);
-    setStoreSearchStatus(`✅ Imported ${name} v${ver}`, false);
+    setStoreSearchStatus(t('store.imported_version', { name, version: ver }), false);
     await refreshLibrary();
     setTimeout(() => showTab('library'), 800);
   } catch (error) {
@@ -2777,11 +2924,11 @@ function storeSubmitPassword() {
       
       if (isImport) {
         setImportBtnState(btn, 'store.import_btn_downloading', true);
-        setStoreSearchStatus('Downloading...', false);
+        setStoreSearchStatus(t('store.downloading_generic'), false);
         return invoke('store_download_artifact', { artifactId, token })
           .then(async (path) => {
             setImportBtnState(btn, 'store.import_btn_installing', true);
-            setStoreSearchStatus('Importing...', false);
+            setStoreSearchStatus(t('store.importing_generic'), false);
 
             const inspect = await invoke('inspect_zip', { path });
             if (inspect.password_protected) {
@@ -2794,18 +2941,18 @@ function storeSubmitPassword() {
             const name = result.report.manifest.display_name || result.report.manifest.name;
             const ver = result.report.manifest.version;
             setImportBtnState(btn, 'store.import_btn_done', false);
-            setStoreSearchStatus(`✅ Imported ${name} v${ver}`, false);
+            setStoreSearchStatus(t('store.imported_version', { name, version: ver }), false);
             return refreshLibrary().then(() => {
               setTimeout(() => showTab('library'), 800);
             });
           });
       } else {
         setImportBtnState(btn, 'store.import_btn_downloading', true);
-        setStoreSearchStatus('Downloading...', false);
+        setStoreSearchStatus(t('store.downloading_generic'), false);
         return invoke('store_download_artifact', { artifactId, token })
           .then(() => {
             setImportBtnState(btn, 'store.import_btn', false);
-            setStoreSearchStatus('✅ Download complete', false);
+            setStoreSearchStatus(t('store.download_complete'), false);
           });
       }
     })

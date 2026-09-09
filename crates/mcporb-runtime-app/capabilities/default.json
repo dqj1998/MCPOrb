@@ -5,6 +5,8 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "dialog:allow-message"
+    "dialog:allow-message",
+    "opener:allow-open-path",
+    "opener:allow-open-url"
   ]
 }

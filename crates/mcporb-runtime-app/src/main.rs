@@ -311,6 +311,11 @@ fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(to_string)
+}
+
+#[tauri::command]
 async fn get_settings(state: tauri::State<'_, AppState>) -> Result<RuntimeSettings, String> {
     let settings_store = state.settings.lock().await;
     settings_store.load().map_err(to_string)
@@ -1865,6 +1870,7 @@ fn main() {
             gateway_mcp_config_snippets,
             mcp_config_snippets,
             open_path,
+            open_url,
             get_settings,
             save_settings,
             start_orb_http,

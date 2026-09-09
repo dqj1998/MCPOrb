@@ -13,6 +13,15 @@ pub struct StoreOrb {
     pub methods: Vec<String>,
     pub is_private: bool,
     pub password_status: String,
+    // Paid Orb fields (plan §十). Default to free when server omits them.
+    #[serde(default)]
+    pub price_cents: Option<i64>,
+    #[serde(default)]
+    pub price_display: Option<String>,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default = "default_true")]
+    pub is_free: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +51,24 @@ pub struct OrbDetail {
     pub tags: Vec<String>,
     pub artifacts: Vec<ArtifactInfo>,
     pub versions: Vec<VersionInfo>,
+    // Paid Orb fields (plan §十).
+    #[serde(default)]
+    pub price_cents: Option<i64>,
+    #[serde(default)]
+    pub price_display: Option<String>,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default = "default_true")]
+    pub is_free: bool,
+    #[serde(default)]
+    pub purchase_note: Option<String>,
+    #[serde(default)]
+    pub purchase_scope: Option<String>,
+    #[serde(default)]
+    pub user_has_purchased: bool,
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactInfo {
