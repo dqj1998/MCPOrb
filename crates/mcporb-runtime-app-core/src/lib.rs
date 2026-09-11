@@ -1,6 +1,11 @@
 pub mod mcp_config;
 #[cfg(target_os = "macos")]
-pub mod macos_access;
+pub mod macos_access {
+    //! Re-export of the canonical `mcporb-macos-access` crate, kept as a module
+    //! path so existing `mcporb_runtime_app_core::macos_access::…` callers (the
+    //! gateway) are unchanged.
+    pub use mcporb_macos_access::*;
+}
 pub mod metrics;
 pub mod platform_config;
 pub mod password;

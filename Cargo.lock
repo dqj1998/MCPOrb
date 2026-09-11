@@ -3175,6 +3175,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcporb-macos-access"
+version = "1.5.0"
+dependencies = [
+ "base64 0.22.1",
+ "tracing",
+]
+
+[[package]]
 name = "mcporb-runtime"
 version = "1.5.0"
 dependencies = [
@@ -3190,6 +3198,7 @@ dependencies = [
  "hmac",
  "keyring",
  "mcporb-embed",
+ "mcporb-macos-access",
  "mcporb-runtime-core",
  "object",
  "postcard",
@@ -3218,6 +3227,7 @@ dependencies = [
  "dirs 5.0.1",
  "libc",
  "local-ip-address",
+ "mcporb-macos-access",
  "mcporb-runtime-app-core",
  "objc2",
  "objc2-app-kit",
@@ -3250,6 +3260,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "keyring",
+ "mcporb-macos-access",
  "mcporb-runtime-core",
  "postcard",
  "reqwest 0.12.28",

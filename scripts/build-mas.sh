@@ -190,6 +190,17 @@ trap cleanup EXIT
 HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 [[ -n "$HOST_TRIPLE" ]] || die "could not determine host target triple (rustc -vV)"
 SIDECARS=(mcporb-runtime mcporb-gateway-stdio mcporb-gateway-http)
+# ── guard: security-scoped bookmark FFI constants must match the SDK ─────────
+# Anti-regression for the 1.5.0–1.5.2 breakage: mcporb-macos-access defined the
+# bookmark RESOLUTION constant as 1<<11 (the CREATION value) instead of 1<<10,
+# so every resolve silently dropped the security scope and reading an Orb
+# library outside the sandbox container failed with "did not grant access".
+# `constants_match_sdk_header` reads the installed CFURL.h and fails if any FFI
+# constant drifts from Apple's value — run it before we build anything.
+log "verifying macOS security-scoped bookmark constants against the SDK header..."
+cargo test -p mcporb-macos-access --quiet \
+  || die "mcporb-macos-access tests failed — bookmark FFI constant/logic regression (see constants_match_sdk_header)"
+
 log "rebuilding externalBin sidecars ($HOST_TRIPLE): ${SIDECARS[*]}"
 cargo build --release -p mcporb-runtime -p mcporb-gateway-stdio -p mcporb-gateway-http
 for bin in "${SIDECARS[@]}"; do
@@ -425,6 +436,13 @@ echo "    1. Open Transporter (from Mac App Store)"
 echo "    2. Drag $PKG_NAME to Transporter"
 echo "    3. Click 'Deliver'"
 echo "    4. Go to App Store Connect to submit for review"
+echo ""
+echo "  Pre-release smoke (catches the 1.5.0-1.5.2 sandbox-bookmark regression):"
+echo "    After installing this build and picking an Orb library folder OUTSIDE"
+echo "    the container (Settings -> Choose...), run:"
+echo "      scripts/smoke-sandbox-orb.sh"
+echo "    It drives 'mcporb-runner --gateway-stdio' and asserts an Orb actually"
+echo "    spawns (bookmark resolve + exec-inherited access + gateway direct read)."
 echo ""
 echo "  MAS note: use Transporter/App Store Connect upload for this package."
 echo ""

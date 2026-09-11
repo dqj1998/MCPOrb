@@ -48,6 +48,7 @@ local-ip-address = { workspace = true }
 objc2 = "0.6"
 objc2-app-kit = "0.3"
 objc2-foundation = "0.3"
+mcporb-macos-access = { path = "../mcporb-macos-access" }
 
 # ── E2E test-only: embedded WebDriver server (plan §5 / §13) ──────────────
 # Optional dep, enabled by the `webdriver` feature (see [features] above).

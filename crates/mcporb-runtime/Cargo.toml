@@ -56,6 +56,7 @@ rpassword = "7"
 # linux/windows use the appended footer and never pull this in.
 [target.'cfg(target_os = "macos")'.dependencies]
 object = { version = "0.36", default-features = false, features = ["read_core", "macho", "std"] }
+mcporb-macos-access = { path = "../mcporb-macos-access" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

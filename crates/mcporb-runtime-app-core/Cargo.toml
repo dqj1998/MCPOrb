@@ -24,5 +24,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 tracing = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+mcporb-macos-access = { path = "../mcporb-macos-access" }
+
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -3,8 +3,7 @@
 // Sandboxed apps lose access to user-selected folders after relaunch; a
 // security-scoped bookmark is the only way to regain it. The public
 // CoreFoundation C API (CFURL.h) exposes everything needed, so no third-party
-// dependency is required. This module is only compiled on macOS (the `mod`
-// declaration in lib.rs is gated with #[cfg(target_os = "macos")]).
+// dependency is required.
 
 use std::ffi::{c_void, CStr};
 use std::os::raw::c_char;
@@ -12,9 +11,15 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 
+// These MUST match Apple's CFURL.h. Getting the RESOLUTION value wrong (e.g.
+// using the CREATION bit 1<<11) resolves a bookmark WITHOUT its security scope,
+// so CFURLStartAccessingSecurityScopedResource always returns false regardless
+// of entitlements or how fresh the bookmark is. `constants_match_sdk_header`
+// below asserts these against the installed SDK's CFURL.h so a wrong bit can
+// never be reintroduced silently.
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
 const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 10; // kCFURLBookmarkResolutionWithSecurityScope = 1024
-const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
+const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIMask = 256
 
 #[repr(C)]
 struct __CFURL(c_void);
@@ -122,17 +127,13 @@ pub struct ResolvedBookmark {
     /// session (stale bookmark after app update/reinstall).
     pub guard: Option<AccessGuard>,
     /// Rebuilt base64 bookmark from the resolved URL when the stored one was
-    /// stale — Apple's documented recovery. Returned even when this session's
-    /// access failed; persisting it makes the NEXT launch start healthy.
+    /// stale — Apple's documented recovery. Persisting it makes the NEXT launch
+    /// start healthy.
     pub refreshed: Option<String>,
 }
 
 /// Resolves a persisted base64 bookmark back to a folder path and starts
 /// security-scoped access to it.
-///
-/// Stale recovery is never skipped: even when `startAccessing` fails, the
-/// fresh bookmark is still rebuilt from the resolved URL so the caller can
-/// persist it for the next launch.
 pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
     unsafe {
         let bytes = base64::engine::general_purpose::STANDARD
@@ -145,10 +146,8 @@ pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
         let mut is_stale: Boolean = 0;
         // kCFURLBookmarkResolutionWithoutUIModalPrompts: resolving with only
         // the security-scope flag makes CoreFoundation attempt a consent UI
-        // when the extension needs renewal and fail headless (empirically the
-        // "startAccessingSecurityScopedResource failed" + is_stale combo seen
-        // on relaunch). The silent-renewal flag is what Apple's samples use
-        // for relaunch restoration; it is required here for the same reason.
+        // when the extension needs renewal and fail headless. The silent-renewal
+        // flag is what Apple's samples use for relaunch restoration.
         let options = K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE
             | K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS;
         let url = CFURLCreateByResolvingBookmarkData(
@@ -221,9 +220,6 @@ pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
 /// Returns `(guard, bytes)` — the caller MUST keep the `AccessGuard` alive
 /// for as long as `bytes` is used. Dropping the guard revokes the sandbox
 /// extension, making further I/O on the resolved path fail with EPERM.
-///
-/// Used by the gateway process (launched by an external MCP client) to read
-/// Orb ZIPs that live outside the app sandbox container.
 pub fn read_file_via_bookmark(
     encoded_bookmark: &str,
     path: &Path,
@@ -275,5 +271,83 @@ mod tests {
     fn resolve_bookmark_rejects_garbage_data() {
         let result = resolve_bookmark("!!!not-base64!!!");
         assert!(result.is_err());
+    }
+
+    /// Guards against the exact regression that broke Runner 1.5.0–1.5.2: the
+    /// bookmark-resolution constant was `1 << 11` (the CREATION value) instead
+    /// of `1 << 10`, so every resolve dropped the security scope and access
+    /// always failed. Parse the installed SDK's CFURL.h and assert our FFI
+    /// constants match Apple's authoritative values.
+    #[test]
+    fn constants_match_sdk_header() {
+        let Some(header) = read_cfurl_header() else {
+            eprintln!(
+                "skipping constants_match_sdk_header: CFURL.h not found \
+                 (xcrun/SDK unavailable in this environment)"
+            );
+            return;
+        };
+
+        let cases = [
+            (
+                "kCFURLBookmarkCreationWithSecurityScope",
+                K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE,
+            ),
+            (
+                "kCFURLBookmarkResolutionWithSecurityScope",
+                K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE,
+            ),
+            (
+                "kCFURLBookmarkResolutionWithoutUIMask",
+                K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS,
+            ),
+        ];
+
+        for (name, ours) in cases {
+            let sdk = sdk_value_for(&header, name).unwrap_or_else(|| {
+                panic!("could not find/parse `{name}` in CFURL.h")
+            });
+            assert_eq!(
+                ours, sdk,
+                "{name}: our FFI constant is {ours} but the SDK header says {sdk} \
+                 — fix the constant to match Apple's CFURL.h"
+            );
+        }
+    }
+
+    fn read_cfurl_header() -> Option<String> {
+        let sdk_path = std::process::Command::new("xcrun")
+            .args(["--show-sdk-path"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        let sdk = String::from_utf8(sdk_path.stdout).ok()?;
+        let path = Path::new(sdk.trim())
+            .join("System/Library/Frameworks/CoreFoundation.framework/Headers/CFURL.h");
+        std::fs::read_to_string(path).ok()
+    }
+
+    /// Find the enum line for `name` and evaluate its `( 1UL << N )` / `( 1 << N )`
+    /// / decimal value, ignoring the trailing `// comment` and API_AVAILABLE cruft.
+    fn sdk_value_for(header: &str, name: &str) -> Option<u32> {
+        let line = header
+            .lines()
+            .find(|l| l.trim_start().starts_with(name) && l.contains('='))?;
+        // RHS after the first '=', with any line comment stripped.
+        let rhs = line.split_once('=')?.1;
+        let rhs = rhs.split("//").next().unwrap_or(rhs);
+        // Prefer the content inside the first (...) group, e.g. "( 1UL << 11 )".
+        let inner = match (rhs.find('('), rhs.find(')')) {
+            (Some(a), Some(b)) if b > a => &rhs[a + 1..b],
+            _ => rhs,
+        };
+        let inner = inner.trim().trim_end_matches(',').trim();
+        if let Some((lhs, shift)) = inner.split_once("<<") {
+            let base: u32 = lhs.trim().trim_end_matches(['U', 'L']).trim().parse().ok()?;
+            let shift: u32 = shift.trim().trim_end_matches(['U', 'L']).trim().parse().ok()?;
+            Some(base << shift)
+        } else {
+            inner.trim_end_matches(['U', 'L']).trim().parse().ok()
+        }
     }
 }

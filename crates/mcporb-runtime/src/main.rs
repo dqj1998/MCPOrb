@@ -5,7 +5,9 @@ mod embed_startup;
 mod device_unlock;
 mod encrypted_assets;
 #[cfg(target_os = "macos")]
-mod macos_access;
+mod macos_access {
+    pub use mcporb_macos_access::*;
+}
 mod mcp_handler;
 mod security;
 mod startup;

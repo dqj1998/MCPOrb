@@ -1,0 +1,12 @@
+[package]
+name = "mcporb-macos-access"
+version = "1.5.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Canonical macOS App Sandbox security-scoped bookmark helpers shared across MCPOrb crates. Empty on non-macOS."
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+base64 = { workspace = true }
+tracing = { workspace = true }

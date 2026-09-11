@@ -23,7 +23,9 @@ use tokio::sync::Mutex;
 const ORB_UNLOCK_PASSWORD_ENV: &str = "MCPORB_UNLOCK_PASSWORD";
 
 #[cfg(target_os = "macos")]
-mod macos_access;
+mod macos_access {
+    pub use mcporb_macos_access::*;
+}
 #[cfg(target_os = "macos")]
 mod macos_panel;
 
