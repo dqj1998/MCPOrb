@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use base64::Engine;
 
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
-const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 10; // kCFURLBookmarkResolutionWithSecurityScope = 1024
 const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
 
 #[repr(C)]

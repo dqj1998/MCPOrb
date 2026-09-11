@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 
 const K_CFURL_BOOKMARK_CREATION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkCreationWithSecurityScope = 2048
-const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 11; // kCFURLBookmarkResolutionWithSecurityScope = 2048
+const K_CFURL_BOOKMARK_RESOLUTION_WITH_SECURITY_SCOPE: u32 = 1 << 10; // kCFURLBookmarkResolutionWithSecurityScope = 1024
 const K_CFURL_BOOKMARK_RESOLUTION_WITHOUT_UI_MODAL_PROMPTS: u32 = 1 << 8; // kCFURLBookmarkResolutionWithoutUIModalPrompts = 256
 
 #[repr(C)]
@@ -172,10 +172,17 @@ pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
         }
         let path = path_from_url(url)?;
 
-        // Stale recovery FIRST, before any access handling: the resolved URL
-        // is the only handle that still points at the renewal, and the rebuild
-        // must happen whether or not this session can start access.
-        let refreshed = if is_stale != 0 {
+        // Start access FIRST. Creating a fresh security-scoped bookmark
+        // (CFURLCreateBookmarkData with the security-scope option) requires the
+        // resolved URL to be actively accessed — building it before starting
+        // access always returns null. The URL must be accessed before any I/O
+        // regardless.
+        let access_ok = CFURLStartAccessingSecurityScopedResource(url) != 0;
+
+        // Stale recovery: rebuild the bookmark from the resolved URL while
+        // access is held, so the caller can persist a non-stale copy for the
+        // next launch. Only possible once access has actually started.
+        let refreshed = if is_stale != 0 && access_ok {
             match create_bookmark_from_url(url.cast()) {
                 Ok(fresh) => Some(fresh),
                 Err(error) => {
@@ -190,12 +197,12 @@ pub fn resolve_bookmark(encoded: &str) -> Result<ResolvedBookmark, String> {
             None
         };
 
-        let guard = if CFURLStartAccessingSecurityScopedResource(url) != 0 {
+        let guard = if access_ok {
             Some(AccessGuard { url })
         } else {
             tracing::warn!(
-                "startAccessingSecurityScopedResource failed; folder not accessible this session \
-                 (stale bookmark) — a rebuilt bookmark was persisted for the next launch"
+                "startAccessingSecurityScopedResource failed; folder not accessible this \
+                 session — re-select the Orb library folder in Settings to restore access"
             );
             // No guard owns the URL; release it here.
             CFRelease(url.cast());
