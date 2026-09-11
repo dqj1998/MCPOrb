@@ -175,6 +175,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ── rebuild externalBin sidecars (MUST precede `cargo tauri build`) ──────────
+# CONSTRAINT: mcporb-runtime / mcporb-gateway-stdio / mcporb-gateway-http are
+# Tauri externalBin sidecars, NOT cargo dependencies of the mcporb-runtime-app
+# crate. `cargo tauri build` therefore does NOT compile them — it only copies
+# whatever already sits at target/release/<bin>-<triple>. When those artifacts
+# are stale the app ships OLD code silently: 1.5.0 shipped a pre-sandbox-fix
+# mcporb-gateway-stdio (the binary Claude Desktop actually connects to), so
+# every Orb spawn failed with "failed to read Orb ZIP for stdin pipe" — the
+# sandbox could not read the user's Orb library outside its container because
+# the security-scoped bookmark path (commit 9bf504d) was missing. Always
+# rebuild the sidecars from current source and stage the triple-suffixed copies
+# Tauri consumes, so a stale target/release can never leak into a release again.
+HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+[[ -n "$HOST_TRIPLE" ]] || die "could not determine host target triple (rustc -vV)"
+SIDECARS=(mcporb-runtime mcporb-gateway-stdio mcporb-gateway-http)
+log "rebuilding externalBin sidecars ($HOST_TRIPLE): ${SIDECARS[*]}"
+cargo build --release -p mcporb-runtime -p mcporb-gateway-stdio -p mcporb-gateway-http
+for bin in "${SIDECARS[@]}"; do
+  src="target/release/$bin"
+  [[ -f "$src" ]] || die "sidecar build produced no $src (build failed?)"
+  # Tauri resolves externalBin "$bin" via the "$bin-$triple" naming convention.
+  cp -f "$src" "target/release/${bin}-${HOST_TRIPLE}"
+done
+
 (
   cd crates/mcporb-runtime-app && cargo tauri build --bundles app -- --no-default-features --features mas
 ) 2>&1 | tail -20
@@ -192,6 +216,23 @@ if [[ -z "${APP_PATH:-}" ]]; then
   die "MCPOrb Runner.app not found in release bundle output"
 fi
 log "built app: $APP_PATH"
+
+# ── assert bundled sidecars carry the sandbox fix (anti-1.5.0-regression) ────
+# The bundled gateways MUST contain the security-scoped bookmark read path
+# (commit 9bf504d) — the fix that lets a sandboxed Runner read the user's Orb
+# library outside its container. A stale pre-fix binary lacks this string; fail
+# the build loudly rather than ship an Orb-spawn-breaking gateway again. This is
+# the exact defect that made 1.5.0's mcporb-gateway-stdio unusable.
+SANDBOX_FIX_MARKER="security-scoped bookmark"
+assert_sidecar_has_fix() {
+  local bin="$1"
+  [[ -f "$bin" ]] || die "expected bundled sidecar missing: $bin"
+  LC_ALL=C grep -aq "$SANDBOX_FIX_MARKER" "$bin" \
+    || die "stale sidecar shipped: '$SANDBOX_FIX_MARKER' not found in $bin — rebuild sidecars from current source before packaging"
+}
+assert_sidecar_has_fix "$APP_PATH/Contents/MacOS/mcporb-gateway-stdio"
+assert_sidecar_has_fix "$APP_PATH/Contents/MacOS/mcporb-gateway-http"
+log "sidecar sandbox-fix freshness verified ✓"
 
 # ── embed provisioning profile ──────────────────────────────────────────────
 # MAS requirement: the .app bundle must contain the provisioning profile.
