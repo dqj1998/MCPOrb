@@ -1,0 +1,77 @@
+MCPOrb Runner 1.5.0 - What's New
+=================================
+
+---- English ----
+
+Paid Orbs — buy and unlock premium Orbs
+------------------------------------------------------------
+- The Store now shows a price on paid Orbs and a "Buy" button
+  that opens secure checkout in your browser.
+- One purchase unlocks every version of that Orb — buy once,
+  use forever.
+- After purchase, download the Orb file, import it here, and
+  enter the unlock key you received to start using it.
+
+Download Orbs right in the app
+------------------------------------------------------------
+- Download an Orb straight from the Store without leaving the
+  app, with live progress and a clear "Download complete"
+  confirmation.
+- The correct build for your operating system is fetched
+  automatically.
+
+Clearer protection & password indicators
+------------------------------------------------------------
+- Each Orb now shows at a glance whether its assets are
+  encrypted or plain, plus a Password badge when one is needed.
+- When an Orb requires a password, you're prompted for it
+  right when it's needed.
+
+===========================================
+MCPOrb Runner 1.5.0 - 日本語
+===========================================
+
+有料Orb — プレミアムOrbの購入とロック解除
+------------------------------------------------------------
+- ストアで有料Orbに価格が表示され、「購入」ボタンから
+  ブラウザで安全に決済できるようになりました。
+- 一度の購入でそのOrbの全バージョンが利用可能に —
+  買い切りでずっと使えます。
+- 購入後はOrbファイルをダウンロードし、ここでインポートして、
+  受け取ったロック解除キーを入力すると使い始められます。
+
+アプリ内でOrbをダウンロード
+------------------------------------------------------------
+- アプリを離れずにストアからOrbを直接ダウンロード。
+  進捗をリアルタイム表示し、「ダウンロード完了」を明確に通知します。
+- お使いのOSに合ったビルドを自動で取得します。
+
+保護状態とパスワードの表示を改善
+------------------------------------------------------------
+- 各Orbのアセットが暗号化済みか平文かが一目で分かるようになり、
+  パスワードが必要な場合はバッジで表示します。
+- パスワードが必要なOrbでは、必要なタイミングで入力を求めます。
+
+===========================================
+MCPOrb Runner 1.5.0 - 简体中文
+===========================================
+
+付费 Orb — 购买并解锁高级 Orb
+------------------------------------------------------------
+- 商店现在会为付费 Orb 显示价格，并提供「购买」按钮，
+  在浏览器中打开安全结账页面。
+- 一次购买即可解锁该 Orb 的所有版本 —— 买一次，永久使用。
+- 购买后下载 Orb 文件，在此处导入，并输入收到的解锁密钥
+  即可开始使用。
+
+在应用内直接下载 Orb
+------------------------------------------------------------
+- 无需离开应用即可从商店直接下载 Orb，实时显示进度，
+  并在完成时清晰提示「下载完成」。
+- 自动获取适配你操作系统的正确版本。
+
+更清晰的保护与密码提示
+------------------------------------------------------------
+- 每个 Orb 现在都会一目了然地标示其资源是加密还是明文，
+  需要密码时还会显示密码标记。
+- 当 Orb 需要密码时，会在需要的那一刻提示你输入。
