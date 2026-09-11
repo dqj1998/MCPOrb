@@ -50,10 +50,12 @@ $TargetDir   = [System.IO.Path]::Combine($RepoRoot, "target", $configDir)
 $ExePath     = [System.IO.Path]::Combine($TargetDir, "mcporb-runner.exe")
 $RuntimePath = [System.IO.Path]::Combine($TargetDir, "mcporb-runtime.exe")
 $GatewayPath = [System.IO.Path]::Combine($TargetDir, "mcporb-gateway-stdio.exe")
+$GatewayHttpPath = [System.IO.Path]::Combine($TargetDir, "mcporb-gateway-http.exe")
 
 # Sidecar crates
-$RuntimeCrate   = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-runtime")
-$GatewayCrate   = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-gateway-stdio")
+$RuntimeCrate     = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-runtime")
+$GatewayCrate     = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-gateway-stdio")
+$GatewayHttpCrate = [System.IO.Path]::Combine($RepoRoot, "crates", "mcporb-gateway-http")
 
 # ── SDK tool finder ─────────────────────────────────────────────────────────
 function Find-SdkTool {
@@ -124,6 +126,13 @@ if (-not $SkipBuild -and -not $SkipSidecar) {
         Write-Host "    mcporb-gateway-stdio crate not found, skipping" -ForegroundColor Yellow
     }
 
+    # mcporb-gateway-http — required at runtime by the HTTP MCP server feature
+    if (Test-Path $GatewayHttpCrate) {
+        Invoke-CargoBuild -CrateDir $GatewayHttpCrate -PackageName "mcporb-gateway-http"
+    } else {
+        Write-Host "    mcporb-gateway-http crate not found, skipping" -ForegroundColor Yellow
+    }
+
     Write-Host "  Sidecar build OK" -ForegroundColor Green
 } else {
     Write-Host "`n[0/4] Skipping sidecar build" -ForegroundColor Yellow
@@ -140,14 +149,38 @@ if (-not $SkipBuild) {
         #    bundler cannot discover them.  We build them in step 0 above.
         #    --no-bundle: MSIX is produced by makeappx below; tauri's msi/nsis
         #    bundler needs WiX/external tooling that is absent on this machine.
+        # The E2E webdriver plugin must be stripped two ways for a Store build:
+        # --no-default-features drops the `webdriver` cargo feature (and its
+        # tauri_plugin_wdio_webdriver call site), and webdriver.json must be
+        # hidden because tauri_build scans every .json in capabilities/ and
+        # hard-errors on the then-unregistered wdio-webdriver:default permission.
+        $capDir = [System.IO.Path]::Combine($AppCrate, "capabilities")
+        $wdJson = [System.IO.Path]::Combine($capDir, "webdriver.json")
+        $wdBak  = [System.IO.Path]::Combine($capDir, "webdriver.json.store-disabled")
+        $hiddenWd = $false
+        if (Test-Path $wdJson) {
+            Rename-Item -Path $wdJson -NewName "webdriver.json.store-disabled" -Force
+            $hiddenWd = $true
+        }
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        & cargo tauri build $flag --no-bundle 2>&1 | Out-Host
+        & cargo tauri build $flag --no-bundle -- --no-default-features 2>&1 | Out-Host
         $code = $LASTEXITCODE
         $ErrorActionPreference = $prev
+        if ($hiddenWd -and (Test-Path $wdBak)) {
+            Rename-Item -Path $wdBak -NewName "webdriver.json" -Force
+        }
         if ($code -ne 0) { throw "cargo tauri build failed" }
     }
-    finally { Pop-Location }
+    finally {
+        # Restore webdriver.json if the build was interrupted before we could
+        $wdBakF = [System.IO.Path]::Combine($AppCrate, "capabilities", "webdriver.json.store-disabled")
+        $wdJsonF = [System.IO.Path]::Combine($AppCrate, "capabilities", "webdriver.json")
+        if ((Test-Path $wdBakF) -and -not (Test-Path $wdJsonF)) {
+            Rename-Item -Path $wdBakF -NewName "webdriver.json" -Force
+        }
+        Pop-Location
+    }
     Write-Host "  Build OK" -ForegroundColor Green
 } else {
     Write-Host "`n[1/4] Skipping Tauri build" -ForegroundColor Yellow
@@ -185,6 +218,15 @@ if (Test-Path $GatewayPath) {
     Write-Host "  Staged mcporb-gateway-stdio.exe" -ForegroundColor Gray
 } else {
     Write-Host "  (mcporb-gateway-stdio.exe not found, gateway disabled in build)" -ForegroundColor Yellow
+}
+
+# Sidecar: mcporb-gateway-http.exe — default_gateway_http_binary() resolves it
+# next to mcporb-runner.exe; the HTTP MCP server errors out without it.
+if (Test-Path $GatewayHttpPath) {
+    Copy-Item -Path $GatewayHttpPath -Destination ([System.IO.Path]::Combine($StageDir, "mcporb-gateway-http.exe")) -Force
+    Write-Host "  Staged mcporb-gateway-http.exe" -ForegroundColor Gray
+} else {
+    Write-Host "  WARNING: mcporb-gateway-http.exe not found at $GatewayHttpPath" -ForegroundColor Red
 }
 
 $count = (Get-ChildItem -Path $StageDir -Recurse -File).Count

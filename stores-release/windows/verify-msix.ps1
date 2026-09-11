@@ -173,6 +173,11 @@ if (Test-Path $MsixPath) {
         if ($entries -contains "mcporb-gateway-stdio.exe") {
             Write-Host "  [INFO] mcporb-gateway-stdio.exe included" -ForegroundColor Cyan
         }
+        if ($entries -contains "mcporb-gateway-http.exe") {
+            Write-Host "  [INFO] mcporb-gateway-http.exe included" -ForegroundColor Cyan
+        } else {
+            Warn "mcporb-gateway-http.exe not in MSIX" "HTTP MCP server feature fails at runtime"
+        }
 
         $assetIcons = $entries | Where-Object { $_ -like "Assets/*.png" }
         foreach ($icon in $requiredIcons) {
