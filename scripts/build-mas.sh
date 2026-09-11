@@ -203,10 +203,13 @@ done
   cd crates/mcporb-runtime-app && cargo tauri build --bundles app -- --no-default-features --features mas
 ) 2>&1 | tail -20
 
-# Find the built .app (prefer deterministic release outputs, never debug)
-if [[ -d "target/universal-apple-darwin/release/bundle/macos/MCPOrb Runner.app" ]]; then
-  APP_PATH="target/universal-apple-darwin/release/bundle/macos/MCPOrb Runner.app"
-elif [[ -d "target/release/bundle/macos/MCPOrb Runner.app" ]]; then
+# Find the built .app (prefer deterministic release output, never debug).
+# MCPOrb Runner ships arm64-only: `cargo tauri build` is invoked without
+# --target, so it builds for the host (Apple Silicon) into target/release/.
+# No universal build is produced (that would require --target
+# universal-apple-darwin plus x86_64 sidecars); keep the find(1) fallback only
+# as a safety net for non-default output layouts.
+if [[ -d "target/release/bundle/macos/MCPOrb Runner.app" ]]; then
   APP_PATH="target/release/bundle/macos/MCPOrb Runner.app"
 else
   APP_PATH=$(find target -path "*/release/bundle/macos/MCPOrb Runner.app" -type d 2>/dev/null | head -1)
