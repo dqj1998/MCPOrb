@@ -534,23 +534,41 @@ async fn spawn_orb_process(
     // until the bytes are fully written to the child.
     if zip_via_stdin {
         #[cfg(target_os = "macos")]
-        let (_guard, zip_bytes) = if let Some(ref bookmark) = library_bookmark {
-            mcporb_runtime_app_core::macos_access::read_file_via_bookmark(
-                bookmark,
-                &orb.zip_path,
-            )
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "gateway: failed to read Orb ZIP via security-scoped bookmark: {e}: {}",
-                    orb.zip_path.display()
-                )
-            })?
-        } else {
-            return Err(anyhow::anyhow!(
-                "gateway: cannot read Orb ZIP outside sandbox without a \
-                 security-scoped bookmark (set Orb Library folder in Settings): {}",
-                orb.zip_path.display()
-            ));
+        let zip_bytes = {
+            // The Runner (mcporb-runner) resolves the library bookmark and
+            // starts security-scoped access BEFORE exec()ing into this gateway
+            // process. Sandbox extensions survive execve() on the same process,
+            // so a direct read normally succeeds here — this is the documented
+            // "gateway retains read access" path above. An inherit-only gateway
+            // cannot resolve an app-scoped bookmark itself (it lacks the
+            // bookmarks.app-scope entitlement), so the bookmark path is only a
+            // fallback for non-exec launch contexts, not the primary route.
+            match std::fs::read(&orb.zip_path) {
+                Ok(bytes) => bytes,
+                Err(direct_err) => {
+                    let Some(ref bookmark) = library_bookmark else {
+                        return Err(anyhow::anyhow!(
+                            "gateway: cannot read Orb ZIP outside sandbox (direct read failed: \
+                             {direct_err}; no security-scoped bookmark — set Orb Library folder \
+                             in Settings): {}",
+                            orb.zip_path.display()
+                        ));
+                    };
+                    let (_guard, bytes) =
+                        mcporb_runtime_app_core::macos_access::read_file_via_bookmark(
+                            bookmark,
+                            &orb.zip_path,
+                        )
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "gateway: failed to read Orb ZIP (direct read: {direct_err}; \
+                                 bookmark: {e}): {}",
+                                orb.zip_path.display()
+                            )
+                        })?;
+                    bytes
+                }
+            }
         };
         #[cfg(not(target_os = "macos"))]
         let zip_bytes = std::fs::read(&orb.zip_path).context(format!(
